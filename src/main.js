@@ -1,7 +1,7 @@
 import './style.css';
-import { renderAppShell } from './ui/appShell.js';
+import { mountApp } from './ui/appShell.js';
 
-document.querySelector('#app').innerHTML = renderAppShell();
+mountApp();
 
 document.getElementById('startBtn').addEventListener('click', () => {
   alert('CBS GO coming online…');
