@@ -1,3 +1,5 @@
+import { nodes } from '../data/nodes.js';
+import { openPuzzleModal } from './puzzleModal.js';
 import { renderNodesList, bindNodesEvents } from './nodesList.js';
 import { renderXpBar } from './xpBar.js';
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
@@ -10,6 +12,7 @@ import {
   getTopScores,
   submitMyScore
 } from '../app/leaderboard.js';
+import { renderMapView, bindMapView } from './mapView.js';
 
 function esc(s) {
   return String(s || '')
@@ -20,20 +23,20 @@ function esc(s) {
     .replaceAll("'", '&#039;');
 }
 
-function avatarCircle(dataUrl, size = 34) {
+function avatarCircle(dataUrl, size = 30) {
   const bg = dataUrl ? `background-image:url('${dataUrl}');` : '';
   const txt = dataUrl ? '' : '👤';
   return `
     <div style="
-      width:${size}px;height:${size}px; border-radius:999px;
+      width:${size}px;height:${size}px;border-radius:999px;
       border:1px solid rgba(255,255,255,.18);
       background:rgba(255,255,255,.06);
       ${bg}
       background-size:cover;
       background-position:center;
       display:flex;align-items:center;justify-content:center;
-      font-size:16px;
       overflow:hidden;
+      font-size:16px;
     ">${txt}</div>
   `;
 }
@@ -145,7 +148,6 @@ function bindLeaderboardEvents() {
     if (msg) msg.textContent = t || '';
   };
 
-  // Status on load
   if (nameInput) setMsg(`✅ Profile loaded: ${nameInput.value}`);
 
   const saveNameNow = () => {
@@ -167,13 +169,11 @@ function bindLeaderboardEvents() {
     });
   }
 
-  // Avatar upload (stores as dataURL)
   if (fileInput) {
-    fileInput.addEventListener('change', async () => {
+    fileInput.addEventListener('change', () => {
       const f = fileInput.files && fileInput.files[0];
       if (!f) return;
 
-      // Basic limit: 1.5MB to avoid huge localStorage
       if (f.size > 1_500_000) {
         setMsg('❌ Image too large. Please choose a smaller photo (max ~1.5MB).');
         fileInput.value = '';
@@ -181,20 +181,16 @@ function bindLeaderboardEvents() {
       }
 
       setMsg('Uploading photo…');
-
       const reader = new FileReader();
       reader.onload = () => {
-        const dataUrl = String(reader.result || '');
-        setPlayerAvatar(dataUrl);
-
-        // Re-render so avatar shows everywhere (leaderboard + header later)
+        setPlayerAvatar(String(reader.result || ''));
         if (lbMount) lbMount.innerHTML = renderLeaderboard();
         bindLeaderboardEvents();
         setMsg('✅ Photo saved');
+        // also refresh header avatar + map avatar
+        mountApp();
       };
-      reader.onerror = () => {
-        setMsg('❌ Failed to read image.');
-      };
+      reader.onerror = () => setMsg('❌ Failed to read image.');
       reader.readAsDataURL(f);
     });
   }
@@ -205,6 +201,7 @@ function bindLeaderboardEvents() {
       if (lbMount) lbMount.innerHTML = renderLeaderboard();
       bindLeaderboardEvents();
       setMsg('✅ Photo removed');
+      mountApp();
     };
   }
 
@@ -219,9 +216,51 @@ function bindLeaderboardEvents() {
   }
 }
 
+function getSelectedTab() {
+  try {
+    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'nodes';
+  } catch {
+    return 'nodes';
+  }
+}
+
+function setSelectedTab(tab) {
+  try {
+    sessionStorage.setItem('cbsgo_selected_tab_v1', tab);
+  } catch {}
+}
+
+function renderTabs() {
+  const t = getSelectedTab();
+  const btn = (id, label) => `
+    <button class="btn secondary" type="button"
+      data-tab="${id}"
+      style="opacity:${t === id ? '1' : '.75'};">
+      ${label}
+    </button>
+  `;
+  return `
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px;">
+      ${btn('nodes', 'Nodes')}
+      ${btn('map', 'Map')}
+    </div>
+  `;
+}
+
+function bindTabs() {
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    b.addEventListener('click', () => {
+      const tab = b.getAttribute('data-tab');
+      setSelectedTab(tab);
+      mountApp();
+    });
+  });
+}
+
 export function renderAppShell() {
   const dev = isDev();
   const myAvatar = getPlayerAvatar();
+  const tab = getSelectedTab();
 
   return `
     <div class="app-shell">
@@ -250,13 +289,22 @@ export function renderAppShell() {
 
         ${dev ? `<p style="opacity:.65; font-size:12px; margin-top:8px;">Dev mode enabled (?dev=1)</p>` : ``}
 
-        <div id="nodesMount" class="mount">
-          ${renderNodesList()}
-        </div>
+        ${renderTabs()}
 
-        <aside id="lbMount">
-          ${renderLeaderboard()}
-        </aside>
+        <section id="tabNodes" style="display:${tab === 'nodes' ? 'block' : 'none'};">
+          <div id="nodesMount" class="mount">
+            ${renderNodesList()}
+          </div>
+          <aside id="lbMount">
+            ${renderLeaderboard()}
+          </aside>
+        </section>
+
+        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
+          <div id="mapMount">
+            ${renderMapView()}
+          </div>
+        </section>
       </main>
     </div>
   `;
@@ -268,11 +316,25 @@ export function mountApp() {
 
   app.innerHTML = renderAppShell();
 
+  bindTabs();
+
+  // Nodes tab bindings
   bindNodesEvents('#nodesMount');
   bindLeaderboardEvents();
 
+  // Map tab bindings
+  bindMapView();
+
+  // Dev reset
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
     if (btn) btn.addEventListener('click', hardResetCBSGO);
   }
+
+  // Map pin open -> open same puzzle modal
+  window.addEventListener('cbsgo:openNode', (ev) => {
+    const id = ev?.detail?.id;
+    const node = nodes.find(n => n.id === id);
+    if (node) openPuzzleModal(node);
+  }, { once: true });
 }
