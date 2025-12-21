@@ -6,17 +6,26 @@ export function isDev() {
   }
 }
 
-export function resetDemoSession() {
-  // Group/session data
-  localStorage.removeItem('cbsgo_group_counts_v1');
-  localStorage.removeItem('cbsgo_group_roles_v1');
+// This name must match the import in appShell.js
+export function hardResetCBSGO() {
+  // Remove ALL cbsgo_* keys from localStorage and sessionStorage
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('cbsgo_')) keys.push(k);
+    }
+    keys.forEach(k => localStorage.removeItem(k));
+  } catch {}
 
-  // Progress (XP/completed)
-  localStorage.removeItem('cbsgo_state_v1');
+  try {
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith('cbsgo_')) keys.push(k);
+    }
+    keys.forEach(k => sessionStorage.removeItem(k));
+  } catch {}
 
-  // This tab id
-  sessionStorage.removeItem('cbsgo_tab_id_v1');
-
-  // Reload clean
   window.location.reload();
 }

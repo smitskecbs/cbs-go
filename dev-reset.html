@@ -1,61 +1,88 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>CBS GO – Dev Reset</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1220;color:#fff}
-    .wrap{max-width:720px;margin:40px auto;padding:16px}
-    .card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
-    button{padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}
-    button:hover{background:rgba(255,255,255,.12)}
-    code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:8px}
-    .small{opacity:.75;font-size:12px}
-    .ok{color:#9ae6b4}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>CBS GO – Dev Reset</h1>
-    <div class="card">
-      <p>This page removes <b>all</b> browser storage keys that start with <code>cbsgo_</code>.</p>
-      <p class="small">Use this when Group says “FULL” because old tabs left roles behind.</p>
-      <button id="reset">HARD RESET CBS GO</button>
-      <p id="status" class="small"></p>
-      <p class="small">After reset, go back to <a href="/" style="color:#ffd86b">CBS GO</a>.</p>
-    </div>
-  </div>
+// Local leaderboard v1 (no backend yet)
+// Reads XP/Level directly from localStorage so it won't break when state.js changes.
 
-  <script>
-    function hardReset() {
-      let removedLS = 0, removedSS = 0;
+const LB_KEY = 'cbsgo_leaderboard_v1';
+const NAME_KEY = 'cbsgo_player_name_v1';
+const STATE_KEY = 'cbsgo_state_v1';
 
-      // localStorage
-      try {
-        const keys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('cbsgo_')) keys.push(k);
-        }
-        keys.forEach(k => { localStorage.removeItem(k); removedLS++; });
-      } catch {}
+function loadJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const data = JSON.parse(raw);
+    return data ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-      // sessionStorage
-      try {
-        const keys = [];
-        for (let i = 0; i < sessionStorage.length; i++) {
-          const k = sessionStorage.key(i);
-          if (k && k.startsWith('cbsgo_')) keys.push(k);
-        }
-        keys.forEach(k => { sessionStorage.removeItem(k); removedSS++; });
-      } catch {}
+function saveJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
 
-      document.getElementById('status').innerHTML =
-        `<span class="ok">Done.</span> Removed ${removedLS} localStorage keys and ${removedSS} sessionStorage keys.`;
-    }
+function randomName() {
+  const a = ['Sovereign','Builder','Runner','Scout','Mapper','Guardian','Wanderer','Cipher'];
+  const b = Math.random().toString(16).slice(2, 6).toUpperCase();
+  return `${a[Math.floor(Math.random() * a.length)]}-${b}`;
+}
 
-    document.getElementById('reset').addEventListener('click', hardReset);
-  </script>
-</body>
-</html>
+export function getPlayerName() {
+  let name = '';
+  try { name = localStorage.getItem(NAME_KEY) || ''; } catch {}
+  if (!name) {
+    name = randomName();
+    try { localStorage.setItem(NAME_KEY, name); } catch {}
+  }
+  return name;
+}
+
+export function setPlayerName(name) {
+  const clean = String(name || '').trim().slice(0, 24);
+  if (!clean) return getPlayerName();
+  try { localStorage.setItem(NAME_KEY, clean); } catch {}
+  return clean;
+}
+
+function readXpLevel() {
+  const s = loadJson(STATE_KEY, {});
+  const xp = Number(s?.xp ?? 0);
+  const level = Number(s?.level ?? 1);
+  return {
+    xp: Number.isFinite(xp) ? xp : 0,
+    level: Number.isFinite(level) ? level : 1
+  };
+}
+
+export function getTopScores(limit = 10) {
+  const list = loadJson(LB_KEY, []);
+  const arr = Array.isArray(list) ? list : [];
+  arr.sort((x, y) => Number(y?.xp ?? 0) - Number(x?.xp ?? 0));
+  return arr.slice(0, limit);
+}
+
+export function submitMyScore() {
+  const { xp, level } = readXpLevel();
+  const name = getPlayerName();
+
+  const entry = { name, xp, level, ts: Date.now() };
+
+  const list = loadJson(LB_KEY, []);
+  const arr = Array.isArray(list) ? list : [];
+
+  const idx = arr.findIndex(e => e?.name === name);
+  if (idx >= 0) {
+    // keep best XP
+    if (entry.xp >= Number(arr[idx]?.xp ?? 0)) arr[idx] = entry;
+  } else {
+    arr.push(entry);
+  }
+
+  arr.sort((x, y) => Number(y?.xp ?? 0) - Number(x?.xp ?? 0));
+  saveJson(LB_KEY, arr.slice(0, 50));
+
+  return entry;
+}
