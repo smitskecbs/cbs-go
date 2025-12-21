@@ -229,3 +229,82 @@ button {
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.10);
 }
+.roles{
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+}
+
+.roles-title{
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.roles-grid{
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.role-btn{
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  border-radius: 12px;
+  padding: 10px 8px;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.1;
+}
+
+.role-btn b{ display:block; font-size: 14px; }
+.role-btn span{ font-size: 11px; opacity: 0.85; }
+
+.role-btn.active{
+  border-color: rgba(250,204,21,0.7);
+  background: rgba(250,204,21,0.12);
+}
+
+.role-panel{
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.role-empty{
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.role-card .role-head{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.role-clue{
+  margin: 0 0 6px 0;
+  opacity: 0.95;
+}
+
+.role-share{
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.role-actions{
+  display:flex;
+  gap: 10px;
+  margin: 10px 0 6px 0;
+  flex-wrap: wrap;
+}
+.frag{
+  letter-spacing: 2px;
+}

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CBS GO – Dev Reset</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#0b1220;color:#fff}
+    .wrap{max-width:720px;margin:40px auto;padding:16px}
+    .card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
+    button{padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.08);color:#fff;cursor:pointer}
+    button:hover{background:rgba(255,255,255,.12)}
+    code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:8px}
+    .small{opacity:.75;font-size:12px}
+    .ok{color:#9ae6b4}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>CBS GO – Dev Reset</h1>
+    <div class="card">
+      <p>This page removes <b>all</b> browser storage keys that start with <code>cbsgo_</code>.</p>
+      <p class="small">Use this when Group says “FULL” because old tabs left roles behind.</p>
+      <button id="reset">HARD RESET CBS GO</button>
+      <p id="status" class="small"></p>
+      <p class="small">After reset, go back to <a href="/" style="color:#ffd86b">CBS GO</a>.</p>
+    </div>
+  </div>
+
+  <script>
+    function hardReset() {
+      let removedLS = 0, removedSS = 0;
+
+      // localStorage
+      try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('cbsgo_')) keys.push(k);
+        }
+        keys.forEach(k => { localStorage.removeItem(k); removedLS++; });
+      } catch {}
+
+      // sessionStorage
+      try {
+        const keys = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k && k.startsWith('cbsgo_')) keys.push(k);
+        }
+        keys.forEach(k => { sessionStorage.removeItem(k); removedSS++; });
+      } catch {}
+
+      document.getElementById('status').innerHTML =
+        `<span class="ok">Done.</span> Removed ${removedLS} localStorage keys and ${removedSS} sessionStorage keys.`;
+    }
+
+    document.getElementById('reset').addEventListener('click', hardReset);
+  </script>
+</body>
+</html>
