@@ -1,4 +1,5 @@
 // src/ui/appShell.js
+
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
 import { renderNodesList, bindNodesEvents } from './nodesList.js';
@@ -13,9 +14,8 @@ import {
   getTopScores,
   submitMyScore
 } from '../app/leaderboard.js';
-
-// ✅ Real GPS map (Leaflet)
-import { renderRealMapView, bindRealMapView } from './realMapView.js';
+import { renderMapView, bindMapView } from './mapView.js';
+import { isNodeCompleted } from '../app/state.js';
 
 function esc(s) {
   return String(s || '')
@@ -190,7 +190,6 @@ function bindLeaderboardEvents() {
         if (lbMount) lbMount.innerHTML = renderLeaderboard();
         bindLeaderboardEvents();
         setMsg('✅ Photo saved');
-        // refresh header/avatar + map label
         mountApp();
       };
       reader.onerror = () => setMsg('❌ Failed to read image.');
@@ -221,10 +220,9 @@ function bindLeaderboardEvents() {
 
 function getSelectedTab() {
   try {
-    // ✅ default to MAP like Pokemon Go
-    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'map';
+    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'nodes';
   } catch {
-    return 'map';
+    return 'nodes';
   }
 }
 
@@ -245,8 +243,8 @@ function renderTabs() {
   `;
   return `
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-      ${btn('map', 'Map')}
       ${btn('nodes', 'Nodes')}
+      ${btn('map', 'Map')}
     </div>
   `;
 }
@@ -295,12 +293,6 @@ export function renderAppShell() {
 
         ${renderTabs()}
 
-        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
-          <div id="mapMount">
-            ${renderRealMapView()}
-          </div>
-        </section>
-
         <section id="tabNodes" style="display:${tab === 'nodes' ? 'block' : 'none'};">
           <div id="nodesMount" class="mount">
             ${renderNodesList()}
@@ -308,6 +300,12 @@ export function renderAppShell() {
           <aside id="lbMount">
             ${renderLeaderboard()}
           </aside>
+        </section>
+
+        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
+          <div id="mapMount">
+            ${renderMapView()}
+          </div>
         </section>
       </main>
     </div>
@@ -322,37 +320,47 @@ export function mountApp() {
 
   bindTabs();
 
-  // Nodes tab bindings
   bindNodesEvents('#nodesMount');
   bindLeaderboardEvents();
+  bindMapView();
 
-  // Map tab bindings (Real GPS map)
-  bindRealMapView();
-
-  // Dev reset
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
     if (btn) btn.addEventListener('click', hardResetCBSGO);
   }
 
-  // ✅ Map pin open -> open same puzzle modal (NO once:true!)
+  // ✅ IMPORTANT: listener must NOT be once:true
   if (!window.__cbsgo_openNode_listener) {
     window.__cbsgo_openNode_listener = true;
 
     window.addEventListener('cbsgo:openNode', (ev) => {
-      const idOrName = ev?.detail?.id ?? ev?.detail?.name;
-      if (!idOrName) return;
+      const id = ev?.detail?.id;
+      if (!id) return;
 
-      // 1) exact id
-      let node = nodes.find(n => n.id === idOrName);
+      // ✅ block re-open if completed
+      if (isNodeCompleted(id)) return;
 
-      // 2) fallback: name match
-      if (!node) {
-        const v = String(idOrName).toLowerCase().trim();
-        node = nodes.find(n => String(n.name || '').toLowerCase().trim() === v);
-      }
+      const node = nodes.find(n => n.id === id);
+      if (!node) return;
 
-      if (node) openPuzzleModal(node);
+      openPuzzleModal(node);
     });
+  }
+
+  // ✅ rerender map/nodes when something completes (pin disappears)
+  if (!window.__cbsgo_rerender_map_listener) {
+    window.__cbsgo_rerender_map_listener = true;
+
+    const rerender = () => {
+      const tab = getSelectedTab();
+      if (tab !== 'map') return;
+      const mount = document.querySelector('#mapMount');
+      if (!mount) return;
+      mount.innerHTML = renderMapView();
+      bindMapView();
+    };
+
+    window.addEventListener('cbsgo:rerenderMap', rerender);
+    window.addEventListener('cbsgo:nodeCompleted', rerender);
   }
 }
