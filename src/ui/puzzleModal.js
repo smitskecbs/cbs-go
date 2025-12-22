@@ -1,5 +1,8 @@
 // src/ui/puzzleModal.js
-import { addXp, completeNodeOnce, isNodeCompleted } from '../app/state.js';
+// Opens a modal for a node puzzle. Can only complete once.
+// If already completed -> shows "Completed" and blocks XP farming.
+
+import { addXp, isNodeCompleted, markNodeCompleted } from '../app/state.js';
 
 function esc(s) {
   return String(s || '')
@@ -10,166 +13,186 @@ function esc(s) {
     .replaceAll("'", '&#039;');
 }
 
-function normalizeAnswer(s) {
-  return String(s || '').trim().toLowerCase();
-}
-
-function getAcceptedAnswers(node) {
-  // node.answers can be array of acceptable answers
-  const arr = Array.isArray(node.answers) ? node.answers : [];
-  return arr.map(normalizeAnswer).filter(Boolean);
+function norm(s) {
+  return String(s || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function ensureModalRoot() {
-  let root = document.querySelector('#cbsgoModalRoot');
-  if (root) return root;
+  let m = document.querySelector('#cbsgoModal');
+  if (m) return m;
 
-  root = document.createElement('div');
-  root.id = 'cbsgoModalRoot';
-  document.body.appendChild(root);
-  return root;
+  m = document.createElement('div');
+  m.id = 'cbsgoModal';
+  m.style.position = 'fixed';
+  m.style.inset = '0';
+  m.style.zIndex = '9999';
+  m.style.display = 'none';
+  m.style.alignItems = 'center';
+  m.style.justifyContent = 'center';
+  m.style.padding = '18px';
+  m.style.background = 'rgba(0,0,0,.55)';
+  m.addEventListener('click', (e) => {
+    if (e.target === m) closePuzzleModal();
+  });
+  document.body.appendChild(m);
+  return m;
 }
 
-function closeModal() {
-  const root = document.querySelector('#cbsgoModalRoot');
-  if (root) root.innerHTML = '';
+export function closePuzzleModal() {
+  const m = document.querySelector('#cbsgoModal');
+  if (!m) return;
+  m.style.display = 'none';
+  m.innerHTML = '';
+}
+
+function acceptedAnswers(node) {
+  // supports node.answers: [] or node.answer: "..."
+  const arr = Array.isArray(node?.answers) ? node.answers : (node?.answer ? [node.answer] : []);
+  return arr.map(norm).filter(Boolean);
+}
+
+function getQuestion(node) {
+  // supports node.question or node.puzzle?.question
+  return node?.question || node?.puzzle?.question || `Solve the node: ${node?.name || ''}`;
+}
+
+function getHint(node) {
+  return node?.hint || node?.puzzle?.hint || '';
+}
+
+function getRewardXp(node) {
+  // supports node.xp or node.rewardXp
+  const v = Number(node?.xp ?? node?.rewardXp ?? 50);
+  return Number.isFinite(v) ? v : 50;
 }
 
 export function openPuzzleModal(node) {
-  const root = ensureModalRoot();
+  const m = ensureModalRoot();
+  const id = String(node?.id || '');
+  const done = isNodeCompleted(id);
 
-  const completed = isNodeCompleted(node.id);
-  const xpReward = Number(node.xp || 50);
+  const q = getQuestion(node);
+  const hint = getHint(node);
+  const reward = getRewardXp(node);
+  const answers = acceptedAnswers(node);
 
-  const question =
-    node.question ||
-    `Demo puzzle for "${node.name}". (We’ll refine questions later.)`;
+  m.style.display = 'flex';
 
-  const hint = node.hint || `Tip: try a simple keyword.`;
-
-  root.innerHTML = `
+  m.innerHTML = `
     <div style="
-      position:fixed; inset:0;
-      background:rgba(0,0,0,.55);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      padding:18px;
-      z-index:9999;
+      width:min(640px, 96vw);
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(10,12,18,.92);
+      box-shadow:0 22px 60px rgba(0,0,0,.55);
+      padding:16px;
+      color:#fff;
     ">
-
-      <div style="
-        width:min(560px, 100%);
-        border-radius:18px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(18,18,18,.92);
-        box-shadow:0 24px 70px rgba(0,0,0,.55);
-        overflow:hidden;
-      ">
-
-        <div style="
-          padding:14px 16px;
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          gap:12px;
-          border-bottom:1px solid rgba(255,255,255,.10);
-        ">
-          <div style="min-width:0;">
-            <div style="font-weight:800; font-size:16px;">${esc(node.name)}</div>
-            <div style="opacity:.75; font-size:12px;">
-              ${completed ? '✅ Completed (no more XP)' : `Reward: +${xpReward} XP`}
-            </div>
-          </div>
-
-          <button id="cbsgoCloseModal" class="btn secondary" type="button">Close</button>
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="font-size:18px; font-weight:800;">${esc(node?.name || 'Node')}</div>
+          <div style="opacity:.75; font-size:13px;">Reward: <b>${reward} XP</b></div>
         </div>
+        <button id="cbsgoClose" class="btn secondary" type="button">Close</button>
+      </div>
 
-        <div style="padding:16px;">
-          <div style="font-size:14px; line-height:1.35;">
-            <div style="font-weight:700; margin-bottom:6px;">Question</div>
-            <div style="opacity:.95;">${esc(question)}</div>
+      <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04);">
+        <div style="font-size:14px; font-weight:700;">Question</div>
+        <div style="margin-top:6px; opacity:.92; line-height:1.35;">${esc(q)}</div>
 
-            <div style="margin-top:12px; font-weight:700;">Hint</div>
-            <div style="opacity:.8;">${esc(hint)}</div>
+        ${hint ? `<div style="margin-top:10px; font-size:13px; opacity:.8;"><b>Hint:</b> ${esc(hint)}</div>` : ``}
+      </div>
+
+      ${
+        done
+        ? `
+          <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(0,255,128,.20); background:rgba(0,255,128,.08);">
+            ✅ Completed. This node can’t give XP again.
           </div>
-
-          <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        `
+        : `
+          <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
             <input id="cbsgoAnswer" placeholder="Type your answer…" style="
               flex:1; min-width:220px;
-              padding:10px 12px;
-              border-radius:12px;
+              padding:12px 12px;
+              border-radius:14px;
               border:1px solid rgba(255,255,255,.14);
               background:rgba(255,255,255,.06);
               color:#fff;
-            " />
-
-            <button id="cbsgoSubmitAnswer" class="btn" type="button">
-              Submit
-            </button>
+            "/>
+            <button id="cbsgoSubmit" class="btn" type="button">Submit</button>
           </div>
-
           <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
 
           ${
-            completed
+            answers.length === 0
               ? `<div style="margin-top:10px; font-size:12px; opacity:.7;">
-                   This node is already completed. You can review it, but you can’t earn XP again.
+                   (Dev note: this node has no answers yet. Add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
                  </div>`
               : ``
           }
-        </div>
-      </div>
+        `
+      }
     </div>
   `;
 
-  const closeBtn = document.querySelector('#cbsgoCloseModal');
-  if (closeBtn) closeBtn.onclick = closeModal;
+  const closeBtn = m.querySelector('#cbsgoClose');
+  if (closeBtn) closeBtn.onclick = closePuzzleModal;
 
-  const input = document.querySelector('#cbsgoAnswer');
-  const submit = document.querySelector('#cbsgoSubmitAnswer');
-  const msg = document.querySelector('#cbsgoMsg');
+  if (done) return;
 
-  const setMsg = (t) => {
-    if (msg) msg.textContent = t || '';
-  };
+  const msg = m.querySelector('#cbsgoMsg');
+  const input = m.querySelector('#cbsgoAnswer');
+  const submit = m.querySelector('#cbsgoSubmit');
 
-  const doSubmit = () => {
-    const user = normalizeAnswer(input?.value || '');
-    const accepted = getAcceptedAnswers(node);
+  const setMsg = (t) => { if (msg) msg.textContent = t || ''; };
 
-    // If no answers defined yet: allow "demo complete" by any non-empty answer
-    const ok =
-      accepted.length === 0 ? user.length > 0 : accepted.includes(user);
+  const trySubmit = () => {
+    // safety check again (if it got completed in another tab)
+    if (isNodeCompleted(id)) {
+      setMsg('✅ Already completed.');
+      return;
+    }
 
+    const user = norm(input?.value || '');
+
+    // If no answers defined, we do NOT award XP (prevents farming demo nodes)
+    if (answers.length === 0) {
+      setMsg('⚠️ This node has no answers configured yet.');
+      return;
+    }
+
+    const ok = answers.includes(user);
     if (!ok) {
       setMsg('❌ Not correct. Try again.');
       return;
     }
 
-    // Already completed? No XP.
-    const firstTime = completeNodeOnce(node.id);
-
-    if (firstTime) {
-      addXp(Number(node.xp || 50));
-      setMsg(`✅ Correct! +${Number(node.xp || 50)} XP`);
-
-      // Let UI refresh (map/list)
-      window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps')); // harmless
-      window.dispatchEvent(new CustomEvent('cbsgo:xpChanged'));
-      window.dispatchEvent(new CustomEvent('cbsgo:nodesChanged'));
-    } else {
-      setMsg('✅ Correct — but this node was already completed, no extra XP.');
+    // Mark complete ONCE
+    const newlyCompleted = markNodeCompleted(id);
+    if (!newlyCompleted) {
+      setMsg('✅ Already completed.');
+      return;
     }
+
+    addXp(reward);
+    setMsg(`✅ Correct! +${reward} XP`);
+
+    // Close after a short beat
+    setTimeout(() => {
+      closePuzzleModal();
+    }, 550);
   };
 
-  if (submit) submit.onclick = doSubmit;
+  if (submit) submit.onclick = trySubmit;
   if (input) {
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') doSubmit();
+      if (e.key === 'Enter') trySubmit();
     });
+    setTimeout(() => input.focus(), 50);
   }
-
-  setTimeout(() => input?.focus?.(), 50);
 }
 
