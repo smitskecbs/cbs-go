@@ -1,236 +1,220 @@
 // src/app/steps.js
-// GPS distance -> estimated steps (Android friendly) with HARD anti-jitter filters
-// XP is awarded ONLY per 10,000 steps milestone.
-// Emits window events so UI/map can react.
-//
-// Events:
-//  - cbsgo:stepsUpdate   detail: state
-//  - cbsgo:stepsMilestone detail: { totalSteps, milestone, awardedXp }
+// GPS-based "steps" estimator + tickets
+// Fix: ignores GPS jitter (accuracy filter + minimum distance threshold)
+// XP: only rewards at 10,000-step milestones (as you requested)
 
-import { addXp } from './state.js';
+import * as State from './state.js';
 
-// ----- config (tune later) -----
-const CFG = {
-  // Ignore bad GPS
-  maxAccuracyM: 35,          // if accuracy worse than this -> ignore sample
-  // Ignore micro-jitter
-  minMoveDistanceM: 8,       // must move at least this distance between accepted points
-  minSpeedMS: 0.4,           // must be moving (roughly walking)
-  // Steps conversion
-  metersPerStep: 0.78,       // average walking step length (tune later)
-  // XP milestone
-  stepsPerMilestone: 10000,
-  xpPerMilestone: 250,
-  // Ticket drops later
-  ticketsPerMilestone: 3,    // we’ll use this in the next step
-};
+const STEPS_KEY = 'cbsgo_steps_v1';
+const TICKETS_KEY = 'cbsgo_tickets_v1';
+const LAST_MILESTONE_KEY = 'cbsgo_last_10k_milestone_v1';
+const GPS_DEBUG_KEY = 'cbsgo_gps_debug_v1';
 
-// ----- state -----
-const STORAGE_KEY = 'cbsgo_steps_v1';
-
+let enabled = false;
 let watchId = null;
 
-let state = load() || {
-  enabled: false,
-  gpsStatus: 'DISABLED', // DISABLED | ENABLED | ERROR
-  lastUpdateTs: 0,
+let lastPos = null;         // { lat, lng, acc, t }
+let distCarry = 0;          // meters that didn't make a full "step" yet
 
-  totalSteps: 0,
-  totalMeters: 0,
+// Tuning (safe defaults)
+const STEP_LENGTH_M = 0.78;       // average step length
+const MAX_ACC_M = 35;             // ignore GPS fixes worse than 35m accuracy
+const MIN_MOVE_M = 8;             // ignore tiny jumps < 8m (jitter filter)
+const MAX_JUMP_M = 120;           // ignore insane jumps (gps spikes)
+const XP_PER_10K = 500;           // reward per 10,000 steps
 
-  // last accepted GPS sample
-  lastLat: null,
-  lastLng: null,
-  lastTs: null,
-};
-
-function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+function readNum(key, fallback = 0) {
+  try {
+    const v = Number(localStorage.getItem(key));
+    return Number.isFinite(v) ? v : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function load() {
+function writeNum(key, n) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    localStorage.setItem(key, String(Math.max(0, Math.floor(Number(n) || 0))));
+  } catch {}
+}
+
+function writeGpsDebug(obj) {
+  try {
+    localStorage.setItem(GPS_DEBUG_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+function haversineMeters(a, b) {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+// ---- public getters ----
+export function getSteps() {
+  return readNum(STEPS_KEY, 0);
+}
+
+export function getTickets() {
+  return readNum(TICKETS_KEY, 0);
+}
+
+export function isStepsEnabled() {
+  return enabled;
+}
+
+export function getGpsDebug() {
+  try {
+    return JSON.parse(localStorage.getItem(GPS_DEBUG_KEY) || 'null');
   } catch {
     return null;
   }
 }
 
-function emit(name, detail) {
-  window.dispatchEvent(new CustomEvent(name, { detail }));
+// ---- internal setters ----
+function setSteps(n) {
+  writeNum(STEPS_KEY, n);
+  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged'));
 }
 
-function now() {
-  return Date.now();
+function setTickets(n) {
+  writeNum(TICKETS_KEY, n);
+  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged'));
 }
 
-function haversineMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const toRad = (d) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
+// ---- rewards logic ----
+function maybeReward10k(stepsNow) {
+  const milestone = Math.floor(stepsNow / 10000) * 10000;
+  const last = readNum(LAST_MILESTONE_KEY, 0);
 
-function getSpeedMS(pos) {
-  // pos.coords.speed can be null on some Androids; we estimate if needed
-  const s = pos?.coords?.speed;
-  if (Number.isFinite(s)) return s;
+  if (milestone >= 10000 && milestone > last) {
+    writeNum(LAST_MILESTONE_KEY, milestone);
 
-  // estimate from last accepted point (only if we have last)
-  if (state.lastLat == null || state.lastLng == null || state.lastTs == null) return null;
+    // Safe call (won't crash if addXP doesn't exist)
+    if (typeof State.addXP === 'function') State.addXP(XP_PER_10K);
 
-  const dt = (pos.timestamp || now()) - state.lastTs;
-  if (dt <= 0) return null;
-
-  const d = haversineMeters(state.lastLat, state.lastLng, pos.coords.latitude, pos.coords.longitude);
-  return d / (dt / 1000);
-}
-
-function shouldAccept(pos) {
-  const acc = pos?.coords?.accuracy;
-  if (!Number.isFinite(acc) || acc > CFG.maxAccuracyM) return false;
-
-  if (state.lastLat == null || state.lastLng == null) return true;
-
-  const d = haversineMeters(state.lastLat, state.lastLng, pos.coords.latitude, pos.coords.longitude);
-  if (d < CFG.minMoveDistanceM) return false;
-
-  const speed = getSpeedMS(pos);
-  // If speed missing, we still allow big moves; but for small moves, require speed
-  if (speed == null) return d >= (CFG.minMoveDistanceM * 2);
-  if (speed < CFG.minSpeedMS) return false;
-
-  return true;
-}
-
-function applySample(pos) {
-  const lat = pos.coords.latitude;
-  const lng = pos.coords.longitude;
-  const ts = pos.timestamp || now();
-
-  let addedMeters = 0;
-
-  if (state.lastLat != null && state.lastLng != null) {
-    addedMeters = haversineMeters(state.lastLat, state.lastLng, lat, lng);
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:milestone10k', { detail: { milestone, xp: XP_PER_10K } })
+    );
   }
+}
 
-  state.lastLat = lat;
-  state.lastLng = lng;
-  state.lastTs = ts;
-
-  // convert meters -> steps
-  if (addedMeters > 0) {
-    state.totalMeters += addedMeters;
-    const addedSteps = Math.floor(addedMeters / CFG.metersPerStep);
-    if (addedSteps > 0) {
-      const before = state.totalSteps;
-      state.totalSteps += addedSteps;
-
-      // milestone check
-      const beforeMilestone = Math.floor(before / CFG.stepsPerMilestone);
-      const afterMilestone = Math.floor(state.totalSteps / CFG.stepsPerMilestone);
-
-      if (afterMilestone > beforeMilestone) {
-        // award for each milestone passed (in case of big jumps)
-        for (let m = beforeMilestone + 1; m <= afterMilestone; m++) {
-          addXp(CFG.xpPerMilestone);
-          emit('cbsgo:stepsMilestone', {
-            totalSteps: state.totalSteps,
-            milestone: m,
-            awardedXp: CFG.xpPerMilestone,
-          });
-        }
-      }
+// Random tickets while walking (simple for now)
+function maybeGiveTicket(stepsNow) {
+  // Every 250 steps: 35% chance to get 1 ticket
+  if (stepsNow > 0 && stepsNow % 250 === 0) {
+    if (Math.random() < 0.35) {
+      setTickets(getTickets() + 1);
+      window.dispatchEvent(new CustomEvent('cbsgo:ticketFound', { detail: { count: 1 } }));
     }
   }
-
-  state.lastUpdateTs = now();
-  save();
-  emit('cbsgo:stepsUpdate', { ...state });
 }
 
-function onPosition(pos) {
-  state.gpsStatus = 'ENABLED';
-  state.enabled = true;
-
-  if (!shouldAccept(pos)) {
-    // still update "lastUpdateTs" for UI to show it's alive
-    state.lastUpdateTs = now();
-    save();
-    emit('cbsgo:stepsUpdate', { ...state });
-    return;
+// ---- start/stop ----
+export async function enableSteps() {
+  if (!navigator.geolocation) {
+    writeGpsDebug({ t: Date.now(), err: 'Geolocation not supported' });
+    return { ok: false, reason: 'GPS not supported on this device.' };
   }
 
-  applySample(pos);
+  enabled = true;
+  writeGpsDebug({ t: Date.now(), msg: 'watchPosition started' });
+
+  // Reset tracking buffers each enable
+  lastPos = null;
+  distCarry = 0;
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy ?? 999;
+      const t = pos.timestamp ?? Date.now();
+
+      writeGpsDebug({ t: Date.now(), lat, lng, acc, note: 'update' });
+
+      // Ignore very inaccurate points
+      if (!Number.isFinite(acc) || acc > MAX_ACC_M) {
+        window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
+        return;
+      }
+
+      const curr = { lat, lng, acc, t };
+
+      if (!lastPos) {
+        lastPos = curr;
+        window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
+        return;
+      }
+
+      const d = haversineMeters(lastPos, curr);
+
+      // Ignore jitter + spikes
+      if (d < MIN_MOVE_M || d > MAX_JUMP_M) {
+        lastPos = curr; // still advance so we don’t “stack” old point forever
+        window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
+        return;
+      }
+
+      lastPos = curr;
+
+      // Convert distance to steps
+      const total = distCarry + d;
+      const addSteps = Math.floor(total / STEP_LENGTH_M);
+      distCarry = total - addSteps * STEP_LENGTH_M;
+
+      if (addSteps > 0) {
+        const nextSteps = getSteps() + addSteps;
+        setSteps(nextSteps);
+        maybeGiveTicket(nextSteps);
+        maybeReward10k(nextSteps);
+      }
+
+      window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
+    },
+    (err) => {
+      writeGpsDebug({ t: Date.now(), err: err?.message || 'GPS error' });
+      enabled = false;
+      window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 10000,
+    }
+  );
+
+  return { ok: true };
 }
 
-function onError(err) {
-  state.gpsStatus = 'ERROR';
-  state.enabled = false;
-  state.lastUpdateTs = now();
-  save();
-  emit('cbsgo:stepsUpdate', { ...state });
-
-  console.warn('[steps] GPS error', err);
+export function disableSteps() {
+  if (watchId != null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(watchId);
+  }
+  watchId = null;
+  enabled = false;
+  writeGpsDebug({ t: Date.now(), msg: 'watchPosition stopped' });
+  window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
 }
+
+// Convenience exports (if you prefer these names later)
+export const startGpsSteps = enableSteps;
+export const stopGpsSteps = disableSteps;
 
 export function getStepsState() {
-  return { ...state };
-}
-
-export function resetSteps() {
-  state = {
-    enabled: false,
-    gpsStatus: 'DISABLED',
-    lastUpdateTs: 0,
-    totalSteps: 0,
-    totalMeters: 0,
-    lastLat: null,
-    lastLng: null,
-    lastTs: null,
+  return {
+    enabled,
+    steps: getSteps(),
+    tickets: getTickets(),
+    gps: getGpsDebug(),
   };
-  save();
-  emit('cbsgo:stepsUpdate', { ...state });
-}
-
-export function startGpsSteps() {
-  if (!('geolocation' in navigator)) {
-    state.gpsStatus = 'ERROR';
-    state.enabled = false;
-    save();
-    emit('cbsgo:stepsUpdate', { ...state });
-    throw new Error('Geolocation not supported');
-  }
-
-  // already running
-  if (watchId != null) return;
-
-  state.enabled = true;
-  state.gpsStatus = 'ENABLED';
-  state.lastUpdateTs = now();
-  save();
-  emit('cbsgo:stepsUpdate', { ...state });
-
-  watchId = navigator.geolocation.watchPosition(onPosition, onError, {
-    enableHighAccuracy: true,
-    maximumAge: 2000,
-    timeout: 15000,
-  });
-}
-
-export function stopGpsSteps() {
-  if (watchId != null) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  }
-  state.enabled = false;
-  state.gpsStatus = 'DISABLED';
-  state.lastUpdateTs = now();
-  save();
-  emit('cbsgo:stepsUpdate', { ...state });
 }
