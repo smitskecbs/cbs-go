@@ -1,3 +1,4 @@
+// src/ui/appShell.js
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
 import { renderNodesList, bindNodesEvents } from './nodesList.js';
@@ -12,7 +13,9 @@ import {
   getTopScores,
   submitMyScore
 } from '../app/leaderboard.js';
-import { renderMapView, bindMapView } from './mapView.js';
+
+// ✅ Real GPS map (Leaflet)
+import { renderRealMapView, bindRealMapView } from './realMapView.js';
 
 function esc(s) {
   return String(s || '')
@@ -187,7 +190,7 @@ function bindLeaderboardEvents() {
         if (lbMount) lbMount.innerHTML = renderLeaderboard();
         bindLeaderboardEvents();
         setMsg('✅ Photo saved');
-        // also refresh header avatar + map avatar
+        // refresh header/avatar + map label
         mountApp();
       };
       reader.onerror = () => setMsg('❌ Failed to read image.');
@@ -218,9 +221,10 @@ function bindLeaderboardEvents() {
 
 function getSelectedTab() {
   try {
-    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'nodes';
+    // ✅ default to MAP like Pokemon Go
+    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'map';
   } catch {
-    return 'nodes';
+    return 'map';
   }
 }
 
@@ -241,8 +245,8 @@ function renderTabs() {
   `;
   return `
     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-      ${btn('nodes', 'Nodes')}
       ${btn('map', 'Map')}
+      ${btn('nodes', 'Nodes')}
     </div>
   `;
 }
@@ -291,6 +295,12 @@ export function renderAppShell() {
 
         ${renderTabs()}
 
+        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
+          <div id="mapMount">
+            ${renderRealMapView()}
+          </div>
+        </section>
+
         <section id="tabNodes" style="display:${tab === 'nodes' ? 'block' : 'none'};">
           <div id="nodesMount" class="mount">
             ${renderNodesList()}
@@ -298,12 +308,6 @@ export function renderAppShell() {
           <aside id="lbMount">
             ${renderLeaderboard()}
           </aside>
-        </section>
-
-        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
-          <div id="mapMount">
-            ${renderMapView()}
-          </div>
         </section>
       </main>
     </div>
@@ -322,8 +326,8 @@ export function mountApp() {
   bindNodesEvents('#nodesMount');
   bindLeaderboardEvents();
 
-  // Map tab bindings
-  bindMapView();
+  // Map tab bindings (Real GPS map)
+  bindRealMapView();
 
   // Dev reset
   if (isDev()) {
@@ -331,10 +335,24 @@ export function mountApp() {
     if (btn) btn.addEventListener('click', hardResetCBSGO);
   }
 
-  // Map pin open -> open same puzzle modal
-  window.addEventListener('cbsgo:openNode', (ev) => {
-    const id = ev?.detail?.id;
-    const node = nodes.find(n => n.id === id);
-    if (node) openPuzzleModal(node);
-  }, { once: true });
+  // ✅ Map pin open -> open same puzzle modal (NO once:true!)
+  if (!window.__cbsgo_openNode_listener) {
+    window.__cbsgo_openNode_listener = true;
+
+    window.addEventListener('cbsgo:openNode', (ev) => {
+      const idOrName = ev?.detail?.id ?? ev?.detail?.name;
+      if (!idOrName) return;
+
+      // 1) exact id
+      let node = nodes.find(n => n.id === idOrName);
+
+      // 2) fallback: name match
+      if (!node) {
+        const v = String(idOrName).toLowerCase().trim();
+        node = nodes.find(n => String(n.name || '').toLowerCase().trim() === v);
+      }
+
+      if (node) openPuzzleModal(node);
+    });
+  }
 }
