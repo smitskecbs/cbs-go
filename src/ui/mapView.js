@@ -1,6 +1,6 @@
 // src/ui/mapView.js
-// Fake-map (grid) + clickable pins
-// Hides nodes that are completed
+// Fake map + pins. Completed nodes are hidden.
+// Emits: cbsgo:openNode {id}
 
 import { nodes } from '../data/nodes.js';
 import { getPlayerName, getPlayerAvatar } from '../app/leaderboard.js';
@@ -123,8 +123,10 @@ function renderMeMarker() {
 export function renderMapView() {
   const me = getPlayerName() || 'You';
 
-  // ✅ show only not completed
-  const visibleNodes = nodes.filter(n => !isNodeCompleted(n.id));
+  // ✅ only SOLO nodes + not completed
+  const soloNodes = nodes
+    .filter(n => n.type !== 'group')
+    .filter(n => !isNodeCompleted(n.id));
 
   return `
     <section class="mapCard" style="
@@ -137,7 +139,7 @@ export function renderMapView() {
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
         <div>
           <div style="font-size:18px; font-weight:700; margin:0;">Map</div>
-          <div style="opacity:.75; font-size:13px;">Fake map for now (next: GPS + real map)</div>
+          <div style="opacity:.75; font-size:13px;">Fake map for now (next: real GPS map)</div>
           <div style="opacity:.75; font-size:13px; margin-top:6px;">Tip: click a pin to open the node.</div>
         </div>
         <div style="opacity:.75; font-size:13px;">You: <b style="opacity:1">${esc(me)}</b></div>
@@ -167,13 +169,7 @@ export function renderMapView() {
           pointer-events:none;
         "></div>
 
-        ${
-          visibleNodes.length === 0
-            ? `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; opacity:.75;">
-                 All nodes completed ✅ (add more!)
-               </div>`
-            : visibleNodes.map(renderPin).join('')
-        }
+        ${soloNodes.map(renderPin).join('')}
 
         ${renderMeMarker()}
       </div>
@@ -190,15 +186,13 @@ export function bindMapView() {
   map.__cbsgo_map_bound = true;
 
   map.addEventListener('click', (e) => {
-    const t = e.target;
-    const pin = t?.closest?.('[data-node-id]');
+    const pin = e.target?.closest?.('[data-node-id]');
     if (!pin) return;
 
     const id = pin.getAttribute('data-node-id');
     if (!id) return;
 
-    console.log('[MAP CLICK]', { id, name: pin.getAttribute('title') || '' });
-
     window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id } }));
   });
 }
+
