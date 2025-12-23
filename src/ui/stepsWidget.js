@@ -3,12 +3,13 @@
 
 import {
   getSteps,
-  getTickets,
   enableSteps,
   disableSteps,
   isStepsEnabled,
   getGpsDebug
 } from '../app/steps.js';
+
+import { getTickets } from '../app/inventory.js';
 
 function esc(s) {
   return String(s || '')
@@ -60,7 +61,7 @@ export function renderStepsWidget() {
             GPS Status: <b>${enabled ? 'ENABLED' : 'OFF'}</b> • ${dbgLine}
           </div>
           <div style="opacity:.6; font-size:12px; margin-top:4px;">
-            XP is only rewarded at <b>10,000 steps</b>.
+            XP is rewarded at <b>5,000 steps</b> (+20 XP) and tickets at <b>10,000 steps</b> (+1).
           </div>
         </div>
 
