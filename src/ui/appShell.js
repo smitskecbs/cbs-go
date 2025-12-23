@@ -1,5 +1,5 @@
 // src/ui/appShell.js
-// Fullscreen Pokemon-GO style shell: map fills screen, UI overlays.
+// Fullscreen Pokemon-GO style shell: map fills screen, UI overlays + panels.
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -38,13 +38,13 @@ function avatarCircle(dataUrl, size = 30) {
 
 function getSelectedTab() {
   try {
-    return sessionStorage.getItem('cbsgo_selected_tab_v2') || 'map';
+    return sessionStorage.getItem('cbsgo_selected_tab_v3') || 'map';
   } catch {
     return 'map';
   }
 }
 function setSelectedTab(tab) {
-  try { sessionStorage.setItem('cbsgo_selected_tab_v2', tab); } catch {}
+  try { sessionStorage.setItem('cbsgo_selected_tab_v3', tab); } catch {}
 }
 
 function renderBottomNav() {
@@ -95,6 +95,68 @@ function renderBottomNav() {
   `;
 }
 
+function panelWrap(title, innerHtml) {
+  return `
+    <div style="
+      position:fixed;
+      left:0; right:0;
+      bottom:0;
+      z-index:6500;
+      padding:12px 12px calc(86px + env(safe-area-inset-bottom));
+      pointer-events:none;
+    ">
+      <div style="
+        pointer-events:auto;
+        width:min(720px, 96vw);
+        margin:0 auto;
+        border-radius:22px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(10,12,18,.86);
+        backdrop-filter: blur(12px);
+        box-shadow:0 18px 60px rgba(0,0,0,.55);
+        overflow:hidden;
+      ">
+        <div style="
+          display:flex; align-items:center; justify-content:space-between;
+          padding:12px 14px;
+          border-bottom:1px solid rgba(255,255,255,.10);
+        ">
+          <div style="font-weight:900;">${esc(title)}</div>
+          <button type="button" id="cbsgoClosePanel" style="
+            border:0;
+            padding:8px 10px;
+            border-radius:12px;
+            background:rgba(255,255,255,.08);
+            color:#fff;
+          ">Close</button>
+        </div>
+        <div style="padding:12px 14px;">
+          ${innerHtml}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPanel() {
+  const t = getSelectedTab();
+  if (t === 'profile') {
+    return panelWrap('Profile', `
+      <div style="opacity:.9; font-size:13px; line-height:1.35;">
+        Profile panel is live. Next step we add: name + photo editor (saved local).
+      </div>
+    `);
+  }
+  if (t === 'bag') {
+    return panelWrap('Bag', `
+      <div style="opacity:.9; font-size:13px; line-height:1.35;">
+        Bag panel is live. Next step we show: tickets, steps, loot items.
+      </div>
+    `);
+  }
+  return '';
+}
+
 export function renderAppShell() {
   const dev = isDev();
   const myAvatar = getPlayerAvatar();
@@ -135,7 +197,7 @@ export function renderAppShell() {
           ${avatarCircle(myAvatar, 32)}
           <div>
             <div style="font-weight:900; line-height:1;">CBS GO</div>
-            <div style="opacity:.8; font-size:12px;">Explore Web2 × Web3, IRL</div>
+            <div style="opacity:.8; font-size:12px;">Made by CBS Coin</div>
           </div>
         </div>
 
@@ -152,6 +214,7 @@ export function renderAppShell() {
       </header>
 
       ${renderBottomNav()}
+      ${renderPanel()}
 
       ${
         dev
@@ -176,14 +239,18 @@ function bindTabs() {
   document.querySelectorAll('[data-tab]').forEach(b => {
     b.addEventListener('click', () => {
       const tab = b.getAttribute('data-tab');
-      setSelectedTab(tab);
-
-      // Stap 1: tabs zijn alleen “select state”.
-      // Panels (profile/bag) bouwen we in de volgende stap.
-      // Nu blijft de map altijd fullscreen.
+      setSelectedTab(tab || 'map');
       mountApp();
     });
   });
+
+  const close = document.querySelector('#cbsgoClosePanel');
+  if (close) {
+    close.addEventListener('click', () => {
+      setSelectedTab('map');
+      mountApp();
+    });
+  }
 }
 
 export function mountApp() {
@@ -200,7 +267,7 @@ export function mountApp() {
     if (btn) btn.addEventListener('click', hardResetCBSGO);
   }
 
-  // Open node → puzzle modal (maar nooit als completed)
+  // Open node → puzzle modal (but never if completed)
   if (!window.__cbsgo_openNode_listener) {
     window.__cbsgo_openNode_listener = true;
 
