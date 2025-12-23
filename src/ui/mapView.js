@@ -1,9 +1,12 @@
 // src/ui/mapView.js
 // Safe Leaflet map mount (waits for window.L to exist on GitHub Pages)
+// - Fullscreen friendly
+// - Uses Profile avatar/initials as player marker (no blue dot)
+
+import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
 
 let map = null;
 let userMarker = null;
-let nodeLayer = null;
 
 function ensureEl(id) {
   return document.getElementById(id);
@@ -50,9 +53,55 @@ function destroyMapIfAny() {
       map.remove();
       map = null;
       userMarker = null;
-      nodeLayer = null;
     }
   } catch {}
+}
+
+function buildMeIcon(L) {
+  const avatar = getPlayerAvatar();
+  const name = (getPlayerName() || 'You').trim();
+  const initial = (name[0] || 'Y').toUpperCase();
+
+  // If avatar exists: use it as background image
+  if (avatar) {
+    const html = `
+      <div style="
+        width:44px;height:44px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.95);
+        box-shadow:0 10px 24px rgba(0,0,0,.45);
+        background-image:url('${avatar}');
+        background-size:cover;
+        background-position:center;
+        background-color:rgba(255,255,255,.10);
+      "></div>
+    `;
+    return L.divIcon({
+      html,
+      className: '',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22],
+    });
+  }
+
+  // Otherwise: clean initial marker (no blue dot)
+  const html = `
+    <div style="
+      width:40px;height:40px;border-radius:999px;
+      border:2px solid rgba(255,255,255,.95);
+      box-shadow:0 10px 24px rgba(0,0,0,.45);
+      background:rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      font-family:system-ui, sans-serif;
+      font-weight:900;
+      color:#fff;
+    ">${initial}</div>
+  `;
+  return L.divIcon({
+    html,
+    className: '',
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
 }
 
 function initLeaflet() {
@@ -86,19 +135,21 @@ function startGps() {
       const latlng = [latitude, longitude];
 
       if (!userMarker) {
-        userMarker = L.circleMarker(latlng, {
-          radius: 8,
-          weight: 2,
-          opacity: 0.9,
-          fillOpacity: 0.6
-        }).addTo(map);
+        // ✅ no blue dot: use avatar/initial icon
+        const icon = buildMeIcon(L);
+        userMarker = L.marker(latlng, { icon }).addTo(map);
 
         map.setView(latlng, 18);
       } else {
         userMarker.setLatLng(latlng);
+
+        // If profile changed (avatar/name), refresh icon
+        try {
+          const icon = buildMeIcon(L);
+          userMarker.setIcon(icon);
+        } catch {}
       }
 
-      // show small accuracy text
       showMapMsg(`GPS OK • accuracy ~${Math.round(accuracy)}m`);
     },
     (err) => {
@@ -117,7 +168,6 @@ export function bindMapView() {
     tries++;
 
     if (!ensureEl('cbsgoMap')) {
-      // not mounted yet, try again
       if (tries < maxTries) return setTimeout(tick, 100);
       return;
     }
@@ -129,7 +179,6 @@ export function bindMapView() {
       return;
     }
 
-    // Leaflet is ready
     const ok = initLeaflet();
     if (!ok) {
       showMapMsg('Could not init map. Refresh.');
