@@ -1,8 +1,8 @@
 // src/ui/puzzleModal.js
 // Opens a modal for a node puzzle. Can only complete once.
-// If already completed -> shows "Completed" and blocks XP farming.
+// Atomic XP award prevents double points even if submit triggers twice.
 
-import { addXp, isNodeCompleted, markNodeCompleted } from '../app/state.js';
+import { isNodeCompleted, completeNodeAndAwardXp } from '../app/state.js';
 
 function esc(s) {
   return String(s || '')
@@ -124,11 +124,10 @@ export function openPuzzleModal(node) {
               <button id="cbsgoSubmit" class="btn" type="button">Submit</button>
             </div>
             <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
-
             ${
               answers.length === 0
                 ? `<div style="margin-top:10px; font-size:12px; opacity:.7;">
-                     (Dev note: this node has no answers yet. Add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
+                     (Dev note: add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
                    </div>`
                 : ``
             }
@@ -148,7 +147,11 @@ export function openPuzzleModal(node) {
 
   const setMsg = (t) => { if (msg) msg.textContent = t || ''; };
 
+  let locked = false; // blocks double-trigger in the same modal
+
   const trySubmit = () => {
+    if (locked) return;
+
     if (isNodeCompleted(id)) {
       setMsg('✅ Already completed.');
       return;
@@ -161,19 +164,21 @@ export function openPuzzleModal(node) {
       return;
     }
 
-    const ok = answers.includes(user);
-    if (!ok) {
+    if (!answers.includes(user)) {
       setMsg('❌ Not correct. Try again.');
       return;
     }
 
-    const newlyCompleted = markNodeCompleted(id);
-    if (!newlyCompleted) {
-      setMsg('✅ Already completed.');
+    locked = true;
+    if (submit) submit.disabled = true;
+
+    // ✅ ATOMIC award
+    const res = completeNodeAndAwardXp(id, reward);
+    if (!res.ok) {
+      setMsg(res.reason === 'already_completed' ? '✅ Already completed.' : '❌ Could not award XP.');
       return;
     }
 
-    addXp(reward);
     setMsg(`✅ Correct! +${reward} XP`);
 
     setTimeout(() => closePuzzleModal(), 550);
