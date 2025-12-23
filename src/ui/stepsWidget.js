@@ -1,22 +1,47 @@
 // src/ui/stepsWidget.js
-// Steps + Tickets UI (GPS-based) - compatible with steps.js that only exports getSteps + enableSteps
+// Steps + Tickets UI (GPS-based) + live GPS debug status
 
-import { getSteps, enableSteps } from '../app/steps.js';
+import {
+  getSteps,
+  enableSteps,
+  disableSteps,
+  isStepsEnabled,
+  getGpsDebug
+} from '../app/steps.js';
+
 import { getTickets } from '../app/inventory.js';
 
-const ENABLE_KEY = 'cbsgo_steps_enabled_v1';
-
-function isEnabled() {
-  try { return localStorage.getItem(ENABLE_KEY) === '1'; } catch { return false; }
+function esc(s) {
+  return String(s || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
-function setEnabled(v) {
-  try { localStorage.setItem(ENABLE_KEY, v ? '1' : '0'); } catch {}
+
+function fmtTime(ts) {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString();
+  } catch {
+    return '';
+  }
 }
 
 export function renderStepsWidget() {
   const steps = getSteps();
   const tickets = getTickets();
-  const enabled = isEnabled();
+  const enabled = isStepsEnabled();
+  const dbg = getGpsDebug();
+
+  const dbgLine = dbg?.err
+    ? `❌ ${esc(dbg.err)}`
+    : dbg?.lat
+      ? `✅ ${fmtTime(dbg.t)} acc=${Math.round(dbg.acc || 0)}m`
+      : dbg?.msg
+        ? `ℹ️ ${esc(dbg.msg)}`
+        : `…`;
 
   return `
     <div style="
@@ -33,7 +58,7 @@ export function renderStepsWidget() {
             Uses GPS distance to estimate steps (Android-friendly).
           </div>
           <div style="opacity:.75; font-size:12px; margin-top:4px;">
-            GPS Steps: <b>${enabled ? 'ENABLED' : 'OFF'}</b>
+            GPS Status: <b>${enabled ? 'ENABLED' : 'OFF'}</b> • ${dbgLine}
           </div>
           <div style="opacity:.6; font-size:12px; margin-top:4px;">
             Milestones: <b>5,000 steps</b> → +20 XP • <b>10,000 steps</b> → +1 Ticket
@@ -44,13 +69,13 @@ export function renderStepsWidget() {
           <div class="pill">Steps: <b>${steps}</b></div>
           <div class="pill">Tickets: <b>${tickets}</b></div>
           <button id="enableStepsBtn" class="btn ${enabled ? 'secondary' : ''}" type="button">
-            ${enabled ? 'GPS Enabled' : 'Enable GPS Steps'}
+            ${enabled ? 'Disable GPS Steps' : 'Enable GPS Steps'}
           </button>
         </div>
       </div>
 
       <div style="margin-top:10px; opacity:.75; font-size:12px;">
-        Tip: enable once on phone (HTTPS), then walk outside. We can add a real Disable button later.
+        Tip: open on your phone on HTTPS (GitHub Pages is perfect) and walk outside for real GPS.
       </div>
     </div>
   `;
@@ -65,18 +90,16 @@ export function bindStepsWidget() {
   btn.__cbsgo_bound = true;
 
   btn.addEventListener('click', async () => {
-    if (isEnabled()) return; // already enabled
-
-    try {
-      const res = await enableSteps();
-      if (!res?.ok) {
-        alert(res?.reason || 'Could not enable GPS steps.');
-        return;
-      }
-      setEnabled(true);
+    if (isStepsEnabled()) {
+      disableSteps();
       window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
-    } catch (e) {
-      alert(e?.message || 'Could not enable GPS steps.');
+      return;
     }
+
+    const res = await enableSteps();
+    if (!res?.ok) {
+      alert(res?.reason || 'Could not enable GPS steps.');
+    }
+    window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
   });
 }
