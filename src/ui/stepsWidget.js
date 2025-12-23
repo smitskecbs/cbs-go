@@ -1,7 +1,7 @@
 // src/ui/stepsWidget.js
-// Steps + Tickets UI (GPS-based) - minimal & stable: no dependency on steps.js extra exports
+// Steps + Tickets UI (GPS-based) - compatible with steps.js that only exports getSteps + enableSteps
 
-import { getSteps, enableSteps, disableSteps } from '../app/steps.js';
+import { getSteps, enableSteps } from '../app/steps.js';
 import { getTickets } from '../app/inventory.js';
 
 const ENABLE_KEY = 'cbsgo_steps_enabled_v1';
@@ -44,13 +44,13 @@ export function renderStepsWidget() {
           <div class="pill">Steps: <b>${steps}</b></div>
           <div class="pill">Tickets: <b>${tickets}</b></div>
           <button id="enableStepsBtn" class="btn ${enabled ? 'secondary' : ''}" type="button">
-            ${enabled ? 'Disable GPS Steps' : 'Enable GPS Steps'}
+            ${enabled ? 'GPS Enabled' : 'Enable GPS Steps'}
           </button>
         </div>
       </div>
 
       <div style="margin-top:10px; opacity:.75; font-size:12px;">
-        Tip: Use on phone (HTTPS). After enabling, walk outside to rack up steps.
+        Tip: enable once on phone (HTTPS), then walk outside. We can add a real Disable button later.
       </div>
     </div>
   `;
@@ -65,14 +65,7 @@ export function bindStepsWidget() {
   btn.__cbsgo_bound = true;
 
   btn.addEventListener('click', async () => {
-    const enabled = isEnabled();
-
-    if (enabled) {
-      try { disableSteps(); } catch {}
-      setEnabled(false);
-      window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
-      return;
-    }
+    if (isEnabled()) return; // already enabled
 
     try {
       const res = await enableSteps();
