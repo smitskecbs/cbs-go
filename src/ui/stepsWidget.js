@@ -1,11 +1,11 @@
 // src/ui/stepsWidget.js
 // Steps + Tickets UI (GPS-based) + live GPS debug status
+// Compatible with different steps.js exports (no hard dependency on isStepsEnabled)
 
 import {
   getSteps,
   enableSteps,
   disableSteps,
-  isStepsEnabled,
   getGpsDebug
 } from '../app/steps.js';
 
@@ -29,11 +29,26 @@ function fmtTime(ts) {
   }
 }
 
+// Fallback enabled detection:
+// If steps.js has isStepsEnabled export, use it; otherwise infer from GPS debug state.
+function isEnabledFallback() {
+  try {
+    const dbg = getGpsDebug();
+    // enabled if we have a recent reading OR a status message that indicates running
+    if (dbg?.lat) return true;
+    if (dbg?.msg && /enabled|watching|running|gps/i.test(String(dbg.msg))) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function renderStepsWidget() {
   const steps = getSteps();
   const tickets = getTickets();
-  const enabled = isStepsEnabled();
+
   const dbg = getGpsDebug();
+  const enabled = isEnabledFallback();
 
   const dbgLine = dbg?.err
     ? `❌ ${esc(dbg.err)}`
@@ -61,7 +76,7 @@ export function renderStepsWidget() {
             GPS Status: <b>${enabled ? 'ENABLED' : 'OFF'}</b> • ${dbgLine}
           </div>
           <div style="opacity:.6; font-size:12px; margin-top:4px;">
-            XP is rewarded at <b>5,000 steps</b> (+20 XP) and tickets at <b>10,000 steps</b> (+1).
+            Milestones: <b>5,000 steps</b> → +20 XP • <b>10,000 steps</b> → +1 Ticket
           </div>
         </div>
 
@@ -90,16 +105,23 @@ export function bindStepsWidget() {
   btn.__cbsgo_bound = true;
 
   btn.addEventListener('click', async () => {
-    if (isStepsEnabled()) {
-      disableSteps();
+    const enabled = isEnabledFallback();
+
+    if (enabled) {
+      try { disableSteps(); } catch {}
       window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
       return;
     }
 
-    const res = await enableSteps();
-    if (!res?.ok) {
-      alert(res?.reason || 'Could not enable GPS steps.');
+    try {
+      const res = await enableSteps();
+      if (!res?.ok) {
+        alert(res?.reason || 'Could not enable GPS steps.');
+      }
+    } catch (e) {
+      alert(e?.message || 'Could not enable GPS steps.');
     }
+
     window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
   });
 }
