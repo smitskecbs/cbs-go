@@ -1,106 +1,89 @@
 // src/data/nodes.js
-// NEW node IDs so you definitely haven't completed them yet.
-// (No group nodes in phase 1.)
+// Nodes shown on the map. Each node can contain a "puzzle" object.
+// puzzle types supported by puzzleModal.js:
+// - mcq: { type:'mcq', q:'', options:[...], answerIndex:0, explain:'' }
+// - input: { type:'input', q:'', answers:['a','b'], explain:'' }  (case-insensitive, trimmed)
+// - code: { type:'code', q:'', code:'CBS', hint:'', explain:'' }   (exact after normalize)
 
 export const nodes = [
   {
-    id: 'stop-a1',
-    name: 'Clock Code',
+    id: 'node-1',
     type: 'puzzle',
-    description: 'A tiny plate shows 3 letters.',
+    name: 'Signal vs Noise',
+    description: 'Logic puzzle (2 min).',
+    xp: 60,
+    puzzle: {
+      type: 'mcq',
+      q: 'A scammer always lies. A builder always tells the truth.\n\nYou meet two people. One says: “We are both scammers.”\nWhat are they?',
+      options: [
+        'Both scammers',
+        'Both builders',
+        'One scammer + one builder',
+        'Impossible to know'
+      ],
+      answerIndex: 2,
+      explain:
+        'If the speaker was a scammer, “we are both scammers” would be false → meaning at least one is a builder, consistent. If the speaker was a builder, it would mean both are scammers, impossible. So: one scammer + one builder.'
+    }
+  },
+
+  {
+    id: 'node-2',
+    type: 'puzzle',
+    name: 'Riddle: The Key',
+    description: 'Short riddle (1 min).',
     xp: 40,
-    question: 'Type: cbs',
-    hint: 'lowercase',
-    answers: ['cbs']
+    puzzle: {
+      type: 'input',
+      q: 'I have keys but no locks.\nI have space but no rooms.\nYou can enter, but you can’t go outside.\nWhat am I?',
+      answers: ['keyboard', 'a keyboard'],
+      explain: 'A keyboard has keys, a space bar, and an enter key.'
+    }
   },
+
   {
-    id: 'stop-a2',
-    name: 'Bridge Marker',
+    id: 'node-3',
     type: 'puzzle',
-    description: 'The river reflects the truth.',
-    xp: 45,
-    question: 'Type: sovereign',
-    hint: 'lowercase',
-    answers: ['sovereign']
+    name: 'Mini Cipher',
+    description: 'Decode it (2–3 min).',
+    xp: 80,
+    puzzle: {
+      type: 'code',
+      q: 'Decode this Caesar shift (+1):\n\nDBT\n\n(Each letter is shifted +1 from the original.)',
+      hint: 'Try shifting letters back by 1.',
+      code: 'CAS',
+      explain: 'DBT shifted back by 1 → CAS.'
+    }
   },
+
   {
-    id: 'stop-a3',
-    name: 'Stone Sign',
+    id: 'node-4',
     type: 'puzzle',
-    description: 'An old stone has one word.',
-    xp: 35,
-    question: 'Type: freedom',
-    hint: 'lowercase',
-    answers: ['freedom']
-  },
-  {
-    id: 'stop-a4',
-    name: 'Hidden Initials',
-    type: 'puzzle',
-    description: 'Look for the initials.',
-    xp: 35,
-    question: 'Type: unity',
-    hint: 'lowercase',
-    answers: ['unity']
-  },
-  {
-    id: 'stop-a5',
-    name: 'Red Door',
-    type: 'puzzle',
-    description: 'A door has a sticker with a number.',
-    xp: 30,
-    question: 'Type: 12',
-    hint: 'just the number',
-    answers: ['12']
-  },
-  {
-    id: 'stop-a6',
-    name: 'Green Bench',
-    type: 'puzzle',
-    description: 'Bench plaque has one word.',
-    xp: 30,
-    question: 'Type: community',
-    hint: 'lowercase',
-    answers: ['community']
-  },
-  {
-    id: 'stop-a7',
-    name: 'Old Map Pin',
-    type: 'puzzle',
-    description: 'A torn paper shows a short code.',
-    xp: 40,
-    question: 'Type: go',
-    hint: 'lowercase',
-    answers: ['go']
-  },
-  {
-    id: 'stop-a8',
-    name: 'Blue Fence',
-    type: 'puzzle',
-    description: 'Count the bars.',
-    xp: 35,
-    question: 'Type: 7',
-    hint: 'just the number',
-    answers: ['7']
-  },
-  {
-    id: 'stop-a9',
-    name: 'Street Lantern',
-    type: 'puzzle',
-    description: 'Lantern sticker shows a letter.',
-    xp: 30,
-    question: 'Type: s',
-    hint: 'lowercase letter',
-    answers: ['s']
-  },
-  {
-    id: 'stop-a10',
-    name: 'Sovereign Seal',
-    type: 'puzzle',
-    description: 'A seal with 3 letters.',
+    name: 'Steps Math',
+    description: 'Quick math check.',
     xp: 50,
-    question: 'Type: dao',
-    hint: 'lowercase',
-    answers: ['dao']
+    puzzle: {
+      type: 'input',
+      q: 'If you walk 2 km and your step length is 0.8 m, about how many steps is that? (Round to whole number)',
+      answers: ['2500'],
+      explain: '2000m / 0.8m ≈ 2500 steps.'
+    }
+  },
+
+  {
+    id: 'node-5',
+    type: 'puzzle',
+    name: 'CBS Motto',
+    description: 'Community memory.',
+    xp: 30,
+    puzzle: {
+      type: 'code',
+      q: 'Type the CBS motto (3 words):',
+      hint: 'C _ _ _ _ _ _ _  B _ _ _ _ _  S _ _ _ _ _ _ _ _ _',
+      code: 'COMMUNITY BUILDS SOVEREIGNTY',
+      explain: 'CBS = Community Builds Sovereignty.'
+    }
   }
+
+  // Later: add group nodes / beacon nodes here (type:'group' etc.)
 ];
