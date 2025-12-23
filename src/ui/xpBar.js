@@ -1,9 +1,11 @@
-import { gameState, getLevel, getXpIntoLevel } from '../app/state.js';
+// src/ui/xpBar.js
+import { getXp, getLevel, getXpIntoLevel } from '../app/state.js';
 
 export function renderXpBar() {
-  const level = getLevel(gameState.xp);
-  const into = getXpIntoLevel(gameState.xp); // 0..99
-  const percent = Math.min(100, Math.max(0, into));
+  const xp = getXp();
+  const level = getLevel(xp);
+  const into = getXpIntoLevel(xp); // 0..99 (or 0..(levelSize-1) depending on your math)
+  const percent = Math.min(100, Math.max(0, Number(into) || 0));
 
   return `
     <div class="xpbar">
