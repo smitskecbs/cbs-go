@@ -1,71 +1,44 @@
 // src/ui/stepsWidget.js
-// Compact topbar indicator: Steps + Tickets + GPS dot
-// Auto mode: no big blocks over the map.
+// Compact topbar indicator: Steps + Tickets + small GPS status dot
+// No buttons. Auto-start is handled by steps.js tryAutoStart() from appShell.
 
-import { getSteps, isStepsEnabled, getGpsDebug, tryAutoStart } from '../app/steps.js';
+import { getSteps, isStepsEnabled, getGpsDebug } from '../app/steps.js';
 import { getTickets } from '../app/inventory.js';
 
-function esc(s) {
-  return String(s || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function gpsDot() {
+function dot() {
   const dbg = getGpsDebug();
   if (dbg?.err) return '🔴';
-  if (dbg?.lat) return '🟢';
+  if (dbg?.lat && isStepsEnabled()) return '🟢';
   if (isStepsEnabled()) return '🟡';
   return '⚪';
 }
 
 export function renderStepsWidget() {
-  const steps = Number(getSteps() || 0);
-  const tickets = Number(getTickets() || 0);
-
-  const dbg = getGpsDebug();
-  const title = dbg?.err
-    ? `GPS: ${dbg.err}`
-    : dbg?.lat
-      ? `GPS OK ±${Math.round(dbg.acc || 0)}m`
-      : dbg?.msg
-        ? `GPS: ${dbg.msg}`
-        : `GPS`;
+  const steps = getSteps();
+  const tickets = getTickets();
 
   return `
-    <button id="stepsMiniBtn" type="button" title="${esc(title)}" style="
-      display:flex;
-      align-items:center;
-      gap:8px;
+    <div style="
+      margin-top:6px;
       padding:8px 10px;
       border-radius:14px;
       border:1px solid rgba(255,255,255,.12);
       background:rgba(10,12,18,.72);
       backdrop-filter: blur(10px);
-      color:#fff;
-      font:inherit;
-      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
       white-space:nowrap;
+      font-size:12px;
     ">
-      <span style="font-size:14px; line-height:14px;">${gpsDot()}</span>
-      <span style="font-size:12px; opacity:.9;">👣 <b>${steps}</b></span>
-      <span style="font-size:12px; opacity:.9;">🎟️ <b>${tickets}</b></span>
-    </button>
+      <span style="opacity:.9;">${dot()} <b>${steps}</b> steps</span>
+      <span style="opacity:.9;">🎟️ <b>${tickets}</b></span>
+    </div>
   `;
 }
 
 export function bindStepsWidget() {
-  const btn = document.querySelector('#stepsMiniBtn');
-  if (!btn) return;
-
-  if (btn.__cbsgo_bound) return;
-  btn.__cbsgo_bound = true;
-
-  // Tap = retry GPS silently (handig voor iOS/Safari waar het soms user gesture wil)
-  btn.addEventListener('click', async () => {
-    await tryAutoStart();
-  });
+  // no interactions (keeps it stable)
+  // live updates happen via cbsgo:stepsChanged rerender in appShell
 }
