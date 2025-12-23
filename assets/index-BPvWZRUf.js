@@ -41,7 +41,7 @@
             <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
           `}
     </div>
-  `;const d=t.querySelector("#cbsgoClose");if(d&&(d.onclick=k),o)return;const A=t.querySelector("#cbsgoMsg"),b=t.querySelector("#cbsgoAnswer"),E=t.querySelector("#cbsgoSubmit"),u=g=>{A&&(A.textContent=g||"")},T=()=>{if(!n)return;if(S(n)){u("✅ Already completed.");return}const g=X(b?.value||"");if(a.length===0){u("⚠️ This node has no answers configured yet.");return}if(!a.includes(g)){u("❌ Not correct. Try again.");return}if(!te(n)){u("✅ Already completed.");return}ee(s),u(`✅ Correct! +${s} XP`),setTimeout(()=>k(),550)};E&&(E.onclick=T),b&&(b.addEventListener("keydown",g=>{g.key==="Enter"&&T()}),setTimeout(()=>b.focus(),50))}function C(e,t,n){const o=Number(e||0);return Number.isFinite(o)?Math.max(t,Math.min(n,o)):t}function de(){const e=Number(L()||0),t=Number(H(e)||1),n=Number(Z(e)||0),o=C(n,0,100),r=C(o/100*100,0,100);return`
+  `;const d=t.querySelector("#cbsgoClose");if(d&&(d.onclick=k),o)return;const N=t.querySelector("#cbsgoMsg"),b=t.querySelector("#cbsgoAnswer"),T=t.querySelector("#cbsgoSubmit"),u=g=>{N&&(N.textContent=g||"")},E=()=>{if(!n)return;if(S(n)){u("✅ Already completed.");return}const g=X(b?.value||"");if(a.length===0){u("⚠️ This node has no answers configured yet.");return}if(!a.includes(g)){u("❌ Not correct. Try again.");return}if(!te(n)){u("✅ Already completed.");return}ee(s),u(`✅ Correct! +${s} XP`),setTimeout(()=>k(),550)};T&&(T.onclick=E),b&&(b.addEventListener("keydown",g=>{g.key==="Enter"&&E()}),setTimeout(()=>b.focus(),50))}function P(e,t,n){const o=Number(e||0);return Number.isFinite(o)?Math.max(t,Math.min(n,o)):t}function de(){const e=Number(L()||0),t=Number(H(e)||1),n=Number(Z(e)||0),o=P(n,0,100),r=P(o/100*100,0,100);return`
     <div style="min-width:180px;">
       <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
         <div style="font-weight:900; line-height:1;">Level ${t}</div>
@@ -83,11 +83,11 @@
       <span style="opacity:.6;">•</span>
       <span>🎟️ <b>${t}</b></span>
     </div>
-  `}function G(){try{return new URLSearchParams(window.location.search).get("dev")==="1"}catch{return!1}}function xe(){try{const e=[];for(let t=0;t<localStorage.length;t++){const n=localStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>localStorage.removeItem(t))}catch{}try{const e=[];for(let t=0;t<sessionStorage.length;t++){const n=sessionStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>sessionStorage.removeItem(t))}catch{}window.location.reload()}const $="cbsgo_leaderboard_v2",J="cbsgo_player_name_v2",M="cbsgo_player_avatar_v2";function K(e,t){try{const n=localStorage.getItem(e);return n?JSON.parse(n):t}catch{return t}}function ve(e,t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}}function _(){try{return localStorage.getItem(J)||"Sovereign"}catch{return"Sovereign"}}function he(e){const t=String(e||"").trim().slice(0,24)||"Sovereign";try{localStorage.setItem(J,t)}catch{}return t}function h(){try{return localStorage.getItem(M)||""}catch{return""}}function we(e){const t=String(e||"");try{localStorage.setItem(M,t)}catch{}return t}function Se(){try{localStorage.removeItem(M)}catch{}}function ke(e=10){const t=K($,[]);return Array.isArray(t)?t.slice(0,e):[]}function $e(){const e=_(),t=h(),n=L(),o=H(n),r=K($,[]),i=Array.isArray(r)?r:[],s=i.find(a=>a.name===e);return s?(s.xp=n,s.level=o,s.avatar=t,s.t=Date.now()):i.push({name:e,xp:n,level:o,avatar:t,t:Date.now()}),i.sort((a,d)=>Number(d.xp||0)-Number(a.xp||0)),ve($,i),{name:e,xp:n,level:o,avatar:t}}let l=null,f=null;function y(e){return document.getElementById(e)}function c(e){const t=y("cbsgoMapHost");if(!t)return;let n=y("cbsgoMapMsg");n||(n=document.createElement("div"),n.id="cbsgoMapMsg",n.style.position="absolute",n.style.left="12px",n.style.right="12px",n.style.bottom="86px",n.style.zIndex="9999",n.style.padding="10px 12px",n.style.borderRadius="14px",n.style.border="1px solid rgba(255,255,255,.14)",n.style.background="rgba(0,0,0,.40)",n.style.color="#fff",n.style.fontFamily="system-ui, sans-serif",n.style.fontSize="13px",n.style.backdropFilter="blur(10px)",t.appendChild(n)),n.textContent=e||""}function Y(){return`
+  `}function J(){try{return new URLSearchParams(window.location.search).get("dev")==="1"}catch{return!1}}function xe(){try{const e=[];for(let t=0;t<localStorage.length;t++){const n=localStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>localStorage.removeItem(t))}catch{}try{const e=[];for(let t=0;t<sessionStorage.length;t++){const n=sessionStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>sessionStorage.removeItem(t))}catch{}window.location.reload()}const $="cbsgo_leaderboard_v2",K="cbsgo_player_name_v2",M="cbsgo_player_avatar_v2";function Y(e,t){try{const n=localStorage.getItem(e);return n?JSON.parse(n):t}catch{return t}}function ve(e,t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}}function _(){try{return localStorage.getItem(K)||"Sovereign"}catch{return"Sovereign"}}function he(e){const t=String(e||"").trim().slice(0,24)||"Sovereign";try{localStorage.setItem(K,t)}catch{}return t}function h(){try{return localStorage.getItem(M)||""}catch{return""}}function we(e){const t=String(e||"");try{localStorage.setItem(M,t)}catch{}return t}function Se(){try{localStorage.removeItem(M)}catch{}}function ke(e=10){const t=Y($,[]);return Array.isArray(t)?t.slice(0,e):[]}function $e(){const e=_(),t=h(),n=L(),o=H(n),r=Y($,[]),i=Array.isArray(r)?r:[],s=i.find(a=>a.name===e);return s?(s.xp=n,s.level=o,s.avatar=t,s.t=Date.now()):i.push({name:e,xp:n,level:o,avatar:t,t:Date.now()}),i.sort((a,d)=>Number(d.xp||0)-Number(a.xp||0)),ve($,i),{name:e,xp:n,level:o,avatar:t}}let l=null,f=null;function y(e){return document.getElementById(e)}function c(e){const t=y("cbsgoMapHost");if(!t)return;let n=y("cbsgoMapMsg");n||(n=document.createElement("div"),n.id="cbsgoMapMsg",n.style.position="absolute",n.style.left="12px",n.style.right="12px",n.style.bottom="86px",n.style.zIndex="9999",n.style.padding="10px 12px",n.style.borderRadius="14px",n.style.border="1px solid rgba(255,255,255,.14)",n.style.background="rgba(0,0,0,.40)",n.style.color="#fff",n.style.fontFamily="system-ui, sans-serif",n.style.fontSize="13px",n.style.backdropFilter="blur(10px)",t.appendChild(n)),n.textContent=e||""}function G(){return`
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
     </div>
-  `}function ze(){try{l&&(l.remove(),l=null,f=null)}catch{}}function I(e){const t=h(),o=((_()||"You").trim()[0]||"Y").toUpperCase();if(t){const i=`
+  `}function ze(){try{l&&(l.remove(),l=null,f=null)}catch{}}function C(e){const t=h(),o=((_()||"You").trim()[0]||"Y").toUpperCase();if(t){const i=`
       <div style="
         width:44px;height:44px;border-radius:999px;
         border:2px solid rgba(255,255,255,.95);
@@ -108,7 +108,7 @@
       font-weight:900;
       color:#fff;
     ">${o}</div>
-  `;return e.divIcon({html:r,className:"",iconSize:[40,40],iconAnchor:[20,20]})}function Le(){const e=window.L,t=y("cbsgoMap");return!e||!t?!1:(ze(),l=e.map(t,{zoomControl:!1,attributionControl:!1}),e.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(l),l.setView([51.687,4.87],16),!0)}function Me(){!navigator.geolocation||!l||!window.L||navigator.geolocation.watchPosition(e=>{const{latitude:t,longitude:n,accuracy:o}=e.coords,r=window.L,i=[t,n];if(f){f.setLatLng(i);try{const s=I(r);f.setIcon(s)}catch{}}else{const s=I(r);f=r.marker(i,{icon:s}).addTo(l),l.setView(i,18)}c(`GPS OK • accuracy ~${Math.round(o)}m`)},e=>{c(`GPS error: ${e?.message||e?.code||"unknown"}`)},{enableHighAccuracy:!0,maximumAge:0,timeout:2e4})}function P(){let e=0;const t=80,n=()=>{if(e++,!y("cbsgoMap"))return e<t?setTimeout(n,100):void 0;if(!window.L){if(c("Loading map engine…"),e<t)return setTimeout(n,100);c("Map engine failed to load (Leaflet not found). Refresh.");return}if(!Le()){c("Could not init map. Refresh.");return}c("Loading GPS…"),Me()};n()}function m(e){return String(e||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function z(e,t=30){const n=e?`background-image:url('${e}');`:"";return`
+  `;return e.divIcon({html:r,className:"",iconSize:[40,40],iconAnchor:[20,20]})}function Le(){const e=window.L,t=y("cbsgoMap");return!e||!t?!1:(ze(),l=e.map(t,{zoomControl:!1,attributionControl:!1}),e.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(l),l.setView([51.687,4.87],16),!0)}function Me(){!navigator.geolocation||!l||!window.L||navigator.geolocation.watchPosition(e=>{const{latitude:t,longitude:n,accuracy:o}=e.coords,r=window.L,i=[t,n];if(f){f.setLatLng(i);try{const s=C(r);f.setIcon(s)}catch{}}else{const s=C(r);f=r.marker(i,{icon:s}).addTo(l),l.setView(i,18)}c(`GPS OK • accuracy ~${Math.round(o)}m`)},e=>{c(`GPS error: ${e?.message||e?.code||"unknown"}`)},{enableHighAccuracy:!0,maximumAge:0,timeout:2e4})}function I(){let e=0;const t=80,n=()=>{if(e++,!y("cbsgoMap"))return e<t?setTimeout(n,100):void 0;if(!window.L){if(c("Loading map engine…"),e<t)return setTimeout(n,100);c("Map engine failed to load (Leaflet not found). Refresh.");return}if(!Le()){c("Could not init map. Refresh.");return}c("Loading GPS…"),Me()};n()}function m(e){return String(e||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function z(e,t=30){const n=e?`background-image:url('${e}');`:"";return`
     <div style="
       width:${t}px;height:${t}px;border-radius:999px;
       border:1px solid rgba(255,255,255,.18);
@@ -119,9 +119,8 @@
       display:flex;align-items:center;justify-content:center;
       overflow:hidden;
       font-size:16px;
-      flex:0 0 auto;
     ">${e?"":"👤"}</div>
-  `}function N(){try{return sessionStorage.getItem("cbsgo_selected_tab_v5")||"map"}catch{return"map"}}function q(e){try{sessionStorage.setItem("cbsgo_selected_tab_v5",e)}catch{}}function _e(){const e=N(),t=(n,o,r)=>`
+  `}function A(){try{return sessionStorage.getItem("cbsgo_selected_tab_v5")||"map"}catch{return"map"}}function q(e){try{sessionStorage.setItem("cbsgo_selected_tab_v5",e)}catch{}}function _e(){const e=A(),t=(n,o,r)=>`
     <button type="button" data-tab="${n}" style="
       flex:1;
       height:56px;
@@ -206,7 +205,7 @@
         </div>
       </div>
     </div>
-  `}function Ne(){const e=ke(10),t=_(),n=h();return`
+  `}function Ae(){const e=ke(10),t=_(),n=h();return`
     <section class="lb" style="
       margin-top:14px;
       padding:12px;
@@ -287,7 +286,7 @@
             `}
       </div>
     </section>
-  `}function Ae(){const e=document.querySelector("#lbName"),t=document.querySelector("#lbSubmit"),n=document.querySelector("#lbAvatar"),o=document.querySelector("#lbRemoveAvatar");let r=null;const i=a=>{const d=document.querySelector("#lbMsg");d&&(d.textContent=a||"")};e&&i(`✅ Profile loaded: ${e.value}`);const s=()=>{if(!e)return;const a=he(e.value);i(`✅ Name saved: ${a}`)};e&&(e.addEventListener("input",()=>{i("Saving…"),r&&clearTimeout(r),r=setTimeout(s,300)}),e.addEventListener("blur",()=>{r&&clearTimeout(r),s()})),n&&n.addEventListener("change",()=>{const a=n.files&&n.files[0];if(!a)return;if(a.size>15e5){i("⛔ Image too large. Please choose a smaller photo (max ~1.5MB)."),n.value="";return}i("Uploading photo…");const d=new FileReader;d.onload=()=>{we(String(d.result||"")),i("✅ Photo saved"),p()},d.onerror=()=>i("⛔ Failed to read image."),d.readAsDataURL(a)}),o&&(o.onclick=()=>{Se(),i("✅ Photo removed"),p()}),t&&(t.onclick=()=>{e&&s();const a=$e();i(`✅ Saved: ${a.name} – ${a.xp} XP`),p()})}function Ee(){return`
+  `}function Ne(){const e=document.querySelector("#lbName"),t=document.querySelector("#lbSubmit"),n=document.querySelector("#lbAvatar"),o=document.querySelector("#lbRemoveAvatar");let r=null;const i=a=>{const d=document.querySelector("#lbMsg");d&&(d.textContent=a||"")};e&&i(`✅ Profile loaded: ${e.value}`);const s=()=>{if(!e)return;const a=he(e.value);i(`✅ Name saved: ${a}`)};e&&(e.addEventListener("input",()=>{i("Saving…"),r&&clearTimeout(r),r=setTimeout(s,300)}),e.addEventListener("blur",()=>{r&&clearTimeout(r),s()})),n&&n.addEventListener("change",()=>{const a=n.files&&n.files[0];if(!a)return;if(a.size>15e5){i("⛔ Image too large. Please choose a smaller photo (max ~1.5MB)."),n.value="";return}i("Uploading photo…");const d=new FileReader;d.onload=()=>{we(String(d.result||"")),i("✅ Photo saved"),p()},d.onerror=()=>i("⛔ Failed to read image."),d.readAsDataURL(a)}),o&&(o.onclick=()=>{Se(),i("✅ Photo removed"),p()}),t&&(t.onclick=()=>{e&&s();const a=$e();i(`✅ Saved: ${a.name} – ${a.xp} XP`),p()})}function Te(){return`
     <div style="
       padding:12px;
       border-radius:16px;
@@ -309,58 +308,52 @@
         Next: add item bag (fireworks beacon) + loot drops on the map.
       </div>
     </div>
-  `}function Te(){const e=N();return e==="profile"?B("Profile",`<div id="lbMount">${Ne()}</div>`):e==="bag"?B("Bag",`<div id="bagMount">${Ee()}</div>`):""}function Ce(){const e=G(),t=h();return`
+  `}function Ee(){const e=A();return e==="profile"?B("Profile",`<div id="lbMount">${Ae()}</div>`):e==="bag"?B("Bag",`<div id="bagMount">${Te()}</div>`):""}function Pe(){const e=J(),t=h();return`
     <div class="app-shell" style="
       position:fixed; inset:0;
       width:100vw; height:100vh;
       overflow:hidden;
       background:#05070b;
     ">
+      <!-- MAP fullscreen -->
       <div id="mapMount" style="position:absolute; inset:0; z-index:1;">
-        ${Y()}
+        ${G()}
       </div>
 
+      <!-- TOPBAR -->
       <header style="
         position:absolute; top:0; left:0; right:0;
         z-index:4000;
         padding:10px 12px;
         padding-top: calc(10px + env(safe-area-inset-top));
         display:flex;
-        align-items:center;
+        align-items:flex-start;
+        justify-content:space-between;
         gap:10px;
         pointer-events:none;
       ">
-        <!-- LEFT: can shrink -->
+        <!-- LEFT: only avatar for space -->
         <div style="
-          display:flex; gap:8px; align-items:center;
           pointer-events:auto;
-          padding:10px 12px;
+          padding:8px;
           border-radius:18px;
           border:1px solid rgba(255,255,255,.12);
           background:rgba(10,12,18,.72);
           backdrop-filter: blur(10px);
-          min-width:0;
-          max-width:42vw;
-          overflow:hidden;
+          display:flex; align-items:center; justify-content:center;
         ">
-          ${z(t,28)}
-          <div style="
-            font-weight:900; line-height:1;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
-          ">CBS GO</div>
+          ${z(t,32)}
         </div>
 
-        <!-- RIGHT: takes remaining space, stays visible -->
+        <!-- RIGHT: XP + Steps/Tickets under it -->
         <div style="
           pointer-events:auto;
           display:flex;
-          align-items:flex-start;
-          gap:8px;
+          flex-direction:column;
+          align-items:flex-end;
+          gap:6px;
           margin-left:auto;
           min-width:0;
-          justify-content:flex-end;
         ">
           <div id="xpMount" style="
             padding:10px 12px;
@@ -368,22 +361,20 @@
             border:1px solid rgba(255,255,255,.12);
             background:rgba(10,12,18,.72);
             backdrop-filter: blur(10px);
-            flex:0 0 auto;
           ">
             ${de()}
           </div>
 
           <div id="stepsOverlay" style="
-            padding:10px 12px;
-            border-radius:18px;
+            padding:8px 10px;
+            border-radius:16px;
             border:1px solid rgba(255,255,255,.12);
             background:rgba(10,12,18,.72);
             backdrop-filter: blur(10px);
             white-space:nowrap;
-            max-width:34vw;
+            max-width:72vw;
             overflow:hidden;
             text-overflow:ellipsis;
-            flex:0 1 auto;
           ">
             ${D()}
           </div>
@@ -391,7 +382,7 @@
       </header>
 
       ${_e()}
-      ${Te()}
+      ${Ee()}
 
       ${e?`<button id="resetBtn" type="button" style="
                position:fixed;
@@ -405,7 +396,7 @@
                color:#fff;
              ">Reset Demo</button>`:""}
     </div>
-  `}function Ie(){document.querySelectorAll("[data-tab]").forEach(t=>{t.addEventListener("click",()=>{const n=t.getAttribute("data-tab");q(n||"map"),p()})});const e=document.querySelector("#cbsgoClosePanel");e&&e.addEventListener("click",()=>{q("map"),p()})}function p(){const e=document.querySelector("#app");if(!e)return;if(e.innerHTML=Ce(),Ie(),P(),!window.__cbsgo_steps_rerender_listener){window.__cbsgo_steps_rerender_listener=!0;const n=()=>{const o=document.querySelector("#stepsOverlay");o&&(o.innerHTML=D())};window.addEventListener("cbsgo:rerenderSteps",n),window.addEventListener("cbsgo:stepsChanged",n)}if(N()==="profile"&&Ae(),G()){const n=document.querySelector("#resetBtn");n&&n.addEventListener("click",xe)}if(window.__cbsgo_openNode_listener||(window.__cbsgo_openNode_listener=!0,window.addEventListener("cbsgo:openNode",n=>{const o=n?.detail?.id;if(!o||S(o))return;const r=W.find(i=>i.id===o);r&&ae(r)})),!window.__cbsgo_rerender_map_listener){window.__cbsgo_rerender_map_listener=!0;const n=()=>{const o=document.querySelector("#mapMount");o&&(o.innerHTML=Y(),P())};window.addEventListener("cbsgo:rerenderMap",n),window.addEventListener("cbsgo:nodeCompleted",n)}}function V(){let e=document.getElementById("cbsgoHud");return e||(e=document.createElement("div"),e.id="cbsgoHud",e.style.position="fixed",e.style.left="10px",e.style.right="10px",e.style.bottom="10px",e.style.zIndex="999999",e.style.padding="10px 12px",e.style.borderRadius="14px",e.style.border="1px solid rgba(255,255,255,.18)",e.style.background="rgba(0,0,0,.55)",e.style.backdropFilter="blur(10px)",e.style.color="#fff",e.style.fontFamily="system-ui, sans-serif",e.style.fontSize="12px",e.style.whiteSpace="pre-wrap",e.style.display="none",document.body.appendChild(e),e)}function x(e){const t=V();t.textContent=String(e||""),t.style.display="block"}window.addEventListener("error",e=>{const t=e?.filename?`${e.filename}:${e.lineno||0}:${e.colno||0}`:"";x(`❌ Error
+  `}function Ce(){document.querySelectorAll("[data-tab]").forEach(t=>{t.addEventListener("click",()=>{const n=t.getAttribute("data-tab");q(n||"map"),p()})});const e=document.querySelector("#cbsgoClosePanel");e&&e.addEventListener("click",()=>{q("map"),p()})}function p(){const e=document.querySelector("#app");if(!e)return;if(e.innerHTML=Pe(),Ce(),I(),!window.__cbsgo_steps_rerender_listener){window.__cbsgo_steps_rerender_listener=!0;const n=()=>{const o=document.querySelector("#stepsOverlay");o&&(o.innerHTML=D())};window.addEventListener("cbsgo:rerenderSteps",n),window.addEventListener("cbsgo:stepsChanged",n)}if(A()==="profile"&&Ne(),J()){const n=document.querySelector("#resetBtn");n&&n.addEventListener("click",xe)}if(window.__cbsgo_openNode_listener||(window.__cbsgo_openNode_listener=!0,window.addEventListener("cbsgo:openNode",n=>{const o=n?.detail?.id;if(!o||S(o))return;const r=W.find(i=>i.id===o);r&&ae(r)})),!window.__cbsgo_rerender_map_listener){window.__cbsgo_rerender_map_listener=!0;const n=()=>{const o=document.querySelector("#mapMount");o&&(o.innerHTML=G(),I())};window.addEventListener("cbsgo:rerenderMap",n),window.addEventListener("cbsgo:nodeCompleted",n)}}function V(){let e=document.getElementById("cbsgoHud");return e||(e=document.createElement("div"),e.id="cbsgoHud",e.style.position="fixed",e.style.left="10px",e.style.right="10px",e.style.bottom="10px",e.style.zIndex="999999",e.style.padding="10px 12px",e.style.borderRadius="14px",e.style.border="1px solid rgba(255,255,255,.18)",e.style.background="rgba(0,0,0,.55)",e.style.backdropFilter="blur(10px)",e.style.color="#fff",e.style.fontFamily="system-ui, sans-serif",e.style.fontSize="12px",e.style.whiteSpace="pre-wrap",e.style.display="none",document.body.appendChild(e),e)}function x(e){const t=V();t.textContent=String(e||""),t.style.display="block"}window.addEventListener("error",e=>{const t=e?.filename?`${e.filename}:${e.lineno||0}:${e.colno||0}`:"";x(`❌ Error
 ${e?.message||e}
 ${t}`)});window.addEventListener("unhandledrejection",e=>{x(`❌ Unhandled promise rejection
 ${e?.reason?.message||e?.reason||e}`)});function O(){try{if(!document.getElementById("app")){x("❌ #app not found in index.html");return}p();const t=V();t.textContent="✅ boot ok",t.style.display="block",setTimeout(()=>{t.style.display="none"},1e3)}catch(e){x(`❌ Boot crash
