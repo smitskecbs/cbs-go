@@ -4,6 +4,7 @@
 // - Nodes can only be opened when you are NEAR (no "dev mode").
 // - GPS distance converts to STEPS (reliable) and triggers 5k/10k rewards.
 // - Follow toggle still works.
+// - Player marker uses your Profile photo (or initials) instead of a blue dot.
 
 import { nodes } from '../data/nodes.js';
 import { isNodeCompleted } from '../app/state.js';
@@ -59,7 +60,7 @@ let nodesLayer = null;
 let watchId = null;
 
 let meMarker = null;
-let meIcon = null;
+let meIconHtmlSig = '';
 
 function getLeaflet() {
   const L = window.L;
@@ -148,33 +149,65 @@ function setNearInfo(text) {
   if (el) el.textContent = text || '';
 }
 
-function buildAvatarIcon(L) {
+/* ---------- PLAYER ICON (photo OR initials) ---------- */
+
+function initialsFromName(name) {
+  const n = String(name || '').trim();
+  if (!n) return 'ME';
+  const parts = n.split(/\s+/g).filter(Boolean);
+  const a = parts[0]?.[0] || 'M';
+  const b = (parts.length > 1 ? parts[parts.length - 1]?.[0] : '') || '';
+  const ini = (a + b).toUpperCase();
+  return ini.length ? ini : 'ME';
+}
+
+function buildMeIcon(L) {
   const av = getPlayerAvatar();
-  if (!av) return null;
+  const me = getPlayerName() || 'You';
+  const ini = initialsFromName(me);
 
-  const html = `
-    <div style="
-      width:42px;height:42px;border-radius:999px;
-      border:2px solid rgba(255,255,255,.95);
-      box-shadow:0 10px 24px rgba(0,0,0,.45);
-      background-image:url('${av}');
-      background-size:cover;
-      background-position:center;
-    "></div>
-  `;
+  // Unique signature so we only update icon when needed
+  const sig = av ? `AV:${av.length}` : `INI:${ini}`;
+  const html = av
+    ? `
+      <div style="
+        width:44px;height:44px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.95);
+        box-shadow:0 10px 24px rgba(0,0,0,.45);
+        background-image:url('${av}');
+        background-size:cover;
+        background-position:center;
+      "></div>
+    `
+    : `
+      <div style="
+        width:44px;height:44px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.95);
+        box-shadow:0 10px 24px rgba(0,0,0,.45);
+        background:linear-gradient(135deg, rgba(0,175,255,.95), rgba(120,0,255,.95));
+        display:flex;align-items:center;justify-content:center;
+        color:#fff;
+        font-weight:900;
+        font-size:14px;
+        letter-spacing:.5px;
+      ">${esc(ini)}</div>
+    `;
 
-  return L.divIcon({
-    html,
-    className: '',
-    iconSize: [42, 42],
-    iconAnchor: [21, 21]
-  });
+  return {
+    sig,
+    icon: L.divIcon({
+      html,
+      className: '',
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
+    })
+  };
 }
 
 export function renderRealMapView() {
   const me = getPlayerName() || 'You';
   const av = getPlayerAvatar();
-  const followLabel = getFollow() ? 'Following ✅' : 'Free look 👀';
+  const followLabel = getFollow() ? 'Following (ON)' : 'Free look';
 
   const steps = loadSteps().steps || 0;
 
@@ -189,7 +222,7 @@ export function renderRealMapView() {
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
         <div>
           <div style="font-size:18px; font-weight:900; margin:0;">Live Map (GPS)</div>
-          <div style="opacity:.75; font-size:13px;">Distance → steps. 5k steps = +20 XP. 10k steps = +1 🎟.</div>
+          <div style="opacity:.75; font-size:13px;">Distance -> steps. 5k steps = +20 XP. 10k steps = +1 Ticket.</div>
           <div id="stepsLine" style="opacity:.85; font-size:13px; margin-top:6px;">Steps: <b>${Number(steps)}</b></div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -200,7 +233,10 @@ export function renderRealMapView() {
             ${av ? `background-image:url('${av}'); background-size:cover; background-position:center;` : ''}
             display:flex;align-items:center;justify-content:center;
             overflow:hidden;
-          ">${av ? '' : '👤'}</div>
+            color:#fff;
+            font-weight:800;
+            font-size:11px;
+          ">${av ? '' : esc(initialsFromName(me))}</div>
           <div style="opacity:.75; font-size:13px;">${esc(me)}</div>
         </div>
       </div>
@@ -208,7 +244,7 @@ export function renderRealMapView() {
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px;">
         <button id="gpsStartBtn" class="btn" type="button">Enable GPS</button>
         <button id="gpsStopBtn" class="btn secondary" type="button">Stop GPS</button>
-        <button id="followBtn" class="btn secondary" type="button">${followLabel}</button>
+        <button id="followBtn" class="btn secondary" type="button">${esc(followLabel)}</button>
         <span id="gpsStatus" style="opacity:.85; font-size:13px;"></span>
       </div>
 
@@ -268,7 +304,7 @@ function renderNodesOnMap(centerNow) {
 
     marker.on('click', () => {
       if (dist > OPEN_RADIUS_M) {
-        alert(`Too far.\n\nGo closer to open:\n${node.name}\nDistance: ${dist}m\nRequired: ≤ ${OPEN_RADIUS_M}m`);
+        alert(`Too far.\n\nGo closer to open:\n${node.name}\nDistance: ${dist}m\nRequired: <= ${OPEN_RADIUS_M}m`);
         return;
       }
       openPuzzleModal(node);
@@ -294,12 +330,12 @@ function initMapOnce(containerEl) {
     map.on('dragstart', () => {
       setFollow(false);
       const b = document.querySelector('#followBtn');
-      if (b) b.textContent = 'Free look 👀';
+      if (b) b.textContent = 'Free look';
     });
     map.on('zoomstart', () => {
       setFollow(false);
       const b = document.querySelector('#followBtn');
-      if (b) b.textContent = 'Free look 👀';
+      if (b) b.textContent = 'Free look';
     });
   } else {
     setTimeout(() => map.invalidateSize(), 80);
@@ -317,12 +353,12 @@ function updateStepsLine() {
 
 function startGps(setStatus) {
   if (!navigator.geolocation) {
-    setStatus('❌ GPS not supported.');
+    setStatus('ERR: GPS not supported.');
     return;
   }
 
   try { localStorage.setItem(GPS_AUTOSTART_KEY, '1'); } catch {}
-  setStatus('Requesting GPS…');
+  setStatus('Requesting GPS...');
 
   const MIN_ACCURACY_M = 80;
 
@@ -339,22 +375,24 @@ function startGps(setStatus) {
         return;
       }
 
-      setStatus(`✅ GPS active (±${Math.round(acc)}m)`);
+      setStatus(`OK: GPS active (+/- ${Math.round(acc)}m)`);
 
       const center = { lat, lng };
 
       const L = getLeaflet();
       if (L && map) {
-        const nextIcon = buildAvatarIcon(L);
-        if (nextIcon && (!meIcon || JSON.stringify(meIcon?.options) !== JSON.stringify(nextIcon?.options))) {
-          meIcon = nextIcon;
-          if (meMarker) meMarker.setIcon(meIcon);
+        // Always use marker with divIcon (photo OR initials)
+        const built = buildMeIcon(L);
+        if (built && built.sig !== meIconHtmlSig) {
+          meIconHtmlSig = built.sig;
+          if (meMarker) meMarker.setIcon(built.icon);
+          else meMarker = L.marker([lat, lng], { icon: built.icon }).addTo(map);
         }
 
         if (!meMarker) {
-          meMarker = meIcon
-            ? L.marker([lat, lng], { icon: meIcon }).addTo(map)
-            : L.circleMarker([lat, lng], { radius: 8, weight: 2 }).addTo(map);
+          const built2 = buildMeIcon(L);
+          meIconHtmlSig = built2.sig;
+          meMarker = L.marker([lat, lng], { icon: built2.icon }).addTo(map);
         } else {
           meMarker.setLatLng([lat, lng]);
         }
@@ -380,7 +418,7 @@ function startGps(setStatus) {
       renderNodesOnMap(center);
     },
     (err) => {
-      setStatus(`❌ GPS blocked: ${err?.message || 'error'}`);
+      setStatus(`ERR: GPS blocked: ${err?.message || 'error'}`);
     },
     {
       enableHighAccuracy: true,
@@ -407,9 +445,9 @@ export function bindRealMapView() {
     tries++;
     const ok = initMapOnce(el);
     if (!ok) {
-      setStatus('Loading map engine…');
+      setStatus('Loading map engine...');
       if (tries < 30) setTimeout(tryInit, 150);
-      else setStatus('❌ Leaflet not loaded. Check index.html CDN.');
+      else setStatus('ERR: Leaflet not loaded. Check index.html CDN.');
       return;
     }
 
@@ -419,7 +457,7 @@ export function bindRealMapView() {
       followBtn.onclick = () => {
         const next = !getFollow();
         setFollow(next);
-        followBtn.textContent = next ? 'Following ✅' : 'Free look 👀';
+        followBtn.textContent = next ? 'Following (ON)' : 'Free look';
         if (next && map) {
           const last = readJSON(LAST_POS_KEY, null);
           if (last) map.setView([last.lat, last.lng], Math.max(map.getZoom(), 17), { animate: true });
