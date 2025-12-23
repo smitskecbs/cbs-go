@@ -1,198 +1,107 @@
 // src/ui/mapView.js
-// Fake map + pins. Completed nodes are hidden.
-// Emits: cbsgo:openNode {id}
-
 import { nodes } from '../data/nodes.js';
-import { getPlayerName, getPlayerAvatar } from '../app/leaderboard.js';
 import { isNodeCompleted } from '../app/state.js';
 
-function esc(s) {
-  return String(s || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+let map = null;
+let markers = [];
+
+function hasLeaflet() {
+  return typeof window !== 'undefined' && !!window.L;
 }
 
-function avatarCircle(dataUrl, size = 22) {
-  const bg = dataUrl ? `background-image:url('${dataUrl}');` : '';
-  const txt = dataUrl ? '' : '★';
-  return `
-    <span style="
-      width:${size}px;height:${size}px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(255,255,255,.06);
-      ${bg}
-      background-size:cover;
-      background-position:center;
-      display:inline-flex;align-items:center;justify-content:center;
-      overflow:hidden;
-      font-size:12px;
-      flex:0 0 auto;
-    ">${txt}</span>
-  `;
+function clearMarkers() {
+  markers.forEach(m => m.remove());
+  markers = [];
 }
 
-function posFromId(id) {
-  const str = String(id || '');
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  const x = 12 + (h % 70);
-  const y = 18 + ((h >>> 8) % 62);
-  return { x, y };
+function getMyDefaultCenter() {
+  // fallback center: first node or NL-ish
+  const first = nodes.find(n => Number.isFinite(n.lat) && Number.isFinite(n.lng));
+  if (first) return [first.lat, first.lng];
+  return [52.0907, 5.1214]; // Utrecht-ish
 }
 
-function renderPin(node) {
-  const { x, y } = posFromId(node.id);
-  const color = node.color || '#35d07f';
+function makeIcon(done) {
+  // Use default markers; tweak via CSS later if you want
+  return done ? '✅' : '📍';
+}
+
+export function renderMapView() {
+  if (!hasLeaflet()) {
+    return `
+      <div style="padding:12px; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:rgba(255,255,255,.04);">
+        <div style="font-weight:700;">Map loading…</div>
+        <div style="opacity:.8; margin-top:6px;">
+          Leaflet not loaded. Make sure you added Leaflet CDN in <code>index.html</code>.
+        </div>
+      </div>
+    `;
+  }
 
   return `
-    <button
-      type="button"
-      class="mapPin"
-      data-node-id="${esc(node.id)}"
-      title="${esc(node.name)}"
-      style="
-        position:absolute;
-        left:${x}%;
-        top:${y}%;
-        transform:translate(-50%,-50%);
-        cursor:pointer;
-        border:0;
-        background:transparent;
-        padding:0;
-      "
-    >
-      <span style="
-        display:inline-flex;
-        align-items:center;
-        gap:10px;
-        padding:10px 14px;
-        border-radius:999px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(0,0,0,.18);
-        box-shadow:0 12px 26px rgba(0,0,0,.35);
-        backdrop-filter: blur(6px);
+    <div style="margin-top:10px;">
+      <div style="
+        border-radius:16px;
+        overflow:hidden;
+        border:1px solid rgba(255,255,255,.12);
+        background:rgba(0,0,0,.2);
       ">
-        <span style="
-          width:12px;height:12px;border-radius:999px;
-          background:${color};
-          box-shadow:0 0 0 6px rgba(255,255,255,.05);
-          flex:0 0 auto;
-        "></span>
-        <span style="color:#fff; font-size:13px; white-space:nowrap;">
-          ${esc(node.name)}
-        </span>
-      </span>
-    </button>
-  `;
-}
+        <div id="leafletMap" style="height:420px; width:100%;"></div>
+      </div>
 
-function renderMeMarker() {
-  const name = getPlayerName() || 'You';
-  const avatar = getPlayerAvatar();
-  const x = 50;
-  const y = 86;
-
-  return `
-    <div style="
-      position:absolute;
-      left:${x}%;
-      top:${y}%;
-      transform:translate(-50%,-50%);
-      display:flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 14px;
-      border-radius:999px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(0,0,0,.18);
-      box-shadow:0 12px 26px rgba(0,0,0,.35);
-      backdrop-filter: blur(6px);
-      pointer-events:none;
-    ">
-      ${avatarCircle(avatar, 22)}
-      <span style="color:#fff; font-size:13px; white-space:nowrap;">
-        ${esc(name)}
-      </span>
+      <div style="margin-top:10px; font-size:12px; opacity:.75;">
+        Tip: Click a pin to open a Node. Completed nodes are marked.
+      </div>
     </div>
   `;
 }
 
-export function renderMapView() {
-  const me = getPlayerName() || 'You';
-
-  // ✅ only SOLO nodes + not completed
-  const soloNodes = nodes
-    .filter(n => n.type !== 'group')
-    .filter(n => !isNodeCompleted(n.id));
-
-  return `
-    <section class="mapCard" style="
-      margin-top:14px;
-      padding:14px;
-      border-radius:18px;
-      border:1px solid rgba(255,255,255,.10);
-      background:rgba(255,255,255,.03);
-    ">
-      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
-        <div>
-          <div style="font-size:18px; font-weight:700; margin:0;">Map</div>
-          <div style="opacity:.75; font-size:13px;">Fake map for now (next: real GPS map)</div>
-          <div style="opacity:.75; font-size:13px; margin-top:6px;">Tip: click a pin to open the node.</div>
-        </div>
-        <div style="opacity:.75; font-size:13px;">You: <b style="opacity:1">${esc(me)}</b></div>
-      </div>
-
-      <div id="fakeMap" style="
-        position:relative;
-        margin-top:12px;
-        width:100%;
-        height:420px;
-        border-radius:16px;
-        border:1px solid rgba(255,255,255,.10);
-        overflow:hidden;
-        background:
-          radial-gradient(circle at 15% 20%, rgba(18, 97, 66,.35), transparent 45%),
-          radial-gradient(circle at 70% 30%, rgba(98, 69, 160,.28), transparent 48%),
-          radial-gradient(circle at 40% 85%, rgba(255, 216, 107,.12), transparent 50%),
-          linear-gradient(135deg, rgba(0,0,0,.25), rgba(0,0,0,.55));
-      ">
-        <div style="
-          position:absolute; inset:0;
-          background-image:
-            linear-gradient(to right, rgba(255,255,255,.06) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255,255,255,.06) 1px, transparent 1px);
-          background-size:40px 40px;
-          opacity:.35;
-          pointer-events:none;
-        "></div>
-
-        ${soloNodes.map(renderPin).join('')}
-
-        ${renderMeMarker()}
-      </div>
-    </section>
-  `;
-}
-
 export function bindMapView() {
-  const root = document.querySelector('#mapMount') || document;
-  const map = root.querySelector('#fakeMap');
-  if (!map) return;
+  if (!hasLeaflet()) return;
 
-  if (map.__cbsgo_map_bound) return;
-  map.__cbsgo_map_bound = true;
+  const el = document.querySelector('#leafletMap');
+  if (!el) return;
 
-  map.addEventListener('click', (e) => {
-    const pin = e.target?.closest?.('[data-node-id]');
-    if (!pin) return;
+  // init map once
+  if (!map) {
+    const center = getMyDefaultCenter();
+    map = window.L.map(el, { zoomControl: true }).setView(center, 16);
 
-    const id = pin.getAttribute('data-node-id');
-    if (!id) return;
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+  } else {
+    // re-attach map to new DOM node after re-render
+    map._container = el;
+    el.innerHTML = '';
+    map.invalidateSize(true);
+  }
 
-    window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id } }));
+  clearMarkers();
+
+  nodes.forEach(n => {
+    if (!Number.isFinite(n.lat) || !Number.isFinite(n.lng)) return;
+
+    const done = isNodeCompleted(n.id);
+
+    const m = window.L.marker([n.lat, n.lng]).addTo(map);
+    m.bindPopup(`
+      <div style="min-width:180px;">
+        <div style="font-weight:800;">${makeIcon(done)} ${n.name}</div>
+        <div style="opacity:.85; margin-top:4px;">${n.description || ''}</div>
+        <div style="opacity:.75; margin-top:6px;">Reward: ${Number(n.xp || 0)} XP</div>
+        ${done ? `<div style="margin-top:6px;">✅ Completed</div>` : `<div style="margin-top:6px;">Click pin to open</div>`}
+      </div>
+    `);
+
+    m.on('click', () => {
+      // Let appShell open modal via global event (your existing flow)
+      window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id: n.id } }));
+    });
+
+    markers.push(m);
   });
-}
 
+  map.invalidateSize(true);
+}
