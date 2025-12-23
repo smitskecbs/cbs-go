@@ -1,7 +1,4 @@
 // src/ui/puzzleModal.js
-// Opens a modal for a node puzzle. Can only complete once.
-// Atomic XP award prevents double points even if submit triggers twice.
-
 import { isNodeCompleted, completeNodeAndAwardXp } from '../app/state.js';
 
 function esc(s) {
@@ -14,10 +11,7 @@ function esc(s) {
 }
 
 function norm(s) {
-  return String(s || '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ');
+  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 function ensureModalRoot() {
@@ -34,9 +28,7 @@ function ensureModalRoot() {
   m.style.justifyContent = 'center';
   m.style.padding = '18px';
   m.style.background = 'rgba(0,0,0,.55)';
-  m.addEventListener('click', (e) => {
-    if (e.target === m) closePuzzleModal();
-  });
+  m.addEventListener('click', (e) => { if (e.target === m) closePuzzleModal(); });
   document.body.appendChild(m);
   return m;
 }
@@ -49,18 +41,8 @@ export function closePuzzleModal() {
 }
 
 function acceptedAnswers(node) {
-  const arr = Array.isArray(node?.answers)
-    ? node.answers
-    : (node?.answer ? [node.answer] : []);
+  const arr = Array.isArray(node?.answers) ? node.answers : (node?.answer ? [node.answer] : []);
   return arr.map(norm).filter(Boolean);
-}
-
-function getQuestion(node) {
-  return node?.question || node?.puzzle?.question || `Solve the node: ${node?.name || ''}`;
-}
-
-function getHint(node) {
-  return node?.hint || node?.puzzle?.hint || '';
 }
 
 function getRewardXp(node) {
@@ -70,13 +52,17 @@ function getRewardXp(node) {
 
 export function openPuzzleModal(node) {
   const m = ensureModalRoot();
-  const id = String(node?.id || '');
-  const done = isNodeCompleted(id);
 
-  const q = getQuestion(node);
-  const hint = getHint(node);
+  const primaryId = String(node?.id || '');
+  const legacyId = String(node?.legacyId || '');
+  const ids = [primaryId, legacyId].filter(Boolean);
+
+  const done = ids.some(id => isNodeCompleted(id));
+
   const reward = getRewardXp(node);
   const answers = acceptedAnswers(node);
+  const q = node?.question || node?.puzzle?.question || `Solve the node: ${node?.name || ''}`;
+  const hint = node?.hint || node?.puzzle?.hint || '';
 
   m.style.display = 'flex';
 
@@ -106,11 +92,9 @@ export function openPuzzleModal(node) {
 
       ${
         done
-          ? `
-            <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(0,255,128,.20); background:rgba(0,255,128,.08);">
-              ✅ Completed. This node can’t give XP again.
-            </div>
-          `
+          ? `<div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(0,255,128,.20); background:rgba(0,255,128,.08);">
+               ✅ Completed. This node can’t give XP again.
+             </div>`
           : `
             <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
               <input id="cbsgoAnswer" placeholder="Type your answer…" style="
@@ -124,13 +108,6 @@ export function openPuzzleModal(node) {
               <button id="cbsgoSubmit" class="btn" type="button">Submit</button>
             </div>
             <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
-            ${
-              answers.length === 0
-                ? `<div style="margin-top:10px; font-size:12px; opacity:.7;">
-                     (Dev note: add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
-                   </div>`
-                : ``
-            }
           `
       }
     </div>
@@ -138,32 +115,23 @@ export function openPuzzleModal(node) {
 
   const closeBtn = m.querySelector('#cbsgoClose');
   if (closeBtn) closeBtn.onclick = closePuzzleModal;
-
   if (done) return;
 
   const msg = m.querySelector('#cbsgoMsg');
   const input = m.querySelector('#cbsgoAnswer');
   const submit = m.querySelector('#cbsgoSubmit');
-
   const setMsg = (t) => { if (msg) msg.textContent = t || ''; };
 
-  let locked = false; // blocks double-trigger in the same modal
+  let locked = false;
 
   const trySubmit = () => {
     if (locked) return;
 
-    if (isNodeCompleted(id)) {
-      setMsg('✅ Already completed.');
-      return;
-    }
-
     const user = norm(input?.value || '');
-
     if (answers.length === 0) {
       setMsg('⚠️ This node has no answers configured yet.');
       return;
     }
-
     if (!answers.includes(user)) {
       setMsg('❌ Not correct. Try again.');
       return;
@@ -172,23 +140,20 @@ export function openPuzzleModal(node) {
     locked = true;
     if (submit) submit.disabled = true;
 
-    // ✅ ATOMIC award
-    const res = completeNodeAndAwardXp(id, reward);
+    const res = completeNodeAndAwardXp(ids, reward);
     if (!res.ok) {
       setMsg(res.reason === 'already_completed' ? '✅ Already completed.' : '❌ Could not award XP.');
       return;
     }
 
     setMsg(`✅ Correct! +${reward} XP`);
-
     setTimeout(() => closePuzzleModal(), 550);
   };
 
   if (submit) submit.onclick = trySubmit;
   if (input) {
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') trySubmit();
-    });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') trySubmit(); });
     setTimeout(() => input.focus(), 50);
   }
 }
+
