@@ -1,20 +1,48 @@
 // src/ui/xpBar.js
+// Stable XP bar: Level N + (xpIntoLevel / 100)
+// Uses app/state.js as single source of truth.
+
 import { getXp, getLevel, getXpIntoLevel } from '../app/state.js';
 
+function clamp(n, a, b) {
+  const x = Number(n || 0);
+  if (!Number.isFinite(x)) return a;
+  return Math.max(a, Math.min(b, x));
+}
+
 export function renderXpBar() {
-  const xp = getXp();
-  const level = getLevel(xp);
-  const into = getXpIntoLevel(xp); // 0..99
-  const percent = Math.min(100, Math.max(0, into));
+  const totalXp = Number(getXp() || 0);
+  const level = Number(getLevel(totalXp) || 1);
+  const into = Number(getXpIntoLevel(totalXp) || 0);
+
+  const safeInto = clamp(into, 0, 100);
+  const pct = clamp((safeInto / 100) * 100, 0, 100);
 
   return `
-    <div class="xpbar">
-      <div class="xpbar-top">
-        <span class="xp-level">Level ${level}</span>
-        <span class="xp-text">${into}/100 XP</span>
+    <div style="min-width:180px;">
+      <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px;">
+        <div style="font-weight:900; line-height:1;">Level ${level}</div>
+        <div style="opacity:.85; font-size:12px; white-space:nowrap;">
+          ${safeInto}/100 XP
+        </div>
       </div>
-      <div class="xpbar-track">
-        <div class="xpbar-fill" style="width:${percent}%"></div>
+
+      <div style="
+        margin-top:8px;
+        height:8px;
+        border-radius:999px;
+        background:rgba(255,255,255,.10);
+        overflow:hidden;
+      ">
+        <div style="
+          height:100%;
+          width:${pct}%;
+          background:rgba(255,255,255,.75);
+        "></div>
+      </div>
+
+      <div style="margin-top:6px; font-size:11px; opacity:.65;">
+        Total XP: ${totalXp}
       </div>
     </div>
   `;
