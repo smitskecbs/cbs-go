@@ -1,5 +1,10 @@
 // src/ui/appShell.js
-// Fullscreen map shell with overlays (mobile-safe topbar)
+// Fullscreen map shell with overlays:
+// - Map is always visible full-screen
+// - Steps + Tickets are shown subtly UNDER the XP bar (top-right)
+// - Profile tab: profile + leaderboard only
+// - Bag tab: inventory (tickets/items)
+// NOTE: We removed the big steps overlay and removed the "CBS GO / Made by..." text for mobile space.
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -47,7 +52,6 @@ function avatarCircle(dataUrl, size = 30) {
       display:flex;align-items:center;justify-content:center;
       overflow:hidden;
       font-size:16px;
-      flex:0 0 auto;
     ">${txt}</div>
   `;
 }
@@ -361,8 +365,14 @@ function renderBag() {
 function renderPanel() {
   const t = getSelectedTab();
 
-  if (t === 'profile') return panelWrap('Profile', `<div id="lbMount">${renderLeaderboard()}</div>`);
-  if (t === 'bag') return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
+  if (t === 'profile') {
+    return panelWrap('Profile', `<div id="lbMount">${renderLeaderboard()}</div>`);
+  }
+
+  if (t === 'bag') {
+    return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
+  }
+
   return '';
 }
 
@@ -377,51 +387,45 @@ export function renderAppShell() {
       overflow:hidden;
       background:#05070b;
     ">
+      <!-- MAP fullscreen -->
       <div id="mapMount" style="position:absolute; inset:0; z-index:1;">
         ${renderMapView()}
       </div>
 
+      <!-- TOPBAR -->
       <header style="
         position:absolute; top:0; left:0; right:0;
         z-index:4000;
         padding:10px 12px;
         padding-top: calc(10px + env(safe-area-inset-top));
         display:flex;
-        align-items:center;
+        align-items:flex-start;
+        justify-content:space-between;
         gap:10px;
         pointer-events:none;
       ">
-        <!-- LEFT: can shrink -->
+        <!-- LEFT: only avatar for space -->
         <div style="
-          display:flex; gap:8px; align-items:center;
           pointer-events:auto;
-          padding:10px 12px;
+          padding:8px;
           border-radius:18px;
           border:1px solid rgba(255,255,255,.12);
           background:rgba(10,12,18,.72);
           backdrop-filter: blur(10px);
-          min-width:0;
-          max-width:42vw;
-          overflow:hidden;
+          display:flex; align-items:center; justify-content:center;
         ">
-          ${avatarCircle(myAvatar, 28)}
-          <div style="
-            font-weight:900; line-height:1;
-            white-space:nowrap;
-            overflow:hidden;
-            text-overflow:ellipsis;
-          ">CBS GO</div>
+          ${avatarCircle(myAvatar, 32)}
         </div>
 
-        <!-- RIGHT: takes remaining space, stays visible -->
+        <!-- RIGHT: XP + Steps/Tickets under it -->
         <div style="
           pointer-events:auto;
           display:flex;
-          align-items:flex-start;
-          gap:8px;
+          flex-direction:column;
+          align-items:flex-end;
+          gap:6px;
           margin-left:auto;
           min-width:0;
-          justify-content:flex-end;
         ">
           <div id="xpMount" style="
             padding:10px 12px;
@@ -429,22 +433,20 @@ export function renderAppShell() {
             border:1px solid rgba(255,255,255,.12);
             background:rgba(10,12,18,.72);
             backdrop-filter: blur(10px);
-            flex:0 0 auto;
           ">
             ${renderXpBar()}
           </div>
 
           <div id="stepsOverlay" style="
-            padding:10px 12px;
-            border-radius:18px;
+            padding:8px 10px;
+            border-radius:16px;
             border:1px solid rgba(255,255,255,.12);
             background:rgba(10,12,18,.72);
             backdrop-filter: blur(10px);
             white-space:nowrap;
-            max-width:34vw;
+            max-width:72vw;
             overflow:hidden;
             text-overflow:ellipsis;
-            flex:0 1 auto;
           ">
             ${renderStepsWidget()}
           </div>
@@ -500,7 +502,7 @@ export function mountApp() {
   bindTabs();
   bindMapView();
 
-  // Steps indicator rerender
+  // Steps indicator bindings + live rerender
   bindStepsWidget();
   if (!window.__cbsgo_steps_rerender_listener) {
     window.__cbsgo_steps_rerender_listener = true;
@@ -516,6 +518,7 @@ export function mountApp() {
     window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
   }
 
+  // Profile bindings
   const t = getSelectedTab();
   if (t === 'profile') bindLeaderboardEvents();
 
@@ -524,6 +527,7 @@ export function mountApp() {
     if (btn) btn.addEventListener('click', hardResetCBSGO);
   }
 
+  // Open node -> puzzle modal (block if completed)
   if (!window.__cbsgo_openNode_listener) {
     window.__cbsgo_openNode_listener = true;
 
@@ -539,6 +543,7 @@ export function mountApp() {
     });
   }
 
+  // Rerender map when node completes
   if (!window.__cbsgo_rerender_map_listener) {
     window.__cbsgo_rerender_map_listener = true;
 
