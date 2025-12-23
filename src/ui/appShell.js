@@ -1,10 +1,9 @@
 // src/ui/appShell.js
-// Fullscreen map shell with overlays:
-// - Map is always visible full-screen
-// - Steps + Tickets are shown subtly UNDER the XP bar (top-right)
-// - Profile tab: profile + leaderboard only
-// - Bag tab: inventory (tickets/items)
-// NOTE: We removed the big steps overlay and removed the "CBS GO / Made by..." text for mobile space.
+// Fullscreen map shell
+// - Map always fullscreen
+// - XP + level top-right
+// - Steps + tickets directly UNDER XP (compact)
+// - Profile + Bag as bottom panels
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -12,6 +11,7 @@ import { openPuzzleModal } from './puzzleModal.js';
 import { renderXpBar } from './xpBar.js';
 import { renderStepsWidget, bindStepsWidget } from './stepsWidget.js';
 
+import { tryAutoStart } from '../app/steps.js';
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
 
 import {
@@ -26,7 +26,6 @@ import {
 
 import { renderMapView, bindMapView } from './mapView.js';
 import { isNodeCompleted } from '../app/state.js';
-
 import { getTickets } from '../app/inventory.js';
 
 function esc(s) {
@@ -56,6 +55,8 @@ function avatarCircle(dataUrl, size = 30) {
   `;
 }
 
+/* ---------------- Tabs ---------------- */
+
 function getSelectedTab() {
   try {
     return sessionStorage.getItem('cbsgo_selected_tab_v5') || 'map';
@@ -71,427 +72,118 @@ function renderBottomNav() {
   const t = getSelectedTab();
   const btn = (id, label, icon) => `
     <button type="button" data-tab="${id}" style="
-      flex:1;
-      height:56px;
-      border:0;
-      background:transparent;
-      color:#fff;
-      opacity:${t === id ? '1' : '.72'};
-      font:inherit;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      justify-content:center;
+      flex:1;height:56px;border:0;background:transparent;
+      color:#fff;opacity:${t === id ? '1' : '.7'};
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
       gap:2px;
     ">
-      <div style="font-size:18px; line-height:18px;">${icon}</div>
-      <div style="font-size:11px;">${esc(label)}</div>
+      <div style="font-size:18px;">${icon}</div>
+      <div style="font-size:11px;">${label}</div>
     </button>
   `;
-
   return `
     <nav style="
-      position:fixed;
-      left:0; right:0; bottom:0;
-      z-index:5000;
-      padding:10px 10px calc(10px + env(safe-area-inset-bottom));
-      background:rgba(10,12,18,.72);
-      backdrop-filter: blur(10px);
-      border-top:1px solid rgba(255,255,255,.10);
+      position:fixed;left:0;right:0;bottom:0;z-index:5000;
+      padding:10px;background:rgba(10,12,18,.72);
+      backdrop-filter:blur(10px);
+      border-top:1px solid rgba(255,255,255,.1);
     ">
       <div style="
-        display:flex;
-        gap:8px;
-        border-radius:18px;
-        border:1px solid rgba(255,255,255,.10);
-        background:rgba(0,0,0,.18);
-        overflow:hidden;
+        display:flex;gap:8px;border-radius:18px;
+        border:1px solid rgba(255,255,255,.1);
+        background:rgba(0,0,0,.2);
       ">
-        ${btn('map', 'Map', '🗺️')}
-        ${btn('profile', 'Profile', '👤')}
-        ${btn('bag', 'Bag', '🎒')}
+        ${btn('map','Map','🗺️')}
+        ${btn('profile','Profile','👤')}
+        ${btn('bag','Bag','🎒')}
       </div>
     </nav>
   `;
 }
 
-function panelWrap(title, innerHtml) {
+/* ---------------- Panels ---------------- */
+
+function panelWrap(title, inner) {
   return `
     <div style="
-      position:fixed;
-      left:0; right:0;
-      bottom:0;
-      z-index:6500;
-      padding:12px 12px calc(86px + env(safe-area-inset-bottom));
-      pointer-events:none;
+      position:fixed;left:0;right:0;bottom:0;z-index:6500;
+      padding:12px 12px 86px;pointer-events:none;
     ">
       <div style="
         pointer-events:auto;
-        width:min(860px, 96vw);
-        margin:0 auto;
-        border-radius:22px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(10,12,18,.86);
-        backdrop-filter: blur(12px);
-        box-shadow:0 18px 60px rgba(0,0,0,.55);
-        overflow:hidden;
+        width:min(860px,96vw);margin:0 auto;
+        border-radius:22px;border:1px solid rgba(255,255,255,.14);
+        background:rgba(10,12,18,.86);backdrop-filter:blur(12px);
       ">
         <div style="
-          display:flex; align-items:center; justify-content:space-between;
-          padding:12px 14px;
-          border-bottom:1px solid rgba(255,255,255,.10);
+          padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.1);
+          display:flex;justify-content:space-between;
         ">
-          <div style="font-weight:900;">${esc(title)}</div>
-          <button type="button" id="cbsgoClosePanel" style="
-            border:0;
-            padding:8px 10px;
-            border-radius:12px;
-            background:rgba(255,255,255,.08);
-            color:#fff;
-          ">Close</button>
+          <b>${title}</b>
+          <button id="cbsgoClosePanel">Close</button>
         </div>
-
-        <div style="
-          max-height: min(70vh, 560px);
-          overflow:auto;
-          padding:12px 14px;
-        ">
-          ${innerHtml}
+        <div style="padding:12px 14px;max-height:70vh;overflow:auto;">
+          ${inner}
         </div>
       </div>
     </div>
   `;
 }
 
-/* ---------- Profile + Leaderboard ---------- */
-
-function renderLeaderboard() {
-  const top = getTopScores(10);
-  const me = getPlayerName();
-  const myAvatar = getPlayerAvatar();
-
-  return `
-    <section class="lb" style="
-      margin-top:14px;
-      padding:12px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(255,255,255,.04);
-    ">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <h3 style="margin:0; font-size:16px;">Leaderboard</h3>
-        <span class="pill">Local</span>
-      </div>
-
-      <div style="
-        margin-top:10px;
-        padding:10px;
-        border-radius:14px;
-        border:1px solid rgba(255,255,255,.10);
-        background:rgba(0,0,0,.18);
-      ">
-        <div style="font-size:12px; opacity:.8; margin-bottom:6px;">Profile (auto-saves)</div>
-
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          ${avatarCircle(myAvatar, 44)}
-
-          <div style="flex:1; min-width:220px;">
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input id="lbName" value="${esc(me)}" maxlength="24" style="
-                flex:1; min-width:180px;
-                padding:10px 10px;
-                border-radius:12px;
-                border:1px solid rgba(255,255,255,.14);
-                background:rgba(255,255,255,.06);
-                color:#fff;
-              "/>
-              <button class="btn" id="lbSubmit" type="button">Save my score</button>
-            </div>
-
-            <div style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input id="lbAvatar" type="file" accept="image/*" />
-              <button class="btn secondary" id="lbRemoveAvatar" type="button">Remove photo</button>
-            </div>
-
-            <div id="lbMsg" style="margin-top:8px; font-size:12px; opacity:.9;"></div>
-            <div style="margin-top:6px; font-size:12px; opacity:.7;">
-              Local only (this browser). Later we’ll make it global + map-ready.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style="margin-top:10px;">
-        ${
-          top.length === 0
-            ? `<div style="opacity:.75; font-size:13px;">No scores yet. Click “Save my score”.</div>`
-            : `
-              <ol style="margin:0; padding-left:18px;">
-                ${top.map((e, i) => `
-                  <li style="
-                    display:flex; align-items:center; justify-content:space-between; gap:10px;
-                    padding:8px 0;
-                    border-bottom:1px solid rgba(255,255,255,.08);
-                  ">
-                    <div style="display:flex; gap:10px; align-items:center; min-width:0;">
-                      <div style="opacity:.8; width:26px;">#${i + 1}</div>
-                      ${avatarCircle(e.avatar, 28)}
-                      <div style="min-width:0;">
-                        <div style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                          ${esc(e.name)}
-                        </div>
-                        <div style="font-size:12px; opacity:.75;">
-                          Level ${Number(e.level || 1)}
-                        </div>
-                      </div>
-                    </div>
-                    <div style="opacity:.9; white-space:nowrap;">
-                      ${Number(e.xp || 0)} XP
-                    </div>
-                  </li>
-                `).join('')}
-              </ol>
-            `
-        }
-      </div>
-    </section>
-  `;
-}
-
-function bindLeaderboardEvents() {
-  const nameInput = document.querySelector('#lbName');
-  const submitBtn = document.querySelector('#lbSubmit');
-  const fileInput = document.querySelector('#lbAvatar');
-  const removeBtn = document.querySelector('#lbRemoveAvatar');
-
-  let saveTimer = null;
-
-  const setMsg = (t) => {
-    const msg = document.querySelector('#lbMsg');
-    if (msg) msg.textContent = t || '';
-  };
-
-  if (nameInput) setMsg(`✅ Profile loaded: ${nameInput.value}`);
-
-  const saveNameNow = () => {
-    if (!nameInput) return;
-    const n = setPlayerName(nameInput.value);
-    setMsg(`✅ Name saved: ${n}`);
-  };
-
-  if (nameInput) {
-    nameInput.addEventListener('input', () => {
-      setMsg('Saving…');
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(saveNameNow, 300);
-    });
-
-    nameInput.addEventListener('blur', () => {
-      if (saveTimer) clearTimeout(saveTimer);
-      saveNameNow();
-    });
-  }
-
-  if (fileInput) {
-    fileInput.addEventListener('change', () => {
-      const f = fileInput.files && fileInput.files[0];
-      if (!f) return;
-
-      if (f.size > 1_500_000) {
-        setMsg('⛔ Image too large. Please choose a smaller photo (max ~1.5MB).');
-        fileInput.value = '';
-        return;
-      }
-
-      setMsg('Uploading photo…');
-      const reader = new FileReader();
-      reader.onload = () => {
-        setPlayerAvatar(String(reader.result || ''));
-        setMsg('✅ Photo saved');
-        mountApp();
-      };
-      reader.onerror = () => setMsg('⛔ Failed to read image.');
-      reader.readAsDataURL(f);
-    });
-  }
-
-  if (removeBtn) {
-    removeBtn.onclick = () => {
-      clearPlayerAvatar();
-      setMsg('✅ Photo removed');
-      mountApp();
-    };
-  }
-
-  if (submitBtn) {
-    submitBtn.onclick = () => {
-      if (nameInput) saveNameNow();
-      const entry = submitMyScore();
-      setMsg(`✅ Saved: ${entry.name} – ${entry.xp} XP`);
-      mountApp();
-    };
-  }
-}
-
-/* ---------- Bag (inventory) ---------- */
+/* ---------------- Profile / Bag ---------------- */
 
 function renderBag() {
   const tickets = getTickets();
   return `
-    <div style="
-      padding:12px;
-      border-radius:16px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(255,255,255,.04);
-    ">
-      <div style="font-weight:900; font-size:15px;">Inventory</div>
-      <div style="opacity:.75; font-size:12px; margin-top:4px;">
-        Items you collected in the real world.
-      </div>
-
-      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-        <div class="pill">🎟️ Tickets: <b>${tickets}</b></div>
-        <div class="pill" style="opacity:.7;">🎆 Fireworks: <b>0</b> (soon)</div>
-        <div class="pill" style="opacity:.7;">🪙 CBS / SOL / MON: <b>0</b> (later)</div>
-      </div>
-
-      <div style="opacity:.7; font-size:12px; margin-top:10px;">
-        Next: add item bag (fireworks beacon) + loot drops on the map.
-      </div>
+    <div>
+      <div class="pill">🎟️ Tickets: <b>${tickets}</b></div>
+      <div class="pill" style="opacity:.6">🎆 Fireworks (soon)</div>
     </div>
   `;
 }
 
 function renderPanel() {
   const t = getSelectedTab();
-
-  if (t === 'profile') {
-    return panelWrap('Profile', `<div id="lbMount">${renderLeaderboard()}</div>`);
-  }
-
-  if (t === 'bag') {
-    return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
-  }
-
+  if (t === 'bag') return panelWrap('Bag', renderBag());
   return '';
 }
 
-export function renderAppShell() {
-  const dev = isDev();
-  const myAvatar = getPlayerAvatar();
+/* ---------------- App Shell ---------------- */
 
+export function renderAppShell() {
+  const avatar = getPlayerAvatar();
   return `
-    <div class="app-shell" style="
-      position:fixed; inset:0;
-      width:100vw; height:100vh;
-      overflow:hidden;
-      background:#05070b;
-    ">
-      <!-- MAP fullscreen -->
-      <div id="mapMount" style="position:absolute; inset:0; z-index:1;">
+    <div style="position:fixed;inset:0;background:#05070b;overflow:hidden">
+
+      <div id="mapMount" style="position:absolute;inset:0;z-index:1">
         ${renderMapView()}
       </div>
 
-      <!-- TOPBAR -->
-      <header style="
-        position:absolute; top:0; left:0; right:0;
-        z-index:4000;
-        padding:10px 12px;
-        padding-top: calc(10px + env(safe-area-inset-top));
-        display:flex;
-        align-items:flex-start;
-        justify-content:space-between;
-        gap:10px;
-        pointer-events:none;
+      <!-- TOP RIGHT -->
+      <div style="
+        position:absolute;top:10px;right:10px;z-index:4000;
+        display:flex;flex-direction:column;gap:6px;
       ">
-        <!-- LEFT: only avatar for space -->
         <div style="
-          pointer-events:auto;
-          padding:8px;
-          border-radius:18px;
-          border:1px solid rgba(255,255,255,.12);
+          padding:10px 12px;border-radius:18px;
           background:rgba(10,12,18,.72);
-          backdrop-filter: blur(10px);
-          display:flex; align-items:center; justify-content:center;
+          border:1px solid rgba(255,255,255,.12);
         ">
-          ${avatarCircle(myAvatar, 32)}
+          ${renderXpBar()}
         </div>
 
-        <!-- RIGHT: XP + Steps/Tickets under it -->
-        <div style="
-          pointer-events:auto;
-          display:flex;
-          flex-direction:column;
-          align-items:flex-end;
-          gap:6px;
-          margin-left:auto;
-          min-width:0;
-        ">
-          <div id="xpMount" style="
-            padding:10px 12px;
-            border-radius:18px;
-            border:1px solid rgba(255,255,255,.12);
-            background:rgba(10,12,18,.72);
-            backdrop-filter: blur(10px);
-          ">
-            ${renderXpBar()}
-          </div>
-
-          <div id="stepsOverlay" style="
-            padding:8px 10px;
-            border-radius:16px;
-            border:1px solid rgba(255,255,255,.12);
-            background:rgba(10,12,18,.72);
-            backdrop-filter: blur(10px);
-            white-space:nowrap;
-            max-width:72vw;
-            overflow:hidden;
-            text-overflow:ellipsis;
-          ">
-            ${renderStepsWidget()}
-          </div>
+        <div id="stepsMount">
+          ${renderStepsWidget()}
         </div>
-      </header>
+      </div>
 
       ${renderBottomNav()}
       ${renderPanel()}
-
-      ${
-        dev
-          ? `<button id="resetBtn" type="button" style="
-               position:fixed;
-               right:12px;
-               bottom:90px;
-               z-index:6000;
-               padding:10px 12px;
-               border-radius:14px;
-               border:1px solid rgba(255,255,255,.14);
-               background:rgba(0,0,0,.35);
-               color:#fff;
-             ">Reset Demo</button>`
-          : ``
-      }
     </div>
   `;
 }
 
-function bindTabs() {
-  document.querySelectorAll('[data-tab]').forEach(b => {
-    b.addEventListener('click', () => {
-      const tab = b.getAttribute('data-tab');
-      setSelectedTab(tab || 'map');
-      mountApp();
-    });
-  });
-
-  const close = document.querySelector('#cbsgoClosePanel');
-  if (close) {
-    close.addEventListener('click', () => {
-      setSelectedTab('map');
-      mountApp();
-    });
-  }
-}
+/* ---------------- Mount ---------------- */
 
 export function mountApp() {
   const app = document.querySelector('#app');
@@ -499,62 +191,25 @@ export function mountApp() {
 
   app.innerHTML = renderAppShell();
 
-  bindTabs();
   bindMapView();
-
-  // Steps indicator bindings + live rerender
   bindStepsWidget();
-  if (!window.__cbsgo_steps_rerender_listener) {
-    window.__cbsgo_steps_rerender_listener = true;
 
-    const rerenderSteps = () => {
-      const mount = document.querySelector('#stepsOverlay');
-      if (!mount) return;
-      mount.innerHTML = renderStepsWidget();
-      bindStepsWidget();
+  // 🔑 AUTO-START GPS ONCE
+  if (!window.__cbsgo_steps_autostart) {
+    window.__cbsgo_steps_autostart = true;
+    tryAutoStart();
+  }
+
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    b.onclick = () => {
+      setSelectedTab(b.dataset.tab);
+      mountApp();
     };
+  });
 
-    window.addEventListener('cbsgo:rerenderSteps', rerenderSteps);
-    window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
-  }
-
-  // Profile bindings
-  const t = getSelectedTab();
-  if (t === 'profile') bindLeaderboardEvents();
-
-  if (isDev()) {
-    const btn = document.querySelector('#resetBtn');
-    if (btn) btn.addEventListener('click', hardResetCBSGO);
-  }
-
-  // Open node -> puzzle modal (block if completed)
-  if (!window.__cbsgo_openNode_listener) {
-    window.__cbsgo_openNode_listener = true;
-
-    window.addEventListener('cbsgo:openNode', (ev) => {
-      const id = ev?.detail?.id;
-      if (!id) return;
-      if (isNodeCompleted(id)) return;
-
-      const node = nodes.find(n => n.id === id);
-      if (!node) return;
-
-      openPuzzleModal(node);
-    });
-  }
-
-  // Rerender map when node completes
-  if (!window.__cbsgo_rerender_map_listener) {
-    window.__cbsgo_rerender_map_listener = true;
-
-    const rerender = () => {
-      const mount = document.querySelector('#mapMount');
-      if (!mount) return;
-      mount.innerHTML = renderMapView();
-      bindMapView();
-    };
-
-    window.addEventListener('cbsgo:rerenderMap', rerender);
-    window.addEventListener('cbsgo:nodeCompleted', rerender);
-  }
+  const close = document.querySelector('#cbsgoClosePanel');
+  if (close) close.onclick = () => {
+    setSelectedTab('map');
+    mountApp();
+  };
 }

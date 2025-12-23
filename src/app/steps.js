@@ -1,16 +1,17 @@
 // src/app/steps.js
 // GPS distance -> steps (stable) + rewards
-// Exports used by realMapView + stepsWidget
+// Fix: never overwrite updated step state after addMeters()
+// Auto-start friendly + compact debug for UI
 
 import { addXp } from './state.js';
 import { addTickets } from './inventory.js';
 
-const KEY = 'cbsgo_steps_v4';
+const KEY = 'cbsgo_steps_v5';
 const AUTOSTART_KEY = 'cbsgo_gps_autostart_v2';
 
 let watchId = null;
 let enabled = false;
-let gpsDebug = { msg: 'init' };
+let gpsDebug = { msg: 'init', t: Date.now() };
 
 function safeParse(raw, fallback) {
   try {
@@ -97,7 +98,10 @@ export function addMeters(meters) {
   applyRewards(s);
   saveSteps(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } })
+  );
+
   return s;
 }
 
@@ -113,7 +117,9 @@ export function disableSteps() {
   enabled = false;
   gpsDebug = { msg: 'disabled', t: Date.now() };
   try { localStorage.setItem(AUTOSTART_KEY, '0'); } catch {}
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+  );
 }
 
 export async function enableSteps(opts = {}) {
@@ -121,6 +127,7 @@ export async function enableSteps(opts = {}) {
   const silent = !!opts.silent;
 
   if (!navigator.geolocation) {
+    enabled = false;
     gpsDebug = { err: 'GPS not supported', t: Date.now() };
     return { ok: false, reason: 'GPS not supported' };
   }
@@ -131,7 +138,8 @@ export async function enableSteps(opts = {}) {
   enabled = true;
   gpsDebug = { msg: 'requesting', t: Date.now() };
 
-  const MIN_ACCURACY_M = 80;
+  // Indoor GPS is often bad; keep threshold but not insane
+  const MIN_ACCURACY_M = 100;
 
   try {
     watchId = navigator.geolocation.watchPosition(
@@ -139,41 +147,58 @@ export async function enableSteps(opts = {}) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         const acc = pos.coords.accuracy || 999;
-        const center = { lat, lng, t: Date.now() };
+
+        const now = Date.now();
+        const center = { lat, lng, t: now };
 
         if (acc > MIN_ACCURACY_M) {
-          gpsDebug = { msg: `low accuracy ${Math.round(acc)}m`, acc, t: Date.now() };
-          window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+          gpsDebug = { msg: `low accuracy ${Math.round(acc)}m`, acc, t: now };
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+          );
+          // Still store lastPos so outside becomes smooth
+          const sLow = loadSteps();
+          sLow.lastPos = center;
+          saveSteps(sLow);
           return;
         }
 
-        gpsDebug = { lat, lng, acc, t: Date.now() };
+        gpsDebug = { lat, lng, acc, t: now };
 
-        const s = loadSteps();
+        // IMPORTANT FIX:
+        // Never save an old 's' after addMeters(); it overwrites progress.
+        let s = loadSteps();
         const last = s.lastPos;
 
-        // meters -> steps (ignore jitter and teleport)
         if (last && typeof last.lat === 'number' && typeof last.lng === 'number') {
-          const dist = metersBetween({ lat: last.lat, lng: last.lng }, { lat, lng });
+          const dist = metersBetween(
+            { lat: last.lat, lng: last.lng },
+            { lat, lng }
+          );
 
           // ignore jitter, ignore teleport
           if (dist >= 6 && dist <= 90) {
-            addMeters(dist);
+            s = addMeters(dist); // returns NEW saved state
           }
         }
 
-        s.lastPos = { lat, lng, t: Date.now() };
+        // set lastPos on the LATEST state and save
+        s.lastPos = center;
         saveSteps(s);
 
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } })
+        );
       },
       (err) => {
         enabled = false;
         gpsDebug = { err: err?.message || 'GPS blocked', t: Date.now() };
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+        );
         if (!silent) {
-          // Some browsers require a user gesture — we fail quietly in silent mode
+          // iOS/Safari sometimes needs a user tap; we keep it quiet in silent mode
         }
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
       },
       {
         enableHighAccuracy: true,
@@ -197,4 +222,11 @@ export function shouldAutoStart() {
   } catch {
     return false;
   }
+}
+
+// Convenience: try auto-start without alerts
+export function tryAutoStart() {
+  // If user already allowed GPS before OR browser allows auto-start
+  // we just try silently.
+  return enableSteps({ silent: true });
 }
