@@ -1,35 +1,37 @@
 // src/data/nodes.js
 export const nodes = [
   {
-    id: 'node-1',
+    id: 'stop-1',
+    legacyId: 'node-1',
     name: 'Old Clock Tower',
     type: 'puzzle',
     description: 'A strange mechanism hides a code.',
     xp: 50,
-
-    // ✅ real world location (example)
-    lat: 51.6872,
-    lng: 4.8571,
-
-    // ✅ puzzle
-    question: 'What is the secret word carved into the stone?',
-    hint: 'Look at the oldest inscription.',
-    answers: ['sovereign', 'cbs']
+    question: 'Type: cbs',
+    hint: 'Lowercase.',
+    answers: ['cbs']
   },
   {
-    id: 'node-2',
+    id: 'stop-2',
+    legacyId: 'node-2',
     name: 'Abandoned Square',
     type: 'group',
     requiredPlayers: 5,
     description: 'Requires multiple Sovereigns to unlock.',
     xp: 150,
-
-    // ✅ real world location (example)
-    lat: 51.6866,
-    lng: 4.8559,
-
-    question: 'Type: UNITY',
-    hint: 'All caps.',
+    question: 'Type: unity',
+    hint: 'Lowercase.',
     answers: ['unity']
+  },
+  {
+    id: 'stop-3',
+    legacyId: 'node-3',
+    name: 'River Marker',
+    type: 'puzzle',
+    description: 'The water reflects the truth.',
+    xp: 80,
+    question: 'Type: sovereign',
+    hint: 'Lowercase.',
+    answers: ['sovereign']
   }
 ];
