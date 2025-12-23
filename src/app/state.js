@@ -1,5 +1,8 @@
 // src/app/state.js
-const KEY = 'cbsgo_state_v4';
+// Single source of truth for XP + completed nodes.
+// UI reads XP from here (no stale gameState object).
+
+const KEY = 'cbsgo_state_v3';
 
 function safeParse(json, fallback) {
   try {
@@ -11,36 +14,46 @@ function safeParse(json, fallback) {
 }
 
 function defaultState() {
-  return { xp: 0, completed: {} };
+  return {
+    xp: 0,
+    completed: {} // { [nodeId]: timestamp }
+  };
 }
 
 export function loadState() {
-  try {
-    return safeParse(localStorage.getItem(KEY), defaultState());
-  } catch {
-    return defaultState();
-  }
+  const raw = localStorage.getItem(KEY);
+  return safeParse(raw, defaultState());
 }
 
 export function saveState(s) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {}
+  localStorage.setItem(KEY, JSON.stringify(s));
 }
 
 export function getXp() {
   return Number(loadState().xp || 0);
 }
 
-function markCompletedInternal(s, ids) {
-  let changed = false;
-  ids.forEach((id) => {
-    const k = String(id || '');
-    if (!k) return;
-    if (!s.completed[k]) {
-      s.completed[k] = Date.now();
-      changed = true;
-    }
-  });
-  return changed;
+export function getLevel(totalXp) {
+  const xp = Math.max(0, Number(totalXp || 0));
+  // 100 XP per level (simple)
+  return Math.floor(xp / 100) + 1;
+}
+
+export function getXpIntoLevel(totalXp) {
+  const xp = Math.max(0, Number(totalXp || 0));
+  return xp % 100; // 0..99
+}
+
+export function addXp(amount) {
+  const a = Number(amount || 0);
+  if (!Number.isFinite(a) || a <= 0) return getXp();
+
+  const s = loadState();
+  s.xp = Number(s.xp || 0) + a;
+  saveState(s);
+
+  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: s.xp, delta: a } }));
+  return s.xp;
 }
 
 export function isNodeCompleted(nodeId) {
@@ -50,47 +63,26 @@ export function isNodeCompleted(nodeId) {
   return !!s.completed?.[id];
 }
 
-// ✅ Atomic + alias support: pass both ids (primary + legacy) if you have them
-export function completeNodeAndAwardXp(nodeIds, amount) {
-  const ids = Array.isArray(nodeIds) ? nodeIds : [nodeIds];
-  const cleanIds = ids.map(x => String(x || '')).filter(Boolean);
-
-  const a = Number(amount || 0);
-  if (cleanIds.length === 0) return { ok: false, reason: 'no_id', xp: getXp() };
-  if (!Number.isFinite(a) || a <= 0) return { ok: false, reason: 'bad_amount', xp: getXp() };
+/**
+ * Marks node completed if not already completed.
+ * @returns {boolean} true if newly completed, false if already completed.
+ */
+export function markNodeCompleted(nodeId) {
+  const id = String(nodeId || '');
+  if (!id) return false;
 
   const s = loadState();
+  if (s.completed?.[id]) return false;
 
-  // already completed? if ANY id is completed, treat as completed
-  if (cleanIds.some(id => !!s.completed?.[id])) {
-    return { ok: false, reason: 'already_completed', xp: Number(s.xp || 0) };
-  }
-
-  // mark all ids completed + award XP once
-  markCompletedInternal(s, cleanIds);
-  s.xp = Number(s.xp || 0) + a;
-
+  s.completed[id] = Date.now();
   saveState(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: s.xp } }));
-  window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id: cleanIds[0] } }));
-  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap', { detail: { id: cleanIds[0] } }));
-
-  return { ok: true, reason: 'awarded', xp: s.xp };
-}
-
-// Level system
-export function getLevel(xp) {
-  const x = Math.max(0, Number(xp) || 0);
-  return Math.floor(x / 100) + 1;
-}
-export function getXpIntoLevel(xp) {
-  const x = Math.max(0, Number(xp) || 0);
-  return x % 100;
+  window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id } }));
+  return true;
 }
 
 export function hardResetState() {
   try { localStorage.removeItem(KEY); } catch {}
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0 } }));
-  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap' }));
+  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, delta: 0 } }));
+  window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id: null } }));
 }

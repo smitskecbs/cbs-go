@@ -1,19 +1,20 @@
 // src/ui/realMapView.js
-// Real GPS map using Leaflet + OpenStreetMap tiles.
-// Shows your live position and spawns "drops" near you while walking.
-// HTTPS is required on most phones (GitHub Pages is OK).
-
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+// Leaflet via CDN (window.L)
+// Fixes:
+// - Nodes can only be opened when you are NEAR (no "dev mode").
+// - GPS distance converts to STEPS (reliable) and triggers 5k/10k rewards.
+// - Follow toggle still works.
 
 import { nodes } from '../data/nodes.js';
 import { isNodeCompleted } from '../app/state.js';
-import { getPlayerName } from '../app/leaderboard.js';
+import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
 import { openPuzzleModal } from './puzzleModal.js';
+import { addMeters, loadSteps } from '../app/steps.js';
 
-// --- simple drop system (local demo) ---
-const DROPS_KEY = 'cbsgo_drops_v1';
-const LAST_POS_KEY = 'cbsgo_last_pos_v1';
+const LAST_POS_KEY = 'cbsgo_last_pos_v3';
+const NODES_POS_KEY = 'cbsgo_nodes_pos_v2';
+const GPS_AUTOSTART_KEY = 'cbsgo_gps_autostart_v1';
+const FOLLOW_KEY = 'cbsgo_follow_me_v1';
 
 function readJSON(key, fallback) {
   try {
@@ -28,8 +29,16 @@ function writeJSON(key, v) {
   try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
 }
 
+function esc(s) {
+  return String(s || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 function metersBetween(a, b) {
-  // Haversine
   const R = 6371000;
   const toRad = (x) => (x * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
@@ -44,160 +53,130 @@ function metersBetween(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-function getDrops() {
-  return readJSON(DROPS_KEY, []);
-}
-function setDrops(arr) {
-  writeJSON(DROPS_KEY, arr);
-}
-
-function maybeSpawnDropNear(lat, lng) {
-  // spawn chance + spacing
-  const drops = getDrops();
-  const now = Date.now();
-
-  // don't spam: max 1 drop per ~40 seconds
-  const last = drops.length ? drops[drops.length - 1].t : 0;
-  if (now - last < 40_000) return;
-
-  // 25% chance
-  if (Math.random() > 0.25) return;
-
-  // random offset ~20-60 meters
-  const r = 20 + Math.random() * 40;
-  const ang = Math.random() * Math.PI * 2;
-
-  // rough meter->deg conversion
-  const dLat = (r * Math.cos(ang)) / 111111;
-  const dLng = (r * Math.sin(ang)) / (111111 * Math.cos((lat * Math.PI) / 180));
-
-  const drop = {
-    id: 'drop-' + Math.random().toString(16).slice(2),
-    lat: lat + dLat,
-    lng: lng + dLng,
-    kind: Math.random() < 0.7 ? 'ticket' : 'xp',
-    value: Math.random() < 0.7 ? 1 : 10,
-    t: now,
-    taken: false
-  };
-
-  drops.push(drop);
-  setDrops(drops);
-}
-
-function takeDrop(dropId) {
-  const drops = getDrops();
-  const d = drops.find(x => x.id === dropId);
-  if (!d || d.taken) return null;
-  d.taken = true;
-  setDrops(drops);
-  return d;
-}
-
-// --- Leaflet instance cache (so we don't re-init every rerender) ---
+// --- Leaflet state ---
 let map = null;
-let meMarker = null;
-let watchId = null;
 let nodesLayer = null;
-let dropsLayer = null;
+let watchId = null;
 
-function esc(s) {
-  return String(s || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
+let meMarker = null;
+let meIcon = null;
+
+function getLeaflet() {
+  const L = window.L;
+  return L && typeof L.map === 'function' ? L : null;
 }
 
-function getVisibleNodes() {
-  // show only not completed, solo only (no group)
+function clearGpsWatch() {
+  if (watchId != null && navigator.geolocation) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+}
+
+function getFollow() {
+  try {
+    const v = localStorage.getItem(FOLLOW_KEY);
+    return v == null ? true : v === '1';
+  } catch {
+    return true;
+  }
+}
+function setFollow(v) {
+  try { localStorage.setItem(FOLLOW_KEY, v ? '1' : '0'); } catch {}
+}
+
+function visibleNodes() {
   return nodes.filter(n => n.type !== 'group' && !isNodeCompleted(n.id));
 }
 
-function nodeToLatLng(node) {
-  // If you already have real lat/lng in nodes later:
-  // return { lat: node.lat, lng: node.lng }
-  // For now: we auto-place nodes around you (relative) when GPS is known.
-  return null;
+// --- stable node positions around first GPS seed ---
+function ensureNodePositions(seedCenter) {
+  const stored = readJSON(NODES_POS_KEY, null);
+  if (stored && stored.seed && stored.posById) return stored;
+
+  const list = visibleNodes();
+  const posById = {};
+  const placed = [];
+
+  const minSepM = 90;
+  const minR = 160;
+  const maxR = 420;
+  const maxTry = 4000;
+
+  function toDegOffset(lat, rM, ang) {
+    const dLat = (rM * Math.cos(ang)) / 111111;
+    const dLng = (rM * Math.sin(ang)) / (111111 * Math.cos((lat * Math.PI) / 180));
+    return { dLat, dLng };
+  }
+
+  let tries = 0;
+  for (const node of list) {
+    let ok = false;
+    while (!ok && tries < maxTry) {
+      tries++;
+      const r = minR + Math.random() * (maxR - minR);
+      const ang = Math.random() * Math.PI * 2;
+      const off = toDegOffset(seedCenter.lat, r, ang);
+      const cand = { lat: seedCenter.lat + off.dLat, lng: seedCenter.lng + off.dLng };
+
+      ok = placed.every(p => metersBetween(p, cand) >= minSepM);
+      if (ok) {
+        placed.push(cand);
+        posById[node.id] = { dLat: off.dLat, dLng: off.dLng };
+      }
+    }
+
+    if (!posById[node.id]) {
+      const off = toDegOffset(seedCenter.lat, minR, Math.random() * Math.PI * 2);
+      posById[node.id] = { dLat: off.dLat, dLng: off.dLng };
+    }
+  }
+
+  const save = { seed: seedCenter, posById, createdAt: Date.now() };
+  writeJSON(NODES_POS_KEY, save);
+  return save;
 }
 
-function clearLayers() {
-  if (nodesLayer) {
-    nodesLayer.clearLayers();
-  }
-  if (dropsLayer) {
-    dropsLayer.clearLayers();
-  }
+function nodeLatLng(node, centerSeed) {
+  const stored = readJSON(NODES_POS_KEY, null);
+  const seed = stored?.seed || centerSeed;
+  const off = stored?.posById?.[node.id];
+  if (!seed || !off) return null;
+  return { lat: seed.lat + off.dLat, lng: seed.lng + off.dLng };
 }
 
-function renderNodesOnMap(center) {
-  const list = getVisibleNodes();
-  if (!nodesLayer) nodesLayer = L.layerGroup().addTo(map);
+function setNearInfo(text) {
+  const el = document.querySelector('#nearInfo');
+  if (el) el.textContent = text || '';
+}
 
-  nodesLayer.clearLayers();
+function buildAvatarIcon(L) {
+  const av = getPlayerAvatar();
+  if (!av) return null;
 
-  // place them around the player in a small ring (demo)
-  const radiusM = 120; // ~120m radius
-  list.forEach((node, idx) => {
-    const ang = (idx / Math.max(1, list.length)) * Math.PI * 2;
-    const r = radiusM * (0.6 + Math.random() * 0.4);
+  const html = `
+    <div style="
+      width:42px;height:42px;border-radius:999px;
+      border:2px solid rgba(255,255,255,.95);
+      box-shadow:0 10px 24px rgba(0,0,0,.45);
+      background-image:url('${av}');
+      background-size:cover;
+      background-position:center;
+    "></div>
+  `;
 
-    const dLat = (r * Math.cos(ang)) / 111111;
-    const dLng = (r * Math.sin(ang)) / (111111 * Math.cos((center.lat * Math.PI) / 180));
-
-    const lat = center.lat + dLat;
-    const lng = center.lng + dLng;
-
-    const marker = L.circleMarker([lat, lng], {
-      radius: 10,
-      weight: 2
-    });
-
-    marker.bindTooltip(node.name, { direction: 'top', offset: [0, -10] });
-
-    marker.on('click', () => openPuzzleModal(node));
-
-    marker.addTo(nodesLayer);
+  return L.divIcon({
+    html,
+    className: '',
+    iconSize: [42, 42],
+    iconAnchor: [21, 21]
   });
-}
-
-function renderDropsOnMap() {
-  if (!dropsLayer) dropsLayer = L.layerGroup().addTo(map);
-  dropsLayer.clearLayers();
-
-  const drops = getDrops().filter(d => !d.taken).slice(-20); // show last 20 active
-
-  drops.forEach(d => {
-    const marker = L.circleMarker([d.lat, d.lng], {
-      radius: 9,
-      weight: 2
-    });
-
-    const label = d.kind === 'ticket' ? `🎟 Ticket +${d.value}` : `⚡ XP +${d.value}`;
-    marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
-
-    marker.on('click', () => {
-      const taken = takeDrop(d.id);
-      if (!taken) return;
-
-      alert(`Collected: ${label}\n\n(We’ll connect tickets/xp into the real economy next.)`);
-      renderDropsOnMap();
-    });
-
-    marker.addTo(dropsLayer);
-  });
-}
-
-function stopGps() {
-  if (watchId != null && navigator.geolocation) {
-    navigator.geolocation.clearWatch(watchId);
-  }
-  watchId = null;
 }
 
 export function renderRealMapView() {
   const me = getPlayerName() || 'You';
+  const av = getPlayerAvatar();
+  const followLabel = getFollow() ? 'Following ✅' : 'Free look 👀';
+
+  const steps = loadSteps().steps || 0;
 
   return `
     <section class="mapCard" style="
@@ -209,23 +188,36 @@ export function renderRealMapView() {
     ">
       <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
         <div>
-          <div style="font-size:18px; font-weight:800; margin:0;">Live Map (GPS)</div>
-          <div style="opacity:.75; font-size:13px;">Walk outside. Pins and drops are placed around you.</div>
-          <div style="opacity:.75; font-size:13px; margin-top:6px;">Tip: tap a pin to open a puzzle.</div>
+          <div style="font-size:18px; font-weight:900; margin:0;">Live Map (GPS)</div>
+          <div style="opacity:.75; font-size:13px;">Distance → steps. 5k steps = +20 XP. 10k steps = +1 🎟.</div>
+          <div id="stepsLine" style="opacity:.85; font-size:13px; margin-top:6px;">Steps: <b>${Number(steps)}</b></div>
         </div>
-        <div style="opacity:.75; font-size:13px;">You: <b style="opacity:1">${esc(me)}</b></div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <div style="
+            width:28px;height:28px;border-radius:999px;
+            border:1px solid rgba(255,255,255,.18);
+            background:rgba(255,255,255,.06);
+            ${av ? `background-image:url('${av}'); background-size:cover; background-position:center;` : ''}
+            display:flex;align-items:center;justify-content:center;
+            overflow:hidden;
+          ">${av ? '' : '👤'}</div>
+          <div style="opacity:.75; font-size:13px;">${esc(me)}</div>
+        </div>
       </div>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px;">
         <button id="gpsStartBtn" class="btn" type="button">Enable GPS</button>
         <button id="gpsStopBtn" class="btn secondary" type="button">Stop GPS</button>
-        <span id="gpsStatus" style="opacity:.8; font-size:13px;"></span>
+        <button id="followBtn" class="btn secondary" type="button">${followLabel}</button>
+        <span id="gpsStatus" style="opacity:.85; font-size:13px;"></span>
       </div>
+
+      <div id="nearInfo" style="margin-top:10px; opacity:.85; font-size:13px;"></div>
 
       <div id="leafletMap" style="
         margin-top:12px;
         width:100%;
-        height:520px;
+        height:540px;
         border-radius:16px;
         border:1px solid rgba(255,255,255,.10);
         overflow:hidden;
@@ -234,117 +226,228 @@ export function renderRealMapView() {
   `;
 }
 
+function renderNodesOnMap(centerNow) {
+  const L = getLeaflet();
+  if (!L || !map) return;
+
+  if (!nodesLayer) nodesLayer = L.layerGroup().addTo(map);
+  nodesLayer.clearLayers();
+
+  const list = visibleNodes();
+  const stored = ensureNodePositions(centerNow);
+
+  const pts = [];
+  for (const node of list) {
+    const ll = nodeLatLng(node, stored.seed);
+    if (!ll) continue;
+
+    const dist = Math.round(metersBetween(centerNow, ll));
+    if (dist > 1200) continue;
+
+    pts.push({ node, ll, dist });
+  }
+
+  pts.sort((a, b) => a.dist - b.dist);
+
+  if (pts.length === 0) {
+    setNearInfo('No nodes nearby (walk a bit).');
+  } else {
+    setNearInfo(`Nearest: ${pts[0].node.name} • ${pts[0].dist}m • Visible: ${pts.length} (must be close to open)`);
+  }
+
+  // IMPORTANT: you can only open if within this radius
+  const OPEN_RADIUS_M = 60;
+
+  pts.forEach(({ node, ll, dist }) => {
+    const marker = L.circleMarker([ll.lat, ll.lng], {
+      radius: 11,
+      weight: 2
+    });
+
+    marker.bindTooltip(`${node.name} • ${dist}m`, { direction: 'top', offset: [0, -10] });
+
+    marker.on('click', () => {
+      if (dist > OPEN_RADIUS_M) {
+        alert(`Too far.\n\nGo closer to open:\n${node.name}\nDistance: ${dist}m\nRequired: ≤ ${OPEN_RADIUS_M}m`);
+        return;
+      }
+      openPuzzleModal(node);
+    });
+
+    marker.addTo(nodesLayer);
+  });
+}
+
+function initMapOnce(containerEl) {
+  const L = getLeaflet();
+  if (!L) return false;
+
+  if (!map) {
+    map = L.map(containerEl, { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    map.setView([51.687, 4.867], 16);
+
+    map.on('dragstart', () => {
+      setFollow(false);
+      const b = document.querySelector('#followBtn');
+      if (b) b.textContent = 'Free look 👀';
+    });
+    map.on('zoomstart', () => {
+      setFollow(false);
+      const b = document.querySelector('#followBtn');
+      if (b) b.textContent = 'Free look 👀';
+    });
+  } else {
+    setTimeout(() => map.invalidateSize(), 80);
+  }
+
+  return true;
+}
+
+function updateStepsLine() {
+  const el = document.querySelector('#stepsLine');
+  if (!el) return;
+  const s = loadSteps();
+  el.innerHTML = `Steps: <b>${Number(s.steps || 0)}</b>`;
+}
+
+function startGps(setStatus) {
+  if (!navigator.geolocation) {
+    setStatus('❌ GPS not supported.');
+    return;
+  }
+
+  try { localStorage.setItem(GPS_AUTOSTART_KEY, '1'); } catch {}
+  setStatus('Requesting GPS…');
+
+  const MIN_ACCURACY_M = 80;
+
+  clearGpsWatch();
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      const acc = pos.coords.accuracy || 999;
+
+      if (acc > MIN_ACCURACY_M) {
+        setStatus(`GPS OK but accuracy low (${Math.round(acc)}m). Move outside.`);
+        return;
+      }
+
+      setStatus(`✅ GPS active (±${Math.round(acc)}m)`);
+
+      const center = { lat, lng };
+
+      const L = getLeaflet();
+      if (L && map) {
+        const nextIcon = buildAvatarIcon(L);
+        if (nextIcon && (!meIcon || JSON.stringify(meIcon?.options) !== JSON.stringify(nextIcon?.options))) {
+          meIcon = nextIcon;
+          if (meMarker) meMarker.setIcon(meIcon);
+        }
+
+        if (!meMarker) {
+          meMarker = meIcon
+            ? L.marker([lat, lng], { icon: meIcon }).addTo(map)
+            : L.circleMarker([lat, lng], { radius: 8, weight: 2 }).addTo(map);
+        } else {
+          meMarker.setLatLng([lat, lng]);
+        }
+      }
+
+      if (map && getFollow()) {
+        map.setView([lat, lng], Math.max(map.getZoom(), 17), { animate: true });
+      }
+
+      // meters -> steps (reliable)
+      const last = readJSON(LAST_POS_KEY, null);
+      if (last) {
+        const dist = metersBetween(last, center);
+
+        // ignore jitter, ignore teleport jumps
+        if (dist >= 6 && dist <= 90) {
+          addMeters(dist);
+          updateStepsLine();
+        }
+      }
+      writeJSON(LAST_POS_KEY, center);
+
+      renderNodesOnMap(center);
+    },
+    (err) => {
+      setStatus(`❌ GPS blocked: ${err?.message || 'error'}`);
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 12000
+    }
+  );
+}
+
 export function bindRealMapView() {
   const mount = document.querySelector('#mapMount') || document;
   const el = mount.querySelector('#leafletMap');
   const startBtn = mount.querySelector('#gpsStartBtn');
   const stopBtn = mount.querySelector('#gpsStopBtn');
   const status = mount.querySelector('#gpsStatus');
+  const followBtn = mount.querySelector('#followBtn');
 
   if (!el) return;
 
-  const setStatus = (t) => {
-    if (status) status.textContent = t || '';
+  const setStatus = (t) => { if (status) status.textContent = t || ''; };
+
+  let tries = 0;
+  const tryInit = () => {
+    tries++;
+    const ok = initMapOnce(el);
+    if (!ok) {
+      setStatus('Loading map engine…');
+      if (tries < 30) setTimeout(tryInit, 150);
+      else setStatus('❌ Leaflet not loaded. Check index.html CDN.');
+      return;
+    }
+
+    setStatus('Map ready. Enable GPS.');
+
+    if (followBtn) {
+      followBtn.onclick = () => {
+        const next = !getFollow();
+        setFollow(next);
+        followBtn.textContent = next ? 'Following ✅' : 'Free look 👀';
+        if (next && map) {
+          const last = readJSON(LAST_POS_KEY, null);
+          if (last) map.setView([last.lat, last.lng], Math.max(map.getZoom(), 17), { animate: true });
+        }
+      };
+    }
+
+    if (startBtn) startBtn.onclick = () => startGps(setStatus);
+
+    if (stopBtn) {
+      stopBtn.onclick = () => {
+        clearGpsWatch();
+        setStatus('GPS stopped.');
+      };
+    }
+
+    updateStepsLine();
+
+    const auto = (() => {
+      try { return localStorage.getItem(GPS_AUTOSTART_KEY) === '1'; } catch { return false; }
+    })();
+    if (auto) startGps(setStatus);
+
+    if (!window.__cbsgo_steps_listener_v1) {
+      window.__cbsgo_steps_listener_v1 = true;
+      window.addEventListener('cbsgo:stepsChanged', updateStepsLine);
+    }
   };
 
-  // init map once
-  if (!map) {
-    map = L.map(el, { zoomControl: true });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
-
-    map.setView([51.687, 4.867], 16); // default-ish NL center, will jump to GPS
-  } else {
-    // Leaflet needs invalidateSize if container was re-rendered
-    setTimeout(() => map.invalidateSize(), 50);
-  }
-
-  // buttons
-  if (startBtn) {
-    startBtn.onclick = () => {
-      if (!navigator.geolocation) {
-        setStatus('❌ GPS not supported in this browser.');
-        return;
-      }
-
-      setStatus('Requesting GPS…');
-
-      // single fix to reduce “table drift”: ignore super-bad accuracy
-      const MIN_ACCURACY_M = 35;
-
-      stopGps();
-
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const acc = pos.coords.accuracy || 999;
-
-          if (acc > MIN_ACCURACY_M) {
-            setStatus(`GPS OK but accuracy too low (${Math.round(acc)}m). Move outside.`);
-            return;
-          }
-
-          setStatus(`✅ GPS active (±${Math.round(acc)}m)`);
-
-          const center = { lat, lng };
-
-          // move marker
-          if (!meMarker) {
-            meMarker = L.circleMarker([lat, lng], { radius: 8, weight: 2 }).addTo(map);
-            meMarker.bindTooltip('You', { permanent: false });
-          } else {
-            meMarker.setLatLng([lat, lng]);
-          }
-
-          // center map
-          map.setView([lat, lng], Math.max(map.getZoom(), 17), { animate: true });
-
-          // spawn drops only when you really moved
-          const last = readJSON(LAST_POS_KEY, null);
-          if (last) {
-            const dist = metersBetween(last, center);
-            if (dist >= 18) { // moved ~18m
-              maybeSpawnDropNear(lat, lng);
-            }
-          }
-          writeJSON(LAST_POS_KEY, center);
-
-          // nodes around you + drops
-          renderNodesOnMap(center);
-          renderDropsOnMap();
-        },
-        (err) => {
-          setStatus(`❌ GPS blocked: ${err?.message || 'error'}`);
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 1000,
-          timeout: 12000
-        }
-      );
-    };
-  }
-
-  if (stopBtn) {
-    stopBtn.onclick = () => {
-      stopGps();
-      setStatus('GPS stopped.');
-    };
-  }
-
-  // if nodes completion changes, refresh layers
-  if (!window.__cbsgo_realmap_nodes_listener) {
-    window.__cbsgo_realmap_nodes_listener = true;
-    window.addEventListener('cbsgo:nodesChanged', () => {
-      // re-render with last known position if possible
-      const last = readJSON(LAST_POS_KEY, null);
-      if (last && map) {
-        renderNodesOnMap(last);
-        renderDropsOnMap();
-      }
-    });
-  }
+  tryInit();
 }
