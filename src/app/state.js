@@ -64,6 +64,14 @@ export function isNodeCompleted(nodeId) {
 }
 
 /**
+ * ✅ Backward-compat: old modules import isCompleted()
+ * Keep forever so older UI files don't break.
+ */
+export function isCompleted(nodeId) {
+  return isNodeCompleted(nodeId);
+}
+
+/**
  * Marks node completed if not already completed.
  * @returns {boolean} true if newly completed, false if already completed.
  */
@@ -81,8 +89,38 @@ export function markNodeCompleted(nodeId) {
   return true;
 }
 
+/**
+ * ✅ Used by puzzleModal:
+ * Complete node once and award XP.
+ * Accepts multiple ids (primary + legacy) and locks them all at once.
+ * Returns { ok:boolean, reason?:string }
+ */
+export function completeNodeAndAwardXp(ids, rewardXp) {
+  const list = Array.isArray(ids)
+    ? ids.map(x => String(x || '').trim()).filter(Boolean)
+    : [String(ids || '').trim()].filter(Boolean);
+
+  if (list.length === 0) return { ok: false, reason: 'no_id' };
+
+  // already completed?
+  if (list.some(id => isNodeCompleted(id))) {
+    return { ok: false, reason: 'already_completed' };
+  }
+
+  // mark all ids completed
+  list.forEach(id => markNodeCompleted(id));
+
+  const xp = Number(rewardXp || 0);
+  if (Number.isFinite(xp) && xp > 0) addXp(xp);
+
+  // let map/UI refresh (pins disappear etc.)
+  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap'));
+  return { ok: true };
+}
+
 export function hardResetState() {
   try { localStorage.removeItem(KEY); } catch {}
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, delta: 0 } }));
   window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id: null } }));
+  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap'));
 }
