@@ -41,7 +41,7 @@ export function addXp(amount) {
   s.xp = Number(s.xp || 0) + a;
   saveState(s);
 
-  // let UI refresh XP bar + list/map if needed
+  // notify UI
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: s.xp } }));
   return s.xp;
 }
@@ -73,9 +73,27 @@ export function markNodeCompleted(nodeId) {
   return true;
 }
 
-// Optional helpers (dev reset)
+// --------------------
+// Level system helpers
+// --------------------
+// Simple system: every 100 XP => next level.
+// Level 1 = 0..99, Level 2 = 100..199, etc.
+
+export function getLevel(xp) {
+  const x = Math.max(0, Number(xp) || 0);
+  return Math.floor(x / 100) + 1;
+}
+
+export function getXpIntoLevel(xp) {
+  const x = Math.max(0, Number(xp) || 0);
+  return x % 100;
+}
+
+// --------------------
+// Optional: dev reset
+// --------------------
 export function hardResetState() {
   localStorage.removeItem(KEY);
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0 } }));
-  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap'));
+  window.dispatchEvent(new CustomEvent('cbsgo:rerenderMap' }));
 }
