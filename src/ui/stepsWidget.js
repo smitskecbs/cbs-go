@@ -1,62 +1,22 @@
 // src/ui/stepsWidget.js
-// Steps + Tickets UI (GPS-based) + live GPS debug status
-// Compatible with different steps.js exports (no hard dependency on isStepsEnabled)
+// Steps + Tickets UI (GPS-based) - minimal & stable: no dependency on steps.js extra exports
 
-import {
-  getSteps,
-  enableSteps,
-  disableSteps,
-  getGpsDebug
-} from '../app/steps.js';
-
+import { getSteps, enableSteps, disableSteps } from '../app/steps.js';
 import { getTickets } from '../app/inventory.js';
 
-function esc(s) {
-  return String(s || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
+const ENABLE_KEY = 'cbsgo_steps_enabled_v1';
 
-function fmtTime(ts) {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString();
-  } catch {
-    return '';
-  }
+function isEnabled() {
+  try { return localStorage.getItem(ENABLE_KEY) === '1'; } catch { return false; }
 }
-
-// Fallback enabled detection:
-// If steps.js has isStepsEnabled export, use it; otherwise infer from GPS debug state.
-function isEnabledFallback() {
-  try {
-    const dbg = getGpsDebug();
-    // enabled if we have a recent reading OR a status message that indicates running
-    if (dbg?.lat) return true;
-    if (dbg?.msg && /enabled|watching|running|gps/i.test(String(dbg.msg))) return true;
-    return false;
-  } catch {
-    return false;
-  }
+function setEnabled(v) {
+  try { localStorage.setItem(ENABLE_KEY, v ? '1' : '0'); } catch {}
 }
 
 export function renderStepsWidget() {
   const steps = getSteps();
   const tickets = getTickets();
-
-  const dbg = getGpsDebug();
-  const enabled = isEnabledFallback();
-
-  const dbgLine = dbg?.err
-    ? `❌ ${esc(dbg.err)}`
-    : dbg?.lat
-      ? `✅ ${fmtTime(dbg.t)} acc=${Math.round(dbg.acc || 0)}m`
-      : dbg?.msg
-        ? `ℹ️ ${esc(dbg.msg)}`
-        : `…`;
+  const enabled = isEnabled();
 
   return `
     <div style="
@@ -73,7 +33,7 @@ export function renderStepsWidget() {
             Uses GPS distance to estimate steps (Android-friendly).
           </div>
           <div style="opacity:.75; font-size:12px; margin-top:4px;">
-            GPS Status: <b>${enabled ? 'ENABLED' : 'OFF'}</b> • ${dbgLine}
+            GPS Steps: <b>${enabled ? 'ENABLED' : 'OFF'}</b>
           </div>
           <div style="opacity:.6; font-size:12px; margin-top:4px;">
             Milestones: <b>5,000 steps</b> → +20 XP • <b>10,000 steps</b> → +1 Ticket
@@ -90,7 +50,7 @@ export function renderStepsWidget() {
       </div>
 
       <div style="margin-top:10px; opacity:.75; font-size:12px;">
-        Tip: open on your phone on HTTPS (GitHub Pages is perfect) and walk outside for real GPS.
+        Tip: Use on phone (HTTPS). After enabling, walk outside to rack up steps.
       </div>
     </div>
   `;
@@ -105,10 +65,11 @@ export function bindStepsWidget() {
   btn.__cbsgo_bound = true;
 
   btn.addEventListener('click', async () => {
-    const enabled = isEnabledFallback();
+    const enabled = isEnabled();
 
     if (enabled) {
       try { disableSteps(); } catch {}
+      setEnabled(false);
       window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
       return;
     }
@@ -117,11 +78,12 @@ export function bindStepsWidget() {
       const res = await enableSteps();
       if (!res?.ok) {
         alert(res?.reason || 'Could not enable GPS steps.');
+        return;
       }
+      setEnabled(true);
+      window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
     } catch (e) {
       alert(e?.message || 'Could not enable GPS steps.');
     }
-
-    window.dispatchEvent(new CustomEvent('cbsgo:rerenderSteps'));
   });
 }
