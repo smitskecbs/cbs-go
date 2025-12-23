@@ -1,7 +1,6 @@
 // src/ui/mapView.js
 // Safe Leaflet map mount (waits for window.L to exist on GitHub Pages)
-// - Fullscreen friendly
-// - Uses Profile avatar/initials as player marker (no blue dot)
+// Player marker uses Profile avatar (or initial) — no blue dot.
 
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
 
@@ -38,8 +37,53 @@ function showMapMsg(text) {
   msg.textContent = text || '';
 }
 
+function initialOfName() {
+  const n = String(getPlayerName() || '').trim();
+  if (!n) return '🙂';
+  return n[0].toUpperCase();
+}
+
+function buildPlayerIcon(L) {
+  const av = getPlayerAvatar();
+  if (av) {
+    const html = `
+      <div style="
+        width:42px;height:42px;border-radius:999px;
+        border:2px solid rgba(255,255,255,.95);
+        box-shadow:0 10px 24px rgba(0,0,0,.45);
+        background-image:url('${av}');
+        background-size:cover;
+        background-position:center;
+      "></div>
+    `;
+    return L.divIcon({
+      html,
+      className: '',
+      iconSize: [42, 42],
+      iconAnchor: [21, 21]
+    });
+  }
+
+  const ini = initialOfName();
+  const html = `
+    <div style="
+      width:38px;height:38px;border-radius:999px;
+      border:2px solid rgba(255,255,255,.90);
+      box-shadow:0 10px 24px rgba(0,0,0,.45);
+      background:rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:900;font-size:16px;color:#fff;
+    ">${ini}</div>
+  `;
+  return L.divIcon({
+    html,
+    className: '',
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
+  });
+}
+
 export function renderMapView() {
-  // Host is position:relative so we can overlay messages safely
   return `
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
@@ -55,53 +99,6 @@ function destroyMapIfAny() {
       userMarker = null;
     }
   } catch {}
-}
-
-function buildMeIcon(L) {
-  const avatar = getPlayerAvatar();
-  const name = (getPlayerName() || 'You').trim();
-  const initial = (name[0] || 'Y').toUpperCase();
-
-  // If avatar exists: use it as background image
-  if (avatar) {
-    const html = `
-      <div style="
-        width:44px;height:44px;border-radius:999px;
-        border:2px solid rgba(255,255,255,.95);
-        box-shadow:0 10px 24px rgba(0,0,0,.45);
-        background-image:url('${avatar}');
-        background-size:cover;
-        background-position:center;
-        background-color:rgba(255,255,255,.10);
-      "></div>
-    `;
-    return L.divIcon({
-      html,
-      className: '',
-      iconSize: [44, 44],
-      iconAnchor: [22, 22],
-    });
-  }
-
-  // Otherwise: clean initial marker (no blue dot)
-  const html = `
-    <div style="
-      width:40px;height:40px;border-radius:999px;
-      border:2px solid rgba(255,255,255,.95);
-      box-shadow:0 10px 24px rgba(0,0,0,.45);
-      background:rgba(0,0,0,.35);
-      display:flex;align-items:center;justify-content:center;
-      font-family:system-ui, sans-serif;
-      font-weight:900;
-      color:#fff;
-    ">${initial}</div>
-  `;
-  return L.divIcon({
-    html,
-    className: '',
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-  });
 }
 
 function initLeaflet() {
@@ -124,31 +121,32 @@ function initLeaflet() {
   return true;
 }
 
+function setUserMarker(latlng) {
+  const L = window.L;
+  if (!L || !map) return;
+
+  const icon = buildPlayerIcon(L);
+
+  if (!userMarker) {
+    userMarker = L.marker(latlng, { icon }).addTo(map);
+    map.setView(latlng, 18);
+    return;
+  }
+
+  // Update icon live (avatar can change)
+  userMarker.setIcon(icon);
+  userMarker.setLatLng(latlng);
+}
+
 function startGps() {
   if (!navigator.geolocation || !map || !window.L) return;
 
   navigator.geolocation.watchPosition(
     (pos) => {
       const { latitude, longitude, accuracy } = pos.coords;
-      const L = window.L;
-
       const latlng = [latitude, longitude];
 
-      if (!userMarker) {
-        // ✅ no blue dot: use avatar/initial icon
-        const icon = buildMeIcon(L);
-        userMarker = L.marker(latlng, { icon }).addTo(map);
-
-        map.setView(latlng, 18);
-      } else {
-        userMarker.setLatLng(latlng);
-
-        // If profile changed (avatar/name), refresh icon
-        try {
-          const icon = buildMeIcon(L);
-          userMarker.setIcon(icon);
-        } catch {}
-      }
+      setUserMarker(latlng);
 
       showMapMsg(`GPS OK • accuracy ~${Math.round(accuracy)}m`);
     },
