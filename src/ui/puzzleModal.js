@@ -49,13 +49,13 @@ export function closePuzzleModal() {
 }
 
 function acceptedAnswers(node) {
-  // supports node.answers: [] or node.answer: "..."
-  const arr = Array.isArray(node?.answers) ? node.answers : (node?.answer ? [node.answer] : []);
+  const arr = Array.isArray(node?.answers)
+    ? node.answers
+    : (node?.answer ? [node.answer] : []);
   return arr.map(norm).filter(Boolean);
 }
 
 function getQuestion(node) {
-  // supports node.question or node.puzzle?.question
   return node?.question || node?.puzzle?.question || `Solve the node: ${node?.name || ''}`;
 }
 
@@ -64,7 +64,6 @@ function getHint(node) {
 }
 
 function getRewardXp(node) {
-  // supports node.xp or node.rewardXp
   const v = Number(node?.xp ?? node?.rewardXp ?? 50);
   return Number.isFinite(v) ? v : 50;
 }
@@ -102,39 +101,38 @@ export function openPuzzleModal(node) {
       <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04);">
         <div style="font-size:14px; font-weight:700;">Question</div>
         <div style="margin-top:6px; opacity:.92; line-height:1.35;">${esc(q)}</div>
-
         ${hint ? `<div style="margin-top:10px; font-size:13px; opacity:.8;"><b>Hint:</b> ${esc(hint)}</div>` : ``}
       </div>
 
       ${
         done
-        ? `
-          <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(0,255,128,.20); background:rgba(0,255,128,.08);">
-            ✅ Completed. This node can’t give XP again.
-          </div>
-        `
-        : `
-          <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <input id="cbsgoAnswer" placeholder="Type your answer…" style="
-              flex:1; min-width:220px;
-              padding:12px 12px;
-              border-radius:14px;
-              border:1px solid rgba(255,255,255,.14);
-              background:rgba(255,255,255,.06);
-              color:#fff;
-            "/>
-            <button id="cbsgoSubmit" class="btn" type="button">Submit</button>
-          </div>
-          <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+          ? `
+            <div style="margin-top:12px; padding:12px; border-radius:14px; border:1px solid rgba(0,255,128,.20); background:rgba(0,255,128,.08);">
+              ✅ Completed. This node can’t give XP again.
+            </div>
+          `
+          : `
+            <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+              <input id="cbsgoAnswer" placeholder="Type your answer…" style="
+                flex:1; min-width:220px;
+                padding:12px 12px;
+                border-radius:14px;
+                border:1px solid rgba(255,255,255,.14);
+                background:rgba(255,255,255,.06);
+                color:#fff;
+              "/>
+              <button id="cbsgoSubmit" class="btn" type="button">Submit</button>
+            </div>
+            <div id="cbsgoMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
 
-          ${
-            answers.length === 0
-              ? `<div style="margin-top:10px; font-size:12px; opacity:.7;">
-                   (Dev note: this node has no answers yet. Add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
-                 </div>`
-              : ``
-          }
-        `
+            ${
+              answers.length === 0
+                ? `<div style="margin-top:10px; font-size:12px; opacity:.7;">
+                     (Dev note: this node has no answers yet. Add <code>answers: ["..."]</code> in <code>src/data/nodes.js</code>.)
+                   </div>`
+                : ``
+            }
+          `
       }
     </div>
   `;
@@ -151,7 +149,6 @@ export function openPuzzleModal(node) {
   const setMsg = (t) => { if (msg) msg.textContent = t || ''; };
 
   const trySubmit = () => {
-    // safety check again (if it got completed in another tab)
     if (isNodeCompleted(id)) {
       setMsg('✅ Already completed.');
       return;
@@ -159,7 +156,6 @@ export function openPuzzleModal(node) {
 
     const user = norm(input?.value || '');
 
-    // If no answers defined, we do NOT award XP (prevents farming demo nodes)
     if (answers.length === 0) {
       setMsg('⚠️ This node has no answers configured yet.');
       return;
@@ -171,7 +167,6 @@ export function openPuzzleModal(node) {
       return;
     }
 
-    // Mark complete ONCE
     const newlyCompleted = markNodeCompleted(id);
     if (!newlyCompleted) {
       setMsg('✅ Already completed.');
@@ -181,10 +176,7 @@ export function openPuzzleModal(node) {
     addXp(reward);
     setMsg(`✅ Correct! +${reward} XP`);
 
-    // Close after a short beat
-    setTimeout(() => {
-      closePuzzleModal();
-    }, 550);
+    setTimeout(() => closePuzzleModal(), 550);
   };
 
   if (submit) submit.onclick = trySubmit;
@@ -195,4 +187,3 @@ export function openPuzzleModal(node) {
     setTimeout(() => input.focus(), 50);
   }
 }
-
