@@ -220,9 +220,9 @@ function bindLeaderboardEvents() {
 
 function getSelectedTab() {
   try {
-    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'nodes';
+    return sessionStorage.getItem('cbsgo_selected_tab_v1') || 'map';
   } catch {
-    return 'nodes';
+    return 'map';
   }
 }
 
@@ -232,19 +232,127 @@ function setSelectedTab(tab) {
   } catch {}
 }
 
-function renderTabs() {
+function renderBottomNav() {
   const t = getSelectedTab();
-  const btn = (id, label) => `
-    <button class="btn secondary" type="button"
-      data-tab="${id}"
-      style="opacity:${t === id ? '1' : '.75'};">
-      ${label}
+  const btn = (id, label, icon) => `
+    <button type="button" data-tab="${id}" style="
+      flex:1;
+      height:56px;
+      border:0;
+      background:transparent;
+      color:#fff;
+      opacity:${t === id ? '1' : '.72'};
+      font:inherit;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:2px;
+    ">
+      <div style="font-size:18px; line-height:18px;">${icon}</div>
+      <div style="font-size:11px;">${label}</div>
     </button>
   `;
+
   return `
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px;">
-      ${btn('nodes', 'Nodes')}
-      ${btn('map', 'Map')}
+    <nav style="
+      position:fixed;
+      left:0; right:0; bottom:0;
+      z-index:5000;
+      padding:10px 10px calc(10px + env(safe-area-inset-bottom));
+      background:rgba(10,12,18,.72);
+      backdrop-filter: blur(10px);
+      border-top:1px solid rgba(255,255,255,.10);
+    ">
+      <div style="
+        display:flex;
+        gap:8px;
+        border-radius:18px;
+        border:1px solid rgba(255,255,255,.10);
+        background:rgba(0,0,0,.18);
+        overflow:hidden;
+      ">
+        ${btn('map', 'Map', '🗺️')}
+        ${btn('nodes', 'Nodes', '🧩')}
+        ${btn('profile', 'Profile', '👤')}
+      </div>
+    </nav>
+  `;
+}
+
+export function renderAppShell() {
+  const dev = isDev();
+  const myAvatar = getPlayerAvatar();
+
+  // FULLSCREEN MAP BASE + OVERLAYS
+  return `
+    <div class="app-shell" style="
+      position:fixed; inset:0;
+      width:100vw; height:100vh;
+      overflow:hidden;
+      background:#05070b;
+    ">
+      <!-- MAP (always mounted) -->
+      <div id="mapMount" style="
+        position:absolute; inset:0;
+        z-index:1;
+      ">
+        ${renderMapView()}
+      </div>
+
+      <!-- TOPBAR overlay -->
+      <header class="topbar" style="
+        position:absolute;
+        top:0; left:0; right:0;
+        z-index:4000;
+        padding:10px 12px;
+        padding-top: calc(10px + env(safe-area-inset-top));
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        pointer-events:none;
+      ">
+        <div style="
+          display:flex; gap:10px; align-items:center;
+          pointer-events:auto;
+          padding:10px 12px;
+          border-radius:18px;
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(10,12,18,.72);
+          backdrop-filter: blur(10px);
+        ">
+          ${avatarCircle(myAvatar, 32)}
+          <div>
+            <div style="font-weight:900; line-height:1;">CBS GO</div>
+            <div style="opacity:.8; font-size:12px;">Explore Web2 × Web3, IRL</div>
+          </div>
+        </div>
+
+        <div id="xpMount" style="
+          pointer-events:auto;
+          padding:10px 12px;
+          border-radius:18px;
+          border:1px solid rgba(255,255,255,.12);
+          background:rgba(10,12,18,.72);
+          backdrop-filter: blur(10px);
+        ">
+          ${renderXpBar()}
+        </div>
+      </header>
+
+      ${renderBottomNav()}
+
+      ${
+        dev
+          ? `<button id="resetBtn" class="btn secondary" type="button" style="
+               position:fixed;
+               right:12px;
+               bottom:80px;
+               z-index:6000;
+             ">Reset Demo</button>`
+          : ``
+      }
     </div>
   `;
 }
@@ -254,62 +362,11 @@ function bindTabs() {
     b.addEventListener('click', () => {
       const tab = b.getAttribute('data-tab');
       setSelectedTab(tab);
+      // In stap 1 doen tabs nog niets behalve "selected state"
+      // Panels komen in stap 2.
       mountApp();
     });
   });
-}
-
-export function renderAppShell() {
-  const dev = isDev();
-  const myAvatar = getPlayerAvatar();
-  const tab = getSelectedTab();
-
-  return `
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="topbar-left" style="display:flex; gap:10px; align-items:center;">
-          ${avatarCircle(myAvatar, 32)}
-          <div>
-            <h1 style="margin:0;">CBS GO</h1>
-            <span class="tagline">Mind & Motion</span>
-          </div>
-        </div>
-
-        <div class="topbar-right" id="xpMount">
-          ${renderXpBar()}
-        </div>
-      </header>
-
-      <main class="main">
-        <p>Welcome Sovereign 👋</p>
-        <p>Explore the real world. Unlock Nodes. Solve puzzles.</p>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <button id="startBtn" type="button">Start Exploring</button>
-          ${dev ? `<button id="resetBtn" class="btn secondary" type="button">Reset Demo (Hard)</button>` : ``}
-        </div>
-
-        ${dev ? `<p style="opacity:.65; font-size:12px; margin-top:8px;">Dev mode enabled (?dev=1)</p>` : ``}
-
-        ${renderTabs()}
-
-        <section id="tabNodes" style="display:${tab === 'nodes' ? 'block' : 'none'};">
-          <div id="nodesMount" class="mount">
-            ${renderNodesList()}
-          </div>
-          <aside id="lbMount">
-            ${renderLeaderboard()}
-          </aside>
-        </section>
-
-        <section id="tabMap" style="display:${tab === 'map' ? 'block' : 'none'};">
-          <div id="mapMount">
-            ${renderMapView()}
-          </div>
-        </section>
-      </main>
-    </div>
-  `;
 }
 
 export function mountApp() {
@@ -320,10 +377,10 @@ export function mountApp() {
 
   bindTabs();
 
-  bindNodesEvents('#nodesMount');
-  bindLeaderboardEvents();
+  // Map is altijd aanwezig
   bindMapView();
 
+  // Dev reset
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
     if (btn) btn.addEventListener('click', hardResetCBSGO);
@@ -347,13 +404,11 @@ export function mountApp() {
     });
   }
 
-  // ✅ rerender map/nodes when something completes (pin disappears)
+  // ✅ rerender map when something completes (pin disappears)
   if (!window.__cbsgo_rerender_map_listener) {
     window.__cbsgo_rerender_map_listener = true;
 
     const rerender = () => {
-      const tab = getSelectedTab();
-      if (tab !== 'map') return;
       const mount = document.querySelector('#mapMount');
       if (!mount) return;
       mount.innerHTML = renderMapView();
