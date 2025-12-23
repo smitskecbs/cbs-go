@@ -2,106 +2,93 @@
 import { nodes } from '../data/nodes.js';
 import { isNodeCompleted } from '../app/state.js';
 
-let map = null;
-let markers = [];
-
-function hasLeaflet() {
-  return typeof window !== 'undefined' && !!window.L;
-}
-
-function clearMarkers() {
-  markers.forEach(m => m.remove());
-  markers = [];
-}
-
-function getMyDefaultCenter() {
-  // fallback center: first node or NL-ish
-  const first = nodes.find(n => Number.isFinite(n.lat) && Number.isFinite(n.lng));
-  if (first) return [first.lat, first.lng];
-  return [52.0907, 5.1214]; // Utrecht-ish
-}
-
-function makeIcon(done) {
-  // Use default markers; tweak via CSS later if you want
-  return done ? '✅' : '📍';
+function esc(s) {
+  return String(s || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 export function renderMapView() {
-  if (!hasLeaflet()) {
-    return `
-      <div style="padding:12px; border:1px solid rgba(255,255,255,.12); border-radius:16px; background:rgba(255,255,255,.04);">
-        <div style="font-weight:700;">Map loading…</div>
-        <div style="opacity:.8; margin-top:6px;">
-          Leaflet not loaded. Make sure you added Leaflet CDN in <code>index.html</code>.
-        </div>
-      </div>
-    `;
-  }
-
+  // Fake map UI (your current one)
   return `
-    <div style="margin-top:10px;">
-      <div style="
-        border-radius:16px;
-        overflow:hidden;
-        border:1px solid rgba(255,255,255,.12);
-        background:rgba(0,0,0,.2);
-      ">
-        <div id="leafletMap" style="height:420px; width:100%;"></div>
-      </div>
+    <div class="mount" style="
+      padding:12px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.04);
+    ">
+      <div style="font-weight:800;">Map</div>
+      <div style="opacity:.75; margin-top:4px;">Fake map for now (next: GPS + real map)</div>
+      <div style="opacity:.75; margin-top:6px;">Tip: click a pin to open the node.</div>
 
-      <div style="margin-top:10px; font-size:12px; opacity:.75;">
-        Tip: Click a pin to open a Node. Completed nodes are marked.
+      <div id="cbsgoFakeMap" style="
+        margin-top:12px;
+        height:420px;
+        border-radius:16px;
+        border:1px solid rgba(255,255,255,.10);
+        background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.06), rgba(0,0,0,.25));
+        position:relative;
+        overflow:hidden;
+      ">
+        ${nodes.map((n, idx) => {
+          const done = isNodeCompleted(n.id);
+          // simple layout positions
+          const positions = [
+            { left: '10%', top: '60%' },
+            { left: '40%', top: '35%' },
+            { left: '70%', top: '58%' },
+            { left: '52%', top: '80%' },
+          ];
+          const p = positions[idx % positions.length];
+
+          return `
+            <button
+              type="button"
+              class="cbsgo-pin"
+              data-node-id="${esc(n.id)}"
+              style="
+                position:absolute;
+                left:${p.left}; top:${p.top};
+                transform:translate(-50%, -50%);
+                padding:10px 12px;
+                border-radius:999px;
+                border:1px solid rgba(255,255,255,.14);
+                background:${done ? 'rgba(0,255,128,.12)' : 'rgba(255,255,255,.06)'};
+                color:#fff;
+                cursor:pointer;
+              "
+              title="${esc(n.description || '')}"
+            >
+              ${done ? '✅' : '📍'} ${esc(n.name)}
+            </button>
+          `;
+        }).join('')}
       </div>
     </div>
   `;
 }
 
 export function bindMapView() {
-  if (!hasLeaflet()) return;
+  const mapEl = document.querySelector('#cbsgoFakeMap');
+  if (!mapEl) return;
 
-  const el = document.querySelector('#leafletMap');
-  if (!el) return;
+  // ✅ IMPORTANT: bind ONLY ONCE using event delegation
+  if (mapEl.dataset.bound === '1') return;
+  mapEl.dataset.bound = '1';
 
-  // init map once
-  if (!map) {
-    const center = getMyDefaultCenter();
-    map = window.L.map(el, { zoomControl: true }).setView(center, 16);
+  mapEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.cbsgo-pin');
+    if (!btn) return;
 
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap'
-    }).addTo(map);
-  } else {
-    // re-attach map to new DOM node after re-render
-    map._container = el;
-    el.innerHTML = '';
-    map.invalidateSize(true);
-  }
+    const id = btn.getAttribute('data-node-id');
+    if (!id) return;
 
-  clearMarkers();
+    console.log('[MAP CLICK]', { id });
 
-  nodes.forEach(n => {
-    if (!Number.isFinite(n.lat) || !Number.isFinite(n.lng)) return;
-
-    const done = isNodeCompleted(n.id);
-
-    const m = window.L.marker([n.lat, n.lng]).addTo(map);
-    m.bindPopup(`
-      <div style="min-width:180px;">
-        <div style="font-weight:800;">${makeIcon(done)} ${n.name}</div>
-        <div style="opacity:.85; margin-top:4px;">${n.description || ''}</div>
-        <div style="opacity:.75; margin-top:6px;">Reward: ${Number(n.xp || 0)} XP</div>
-        ${done ? `<div style="margin-top:6px;">✅ Completed</div>` : `<div style="margin-top:6px;">Click pin to open</div>`}
-      </div>
-    `);
-
-    m.on('click', () => {
-      // Let appShell open modal via global event (your existing flow)
-      window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id: n.id } }));
-    });
-
-    markers.push(m);
+    // Dispatch one event per click
+    window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id } }));
   });
-
-  map.invalidateSize(true);
 }
