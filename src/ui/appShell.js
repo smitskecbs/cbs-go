@@ -1,15 +1,13 @@
 // src/ui/appShell.js
 // Fullscreen map shell with overlays:
 // - Map is always visible full-screen
-// - Steps/Tickets are compact in TOPBAR (no big overlay)
-// - Profile tab: profile + leaderboard only
-// - Bag tab: inventory (tickets/items)
+// - Steps indicator is subtle (topbar) + profile/bag in panels
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
 
 import { renderXpBar } from './xpBar.js';
-import { renderStepsWidget, ensureStepsAutoStart } from './stepsWidget.js';
+import { renderStepsWidget, bindStepsWidget } from './stepsWidget.js';
 
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
 
@@ -51,6 +49,7 @@ function avatarCircle(dataUrl, size = 30) {
       display:flex;align-items:center;justify-content:center;
       overflow:hidden;
       font-size:16px;
+      flex:0 0 auto;
     ">${txt}</div>
   `;
 }
@@ -214,7 +213,7 @@ function renderLeaderboard() {
 
             <div id="lbMsg" style="margin-top:8px; font-size:12px; opacity:.9;"></div>
             <div style="margin-top:6px; font-size:12px; opacity:.7;">
-              Local only (this browser).
+              Local only (this browser). Later we’ll make it global + map-ready.
             </div>
           </div>
         </div>
@@ -349,9 +348,13 @@ function renderBag() {
       </div>
 
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-        <div class="pill">🎟 Tickets: <b>${tickets}</b></div>
+        <div class="pill">🎟️ Tickets: <b>${tickets}</b></div>
         <div class="pill" style="opacity:.7;">🎆 Fireworks: <b>0</b> (soon)</div>
         <div class="pill" style="opacity:.7;">🪙 CBS / SOL / MON: <b>0</b> (later)</div>
+      </div>
+
+      <div style="opacity:.7; font-size:12px; margin-top:10px;">
+        Next: add item bag (fireworks beacon) + loot drops on the map.
       </div>
     </div>
   `;
@@ -399,6 +402,7 @@ export function renderAppShell() {
         gap:10px;
         pointer-events:none;
       ">
+        <!-- LEFT (compact) -->
         <div style="
           display:flex; gap:10px; align-items:center;
           pointer-events:auto;
@@ -407,25 +411,40 @@ export function renderAppShell() {
           border:1px solid rgba(255,255,255,.12);
           background:rgba(10,12,18,.72);
           backdrop-filter: blur(10px);
+          min-width:0;
+          flex:0 0 auto;
         ">
-          ${avatarCircle(myAvatar, 32)}
-          <div>
-            <div style="font-weight:900; line-height:1;">CBS GO</div>
-            <div style="opacity:.8; font-size:12px;">Made by CBS Coin</div>
-          </div>
+          ${avatarCircle(myAvatar, 30)}
+          <div style="font-weight:900; line-height:1; white-space:nowrap;">CBS GO</div>
         </div>
 
-        <div id="xpMount" style="
+        <!-- RIGHT (XP + Steps/Tickets compact) -->
+        <div style="
           pointer-events:auto;
-          padding:10px 12px;
-          border-radius:18px;
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(10,12,18,.72);
-          backdrop-filter: blur(10px);
+          display:flex;
+          align-items:flex-start;
+          gap:10px;
+          min-width:0;
         ">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <div>${renderXpBar()}</div>
-            <div id="stepsTopbar">${renderStepsWidget()}</div>
+          <div id="xpMount" style="
+            padding:10px 12px;
+            border-radius:18px;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(10,12,18,.72);
+            backdrop-filter: blur(10px);
+          ">
+            ${renderXpBar()}
+          </div>
+
+          <div id="stepsOverlay" style="
+            padding:10px 12px;
+            border-radius:18px;
+            border:1px solid rgba(255,255,255,.12);
+            background:rgba(10,12,18,.72);
+            backdrop-filter: blur(10px);
+            white-space:nowrap;
+          ">
+            ${renderStepsWidget()}
           </div>
         </div>
       </header>
@@ -479,10 +498,23 @@ export function mountApp() {
   bindTabs();
   bindMapView();
 
-  // AUTO START GPS STEPS (asks permission)
-  ensureStepsAutoStart();
+  // Steps bindings + rerender
+  bindStepsWidget();
+  if (!window.__cbsgo_steps_rerender_listener) {
+    window.__cbsgo_steps_rerender_listener = true;
 
-  // profile bindings
+    const rerenderSteps = () => {
+      const mount = document.querySelector('#stepsOverlay');
+      if (!mount) return;
+      mount.innerHTML = renderStepsWidget();
+      bindStepsWidget();
+    };
+
+    window.addEventListener('cbsgo:rerenderSteps', rerenderSteps);
+    window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
+  }
+
+  // Profile bindings
   const t = getSelectedTab();
   if (t === 'profile') bindLeaderboardEvents();
 
@@ -507,7 +539,7 @@ export function mountApp() {
     });
   }
 
-  // rerender map when node completes
+  // Rerender map when node completes
   if (!window.__cbsgo_rerender_map_listener) {
     window.__cbsgo_rerender_map_listener = true;
 
@@ -520,19 +552,5 @@ export function mountApp() {
 
     window.addEventListener('cbsgo:rerenderMap', rerender);
     window.addEventListener('cbsgo:nodeCompleted', rerender);
-  }
-
-  // keep the mini topbar indicator updating if steps change
-  if (!window.__cbsgo_steps_topbar_listener) {
-    window.__cbsgo_steps_topbar_listener = true;
-
-    const rerenderSteps = () => {
-      const m = document.querySelector('#stepsTopbar');
-      if (!m) return;
-      m.innerHTML = renderStepsWidget();
-    };
-
-    window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
-    window.addEventListener('cbsgo:rerenderSteps', rerenderSteps);
   }
 }
