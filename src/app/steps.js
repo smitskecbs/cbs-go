@@ -97,7 +97,9 @@ export function addMeters(meters) {
   applyRewards(s);
   saveSteps(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } })
+  );
   return s;
 }
 
@@ -112,8 +114,12 @@ export function disableSteps() {
   clearWatch();
   enabled = false;
   gpsDebug = { msg: 'disabled', t: Date.now() };
-  try { localStorage.setItem(AUTOSTART_KEY, '0'); } catch {}
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+  try {
+    localStorage.setItem(AUTOSTART_KEY, '0');
+  } catch {}
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+  );
 }
 
 export async function enableSteps(opts = {}) {
@@ -125,14 +131,21 @@ export async function enableSteps(opts = {}) {
     return { ok: false, reason: 'GPS not supported' };
   }
 
-  try { localStorage.setItem(AUTOSTART_KEY, '1'); } catch {}
+  try {
+    localStorage.setItem(AUTOSTART_KEY, '1');
+  } catch {}
 
   clearWatch();
   enabled = true;
   gpsDebug = { msg: 'requesting', t: Date.now() };
 
-  // Indoor GPS can be noisy -> allow higher accuracy for “walk in house” testing
+  // Indoor/outdoor GPS can be noisy
   const MAX_ACCEPTED_ACCURACY_M = 200;
+
+  // Movement sanity rules (fix for “big jump ignored” on mobile)
+  const MIN_DIST_M = 1.5;     // ignore micro jitter
+  const MAX_DIST_M = 250;     // reject huge teleports
+  const MAX_SPEED_MPS = 3.2;  // ~11.5 km/h (fast walk/jog)
 
   try {
     watchId = navigator.geolocation.watchPosition(
@@ -140,33 +153,75 @@ export async function enableSteps(opts = {}) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         const acc = pos.coords.accuracy || 999;
-
-        gpsDebug = { lat, lng, acc, t: Date.now() };
+        const now = Date.now();
 
         const s = loadSteps();
         const last = s.lastPos;
 
-        // Always update lastPos so we can accumulate once accuracy improves
-        s.lastPos = { lat, lng, t: Date.now() };
-        saveSteps(s);
-
-        // Only count steps when accuracy is acceptable
+        // If accuracy is bad, update lastPos but don’t count steps yet
         if (acc > MAX_ACCEPTED_ACCURACY_M) {
-          window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+          s.lastPos = { lat, lng, t: now };
+          saveSteps(s);
+
+          gpsDebug = { lat, lng, acc, t: now, reason: 'accuracy' };
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+          );
           return;
         }
 
-        if (last && typeof last.lat === 'number' && typeof last.lng === 'number') {
-          const dist = metersBetween({ lat: last.lat, lng: last.lng }, { lat, lng });
+        let reason = 'no-last';
+        let dist = 0;
+        let dt = 0;
+        let speed = 0;
+        let added = 0;
 
-          // Indoor jitter: accept smaller movement, but cap big jumps
-          // (helps walking inside)
-          if (dist >= 2 && dist <= 60) {
+        if (
+          last &&
+          typeof last.lat === 'number' &&
+          typeof last.lng === 'number' &&
+          typeof last.t === 'number'
+        ) {
+          dist = metersBetween(
+            { lat: last.lat, lng: last.lng },
+            { lat, lng }
+          );
+
+          dt = Math.max(1, (now - last.t) / 1000); // seconds
+          speed = dist / dt; // m/s
+
+          if (dist < MIN_DIST_M) {
+            reason = 'jitter';
+          } else if (dist > MAX_DIST_M) {
+            reason = 'teleport';
+          } else if (speed > MAX_SPEED_MPS) {
+            reason = 'too-fast';
+          } else {
             addMeters(dist);
+            added = dist;
+            reason = 'ok';
           }
         }
 
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+        // Update lastPos AFTER processing so we measure from previous point
+        s.lastPos = { lat, lng, t: now };
+        saveSteps(s);
+
+        gpsDebug = {
+          lat,
+          lng,
+          acc,
+          t: now,
+          dist: Math.round(dist),
+          dt: Math.round(dt),
+          speed: Number(speed.toFixed(2)),
+          added: Math.round(added),
+          reason
+        };
+
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+        );
       },
       (err) => {
         enabled = false;
@@ -174,7 +229,9 @@ export async function enableSteps(opts = {}) {
         if (!silent) {
           // some browsers require a user gesture; we handle this in tryAutoStart()
         }
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+        );
       },
       {
         enableHighAccuracy: true,
@@ -199,7 +256,7 @@ export function shouldAutoStart() {
   }
 }
 
-// ✅ NEW: auto-start + first-tap fallback
+// ✅ auto-start + first-tap fallback
 export function tryAutoStart() {
   // avoid multiple installs
   if (window.__cbsgo_try_autostart) return;
