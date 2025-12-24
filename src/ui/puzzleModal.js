@@ -1,11 +1,10 @@
 // src/ui/puzzleModal.js
 // Puzzle modal system
 // ✅ Exports openPuzzleModal(node)
-// ✅ Supports Daily Puzzle (spawn at your location 1x/day via cbsgo:dailyPuzzle event from steps.js)
-// ✅ Daily puzzle is a "Glow Minesweeper" that activates 60 min ticket boost when completed
-// ✅ Normal nodes still open their puzzle modal
+// ✅ Daily Glow puzzle (1x/day) triggered by steps.js event cbsgo:dailyPuzzle
+// ✅ On win: activate 60 min ticket boost
+// ✅ For normal nodes: dispatch "cbsgo:completeNode" so state/app can mark completed
 
-import { completeNode } from '../app/state.js';
 import { activateTicketBoost } from '../app/steps.js';
 
 const MODAL_ID = 'cbsgoPuzzleModal';
@@ -80,12 +79,10 @@ function ensureModalHost() {
   const closeBtn = wrap.querySelector('#cbsgoPuzzleClose');
   if (closeBtn) closeBtn.onclick = removeModal;
 
-  // click outside closes
   wrap.addEventListener('click', (e) => {
     if (e.target === wrap) removeModal();
   });
 
-  // escape closes
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') removeModal();
   }, { once: true });
@@ -96,7 +93,6 @@ function ensureModalHost() {
 /* ---------------- Glow Minesweeper (simple) ---------------- */
 
 function renderGlowMinesweeper(onWin) {
-  // Simple 5x5 with 5 mines
   const size = 5;
   const mines = 5;
   const total = size * size;
@@ -108,7 +104,6 @@ function renderGlowMinesweeper(onWin) {
     n: 0
   }));
 
-  // place mines
   let placed = 0;
   while (placed < mines) {
     const i = Math.floor(Math.random() * total);
@@ -121,7 +116,6 @@ function renderGlowMinesweeper(onWin) {
   const idx = (r, c) => r * size + c;
   const inb = (r, c) => r >= 0 && c >= 0 && r < size && c < size;
 
-  // compute numbers
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const i = idx(r, c);
@@ -144,7 +138,7 @@ function renderGlowMinesweeper(onWin) {
   msg.style.marginBottom = '10px';
   msg.style.opacity = '.85';
   msg.style.fontSize = '13px';
-  msg.innerHTML = `Find all safe tiles. <b>Win = 60 min Glow</b> (extra tickets while walking).`;
+  msg.innerHTML = `Clear all safe tiles. <b>Win = 60 min Glow</b> (extra tickets while walking).`;
   root.appendChild(msg);
 
   const grid = document.createElement('div');
@@ -171,11 +165,9 @@ function renderGlowMinesweeper(onWin) {
     const revealedSafe = countRevealedSafe();
     const safeTotal = total - mines;
 
-    // win check
     if (revealedSafe >= safeTotal) {
-      setStatus('✅ You cleared the Glow puzzle! Boost activated.');
+      setStatus('✅ Glow cleared! Boost activated.');
       onWin?.();
-      // lock board
       cells.forEach(c => { c.revealed = true; });
     }
 
@@ -205,16 +197,12 @@ function renderGlowMinesweeper(onWin) {
         btn.textContent = '';
       }
 
-      // left click: reveal
       btn.onclick = () => {
         if (c.revealed) return;
-
         if (c.flagged) c.flagged = false;
-
         c.revealed = true;
 
         if (c.mine) {
-          // lose: reveal all mines
           cells.forEach(x => { if (x.mine) x.revealed = true; });
           setStatus('⛔ Boom. Try again tomorrow (daily).');
         } else {
@@ -223,7 +211,6 @@ function renderGlowMinesweeper(onWin) {
         render();
       };
 
-      // right click / long press flag (desktop + some mobile)
       btn.oncontextmenu = (e) => {
         e.preventDefault();
         if (c.revealed) return false;
@@ -238,14 +225,12 @@ function renderGlowMinesweeper(onWin) {
 
   setStatus('Tip: long-press (or right-click) to flag.');
   render();
-
   return root;
 }
 
 /* ---------------- Modal Content ---------------- */
 
 function renderNodePuzzle(node) {
-  // Default: simple "Solve" button for now (you can expand per node later)
   return `
     <div style="
       padding:12px;
@@ -255,7 +240,7 @@ function renderNodePuzzle(node) {
     ">
       <div style="font-size:18px; font-weight:900;">${esc(node?.name || 'Puzzle')}</div>
       <div style="opacity:.8; font-size:13px; margin-top:6px;">
-        Complete this puzzle to mark the node as completed.
+        Solve to mark this node as completed.
       </div>
 
       <button id="cbsgoSolveNode" type="button" style="
@@ -274,28 +259,25 @@ function renderNodePuzzle(node) {
 
 /* ---------------- PUBLIC API ---------------- */
 
-// ✅ This is what appShell imports
 export function openPuzzleModal(node) {
   const host = ensureModalHost();
 
   const title = host.querySelector('#cbsgoPuzzleTitle');
   const body = host.querySelector('#cbsgoPuzzleBody');
 
-  // Daily puzzle special node
   if (node && node.id === DAILY_NODE_ID) {
     if (title) title.textContent = 'Daily Glow Puzzle';
     if (body) {
       body.innerHTML = '';
       const game = renderGlowMinesweeper(() => {
-        // activate 60 min boost
         activateTicketBoost(60);
+        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged'));
       });
       body.appendChild(game);
     }
     return;
   }
 
-  // Regular node puzzle
   if (title) title.textContent = node?.name ? `Puzzle: ${node.name}` : 'Puzzle';
   if (body) body.innerHTML = renderNodePuzzle(node);
 
@@ -303,7 +285,8 @@ export function openPuzzleModal(node) {
   if (solve) {
     solve.onclick = () => {
       if (node?.id) {
-        completeNode(node.id);
+        // ✅ let app/state decide how to store completion
+        window.dispatchEvent(new CustomEvent('cbsgo:completeNode', { detail: { id: node.id } }));
       }
       removeModal();
     };
@@ -312,14 +295,11 @@ export function openPuzzleModal(node) {
 
 /* ---------------- DAILY PUZZLE HOOK ---------------- */
 
-// Listen to steps.js daily trigger and open immediately (safe at home).
-// If you prefer "spawn as marker" instead of auto-open, we can change this later.
-if (!window.__cbsgo_daily_listener_v1) {
-  window.__cbsgo_daily_listener_v1 = true;
+if (!window.__cbsgo_daily_listener_v2) {
+  window.__cbsgo_daily_listener_v2 = true;
 
   window.addEventListener('cbsgo:dailyPuzzle', (ev) => {
     const d = ev?.detail || {};
-    // open daily puzzle modal
     openPuzzleModal({ id: DAILY_NODE_ID, name: 'Daily Glow Puzzle', lat: d.lat, lng: d.lng });
   });
 }

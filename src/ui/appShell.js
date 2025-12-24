@@ -5,10 +5,9 @@
 // - Profile tab: profile + leaderboard
 // - Bag tab: inventory (tickets/items)
 //
-// ✅ Added: Daily puzzle listener
-// When steps.js dispatches "cbsgo:dailyPuzzle" (1x/day), we open the puzzle
-// immediately at the player's current location. This guarantees 1 daily puzzle
-// even if you stay at home (bad weather).
+// ✅ Handles node open -> puzzle modal
+// ✅ Handles puzzle "Solve" -> marks node completed via state.completeNode()
+// ✅ Auto-start steps (GPS) via tryAutoStart()
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -30,7 +29,7 @@ import {
 } from '../app/leaderboard.js';
 
 import { renderMapView, bindMapView } from './mapView.js';
-import { isNodeCompleted } from '../app/state.js';
+import { isNodeCompleted, completeNode } from '../app/state.js';
 
 import { getTickets } from '../app/inventory.js';
 
@@ -362,31 +361,6 @@ function renderPanel() {
   return '';
 }
 
-/* ---------- Daily puzzle open (at your exact GPS location) ---------- */
-
-function openDailyPuzzleAtLocation(lat, lng, dateKey) {
-  // Prevent duplicate opens in the same session (page reload resets this)
-  const key = `__cbsgo_daily_opened_${dateKey || 'today'}`;
-  if (window[key]) return;
-  window[key] = true;
-
-  // Create a “node-like” object so it works with your existing modal
-  const dailyNode = {
-    id: `daily-${dateKey || 'today'}`,
-    title: 'Daily Glow Puzzle',
-    type: 'daily',
-    lat,
-    lng,
-
-    // If your modal uses custom fields, you can add them here later:
-    // rewardXp: 25,
-    // rewardGlowMinutes: 60,
-  };
-
-  // Do NOT block daily puzzle by isNodeCompleted (daily is allowed 1x/day via steps.js key)
-  openPuzzleModal(dailyNode);
-}
-
 export function renderAppShell() {
   const dev = isDev();
   const myAvatar = getPlayerAvatar();
@@ -508,6 +482,7 @@ export function mountApp() {
       bindStepsWidget();
     };
     window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
+    window.addEventListener('cbsgo:boostChanged', rerenderSteps);
   }
 
   // profile bindings
@@ -517,6 +492,18 @@ export function mountApp() {
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
     if (btn) btn.addEventListener('click', hardResetCBSGO);
+  }
+
+  // ✅ Puzzle "Solve" -> mark completed
+  if (!window.__cbsgo_complete_node_listener_v1) {
+    window.__cbsgo_complete_node_listener_v1 = true;
+
+    window.addEventListener('cbsgo:completeNode', (ev) => {
+      const id = ev?.detail?.id;
+      if (!id) return;
+      completeNode(id);
+      mountApp(); // refresh UI
+    });
   }
 
   // Open node -> puzzle modal (block if completed)
@@ -532,21 +519,6 @@ export function mountApp() {
       if (!node) return;
 
       openPuzzleModal(node);
-    });
-  }
-
-  // ✅ DAILY: when steps.js fires "cbsgo:dailyPuzzle", open it immediately at your exact GPS location
-  if (!window.__cbsgo_daily_puzzle_listener) {
-    window.__cbsgo_daily_puzzle_listener = true;
-
-    window.addEventListener('cbsgo:dailyPuzzle', (ev) => {
-      const lat = ev?.detail?.lat;
-      const lng = ev?.detail?.lng;
-      const date = ev?.detail?.date || 'today';
-      if (typeof lat !== 'number' || typeof lng !== 'number') return;
-
-      // open daily puzzle instantly (home / bad weather mode)
-      openDailyPuzzleAtLocation(lat, lng, String(date));
     });
   }
 }
