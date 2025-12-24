@@ -13,6 +13,31 @@ function dot() {
   return '⚪';
 }
 
+function fmt(n, digits = 0) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '';
+  return x.toFixed(digits);
+}
+
+function debugLine() {
+  const dbg = getGpsDebug() || {};
+  if (dbg.err) return `GPS: ${dbg.err}`;
+  if (!isStepsEnabled()) return `GPS: off`;
+
+  // When enabled but not yet receiving coords
+  if (!dbg.lat) return `GPS: starting…`;
+
+  // Show compact “why” info (super useful during walking tests)
+  const parts = [];
+  if (Number.isFinite(dbg.acc)) parts.push(`acc ${Math.round(dbg.acc)}m`);
+  if (dbg.reason) parts.push(dbg.reason);
+  if (Number.isFinite(dbg.added)) parts.push(`+${Math.round(dbg.added)}m`);
+  if (Number.isFinite(dbg.dist)) parts.push(`d ${Math.round(dbg.dist)}m`);
+  if (Number.isFinite(dbg.speed)) parts.push(`${fmt(dbg.speed, 1)} m/s`);
+
+  return parts.length ? `GPS: ${parts.join(' · ')}` : `GPS: ok`;
+}
+
 export function renderStepsWidget() {
   const steps = getSteps();
   const tickets = getTickets();
@@ -26,14 +51,28 @@ export function renderStepsWidget() {
       background:rgba(10,12,18,.72);
       backdrop-filter: blur(10px);
       display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
+      flex-direction:column;
+      gap:6px;
       white-space:nowrap;
       font-size:12px;
     ">
-      <span style="opacity:.9;">${dot()} <b>${steps}</b> steps</span>
-      <span style="opacity:.9;">🎟️ <b>${tickets}</b></span>
+      <div style="
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+      ">
+        <span style="opacity:.9;">${dot()} <b>${steps}</b> steps</span>
+        <span style="opacity:.9;">🎟️ <b>${tickets}</b></span>
+      </div>
+
+      <div style="
+        opacity:.75;
+        font-size:11px;
+        line-height:1;
+      ">
+        ${debugLine()}
+      </div>
     </div>
   `;
 }
