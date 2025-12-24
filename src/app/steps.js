@@ -1,6 +1,8 @@
 // src/app/steps.js
 // GPS distance -> steps (stable) + rewards
 // Daily puzzle trigger (1x/day) + 1h "glow" ticket boost
+// ✅ Single GPS source for the entire app
+// ✅ Broadcast player position + heading via "cbsgo:playerPos"
 // Autostart + "first tap" fallback (for browsers that require a user gesture)
 
 import { addXp } from './state.js';
@@ -263,6 +265,14 @@ export async function enableSteps(opts = {}) {
         // Always update lastPos so we can accumulate once accuracy improves
         s.lastPos = { lat, lng, t: now };
         saveSteps(s);
+
+        // ✅ Broadcast player position for the map + compass + arrow
+        const heading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
+        const speedGps = Number.isFinite(pos.coords.speed) ? pos.coords.speed : null;
+
+        window.dispatchEvent(new CustomEvent('cbsgo:playerPos', {
+          detail: { lat, lng, acc, heading, speed: speedGps, t: now }
+        }));
 
         // If accuracy is bad, do not count movement
         if (acc > MAX_ACCEPTED_ACCURACY_M) {
