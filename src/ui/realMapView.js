@@ -1,55 +1,65 @@
-// src/ui/mapView.js
-// Fullscreen Leaflet map used by appShell
-// ✅ World zoom (minZoom) + compass overlay + player marker with direction arrow
-// ✅ Uses ONE GPS source: listens to "cbsgo:playerPos" from steps.js
-// (So DO NOT run geolocation here.)
+// src/ui/realMapView.js
+// Leaflet via CDN (window.L)
+// ✅ Passive map: NO own GPS watch
+// ✅ Listens to "cbsgo:playerPos" from steps.js
+// ✅ Nodes open only when near
+// ✅ Player marker = avatar + direction arrow (heading)
 
+// NOTE: appShell currently uses mapView.js, not this file,
+// but this version is kept compatible + non-conflicting.
+
+import { nodes } from '../data/nodes.js';
+import { isNodeCompleted } from '../app/state.js';
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
+import { openPuzzleModal } from './puzzleModal.js';
 
-let map = null;
-let userMarker = null;
-let lastPos = null;         // {lat,lng,t}
-let lastHeadingDeg = null;  // number | null
-let deviceHeadingDeg = null;
+const NODES_POS_KEY = 'cbsgo_nodes_pos_v2';
+const FOLLOW_KEY = 'cbsgo_follow_me_v1';
 
-function ensureEl(id) {
-  return document.getElementById(id);
-}
-
-function showMapMsg(text) {
-  const host = ensureEl('cbsgoMapHost');
-  if (!host) return;
-
-  let msg = ensureEl('cbsgoMapMsg');
-  if (!msg) {
-    msg = document.createElement('div');
-    msg.id = 'cbsgoMapMsg';
-    msg.style.position = 'absolute';
-    msg.style.left = '12px';
-    msg.style.right = '12px';
-    msg.style.bottom = '86px'; // above bottom nav
-    msg.style.zIndex = '9999';
-    msg.style.padding = '10px 12px';
-    msg.style.borderRadius = '14px';
-    msg.style.border = '1px solid rgba(255,255,255,.14)';
-    msg.style.background = 'rgba(0,0,0,.40)';
-    msg.style.color = '#fff';
-    msg.style.fontFamily = 'system-ui, sans-serif';
-    msg.style.fontSize = '13px';
-    msg.style.backdropFilter = 'blur(10px)';
-    host.appendChild(msg);
+function readJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
   }
-  msg.textContent = text || '';
+}
+function writeJSON(key, v) {
+  try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
 }
 
-function initialOfName() {
-  const n = String(getPlayerName() || '').trim();
-  if (!n) return '🙂';
-  return n[0].toUpperCase();
+function esc(s) {
+  return String(s || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function metersBetween(a, b) {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+function clampHeading(h) {
+  const x = Number(h);
+  if (!Number.isFinite(x)) return null;
+  return ((x % 360) + 360) % 360;
 }
 
 function bearingDeg(a, b) {
-  // bearing from a->b in degrees
   const toRad = (d) => (d * Math.PI) / 180;
   const toDeg = (r) => (r * 180) / Math.PI;
 
@@ -67,19 +77,115 @@ function bearingDeg(a, b) {
   return brng;
 }
 
-function clampHeading(h) {
-  const x = Number(h);
-  if (!Number.isFinite(x)) return null;
-  return ((x % 360) + 360) % 360;
+// --- Leaflet state ---
+let map = null;
+let nodesLayer = null;
+
+let meMarker = null;
+let lastPos = null; // {lat,lng,t}
+let deviceHeadingDeg = null;
+
+function getLeaflet() {
+  const L = window.L;
+  return L && typeof L.map === 'function' ? L : null;
 }
 
-function buildPlayerIcon(L, headingDeg) {
+function getFollow() {
+  try {
+    const v = localStorage.getItem(FOLLOW_KEY);
+    return v == null ? true : v === '1';
+  } catch {
+    return true;
+  }
+}
+function setFollow(v) {
+  try { localStorage.setItem(FOLLOW_KEY, v ? '1' : '0'); } catch {}
+}
+
+function visibleNodes() {
+  return nodes.filter(n => n.type !== 'group' && !isNodeCompleted(n.id));
+}
+
+// --- stable node positions around first GPS seed ---
+function ensureNodePositions(seedCenter) {
+  const stored = readJSON(NODES_POS_KEY, null);
+  if (stored && stored.seed && stored.posById) return stored;
+
+  const list = visibleNodes();
+  const posById = {};
+  const placed = [];
+
+  const minSepM = 90;
+  const minR = 160;
+  const maxR = 420;
+  const maxTry = 4000;
+
+  function toDegOffset(lat, rM, ang) {
+    const dLat = (rM * Math.cos(ang)) / 111111;
+    const dLng = (rM * Math.sin(ang)) / (111111 * Math.cos((lat * Math.PI) / 180));
+    return { dLat, dLng };
+  }
+
+  let tries = 0;
+  for (const node of list) {
+    let ok = false;
+    while (!ok && tries < maxTry) {
+      tries++;
+      const r = minR + Math.random() * (maxR - minR);
+      const ang = Math.random() * Math.PI * 2;
+      const off = toDegOffset(seedCenter.lat, r, ang);
+      const cand = { lat: seedCenter.lat + off.dLat, lng: seedCenter.lng + off.dLng };
+
+      ok = placed.every(p => metersBetween(p, cand) >= minSepM);
+      if (ok) {
+        placed.push(cand);
+        posById[node.id] = { dLat: off.dLat, dLng: off.dLng };
+      }
+    }
+
+    if (!posById[node.id]) {
+      const off = toDegOffset(seedCenter.lat, minR, Math.random() * Math.PI * 2);
+      posById[node.id] = { dLat: off.dLat, dLng: off.dLng };
+    }
+  }
+
+  const save = { seed: seedCenter, posById, createdAt: Date.now() };
+  writeJSON(NODES_POS_KEY, save);
+  return save;
+}
+
+function nodeLatLng(node, centerSeed) {
+  const stored = readJSON(NODES_POS_KEY, null);
+  const seed = stored?.seed || centerSeed;
+  const off = stored?.posById?.[node.id];
+  if (!seed || !off) return null;
+  return { lat: seed.lat + off.dLat, lng: seed.lng + off.dLng };
+}
+
+function setNearInfo(text) {
+  const el = document.querySelector('#nearInfo');
+  if (el) el.textContent = text || '';
+}
+
+/* ---------- PLAYER ICON (photo + arrow) ---------- */
+
+function initialsFromName(name) {
+  const n = String(name || '').trim();
+  if (!n) return 'ME';
+  const parts = n.split(/\s+/g).filter(Boolean);
+  const a = parts[0]?.[0] || 'M';
+  const b = (parts.length > 1 ? parts[parts.length - 1]?.[0] : '') || '';
+  const ini = (a + b).toUpperCase();
+  return ini.length ? ini : 'ME';
+}
+
+function buildMeIcon(L, headingDeg) {
   const av = getPlayerAvatar();
-  const ini = initialOfName();
+  const me = getPlayerName() || 'You';
+  const ini = initialsFromName(me);
 
   const arrowRot = Number.isFinite(headingDeg) ? `transform: rotate(${headingDeg}deg);` : '';
 
-  // Avatar (circle) + arrow on top
   const avatarHtml = av
     ? `
       <div style="
@@ -96,15 +202,17 @@ function buildPlayerIcon(L, headingDeg) {
         width:44px;height:44px;border-radius:999px;
         border:2px solid rgba(255,255,255,.95);
         box-shadow:0 10px 24px rgba(0,0,0,.45);
-        background:rgba(0,0,0,.35);
+        background:linear-gradient(135deg, rgba(0,175,255,.95), rgba(120,0,255,.95));
         display:flex;align-items:center;justify-content:center;
-        font-weight:900;font-size:16px;color:#fff;
-      ">${ini}</div>
+        color:#fff;
+        font-weight:900;
+        font-size:14px;
+        letter-spacing:.5px;
+      ">${esc(ini)}</div>
     `;
 
   const html = `
     <div style="position:relative; width:54px; height:54px;">
-      <!-- arrow -->
       <div style="
         position:absolute;
         left:50%; top:-2px;
@@ -116,16 +224,6 @@ function buildPlayerIcon(L, headingDeg) {
         transform-origin: 50% 22px;
         ${arrowRot}
       "></div>
-
-      <!-- soft glow ring -->
-      <div style="
-        position:absolute; inset:4px;
-        border-radius:999px;
-        box-shadow:0 0 18px rgba(90,200,255,.25);
-        border:1px solid rgba(90,200,255,.20);
-      "></div>
-
-      <!-- avatar -->
       <div style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);">
         ${avatarHtml}
       </div>
@@ -140,177 +238,154 @@ function buildPlayerIcon(L, headingDeg) {
   });
 }
 
-export function renderMapView() {
-  return `
-    <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
-      <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
+export function renderRealMapView() {
+  const me = getPlayerName() || 'You';
+  const followLabel = getFollow() ? 'Following (ON)' : 'Free look';
 
-      <!-- Compass overlay -->
-      <div id="cbsgoCompass" style="
-        position:absolute;
-        right:12px;
-        bottom: calc(86px + 12px);
-        z-index: 9999;
-        width:44px; height:44px;
-        border-radius:14px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(10,12,18,.70);
-        backdrop-filter: blur(10px);
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        user-select:none;
-        pointer-events:none;
-      ">
-        <div id="cbsgoCompassNeedle" style="
-          width:0; height:0;
-          border-left:10px solid transparent;
-          border-right:10px solid transparent;
-          border-bottom:18px solid rgba(255,70,70,.95);
-          transform-origin: 50% 16px;
-          filter: drop-shadow(0 8px 12px rgba(0,0,0,.4));
-        "></div>
+  return `
+    <section class="mapCard" style="
+      margin-top:14px;
+      padding:14px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.03);
+    ">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+        <div>
+          <div style="font-size:18px; font-weight:900; margin:0;">Live Map (Passive)</div>
+          <div style="opacity:.75; font-size:13px;">GPS is handled by steps.js (single source).</div>
+        </div>
+        <div style="opacity:.75; font-size:13px;">${esc(me)}</div>
       </div>
-    </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:12px;">
+        <button id="followBtn" class="btn secondary" type="button">${esc(followLabel)}</button>
+        <span id="gpsStatus" style="opacity:.85; font-size:13px;">Waiting for GPS…</span>
+      </div>
+
+      <div id="nearInfo" style="margin-top:10px; opacity:.85; font-size:13px;"></div>
+
+      <div id="leafletMap" style="
+        margin-top:12px;
+        width:100%;
+        height:540px;
+        border-radius:16px;
+        border:1px solid rgba(255,255,255,.10);
+        overflow:hidden;
+      "></div>
+    </section>
   `;
 }
 
-function destroyMapIfAny() {
-  try {
-    if (map) {
-      map.remove();
-      map = null;
-      userMarker = null;
-    }
-  } catch {}
+function renderNodesOnMap(centerNow) {
+  const L = getLeaflet();
+  if (!L || !map) return;
+
+  if (!nodesLayer) nodesLayer = L.layerGroup().addTo(map);
+  nodesLayer.clearLayers();
+
+  const list = visibleNodes();
+  const stored = ensureNodePositions(centerNow);
+
+  const pts = [];
+  for (const node of list) {
+    const ll = nodeLatLng(node, stored.seed);
+    if (!ll) continue;
+
+    const dist = Math.round(metersBetween(centerNow, ll));
+    if (dist > 1200) continue;
+
+    pts.push({ node, ll, dist });
+  }
+
+  pts.sort((a, b) => a.dist - b.dist);
+
+  if (pts.length === 0) {
+    setNearInfo('No nodes nearby (walk a bit).');
+  } else {
+    setNearInfo(`Nearest: ${pts[0].node.name} • ${pts[0].dist}m • Visible: ${pts.length} (must be close to open)`);
+  }
+
+  const OPEN_RADIUS_M = 60;
+
+  pts.forEach(({ node, ll, dist }) => {
+    const marker = L.circleMarker([ll.lat, ll.lng], {
+      radius: 11,
+      weight: 2
+    });
+
+    marker.bindTooltip(`${node.name} • ${dist}m`, { direction: 'top', offset: [0, -10] });
+
+    marker.on('click', () => {
+      if (dist > OPEN_RADIUS_M) {
+        alert(`Too far.\n\nGo closer to open:\n${node.name}\nDistance: ${dist}m\nRequired: <= ${OPEN_RADIUS_M}m`);
+        return;
+      }
+      openPuzzleModal(node);
+    });
+
+    marker.addTo(nodesLayer);
+  });
 }
 
-function initLeaflet() {
-  const L = window.L;
-  const el = ensureEl('cbsgoMap');
-  if (!L || !el) return false;
+function initMapOnce(containerEl) {
+  const L = getLeaflet();
+  if (!L) return false;
 
-  destroyMapIfAny();
+  if (!map) {
+    map = L.map(containerEl, { zoomControl: true, minZoom: 2, maxZoom: 19, worldCopyJump: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
 
-  map = L.map(el, {
-    zoomControl: false,
-    attributionControl: false,
-    // ✅ allow world zoom-out
-    minZoom: 2,
-    maxZoom: 19,
-    worldCopyJump: true
-  });
+    map.setView([51.687, 4.867], 16);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19
-  }).addTo(map);
-
-  // Default view (NL) until first GPS
-  map.setView([51.687, 4.87], 16);
+    map.on('dragstart', () => setFollow(false));
+    map.on('zoomstart', () => setFollow(false));
+  } else {
+    setTimeout(() => map.invalidateSize(), 80);
+  }
 
   return true;
 }
 
-function setCompass(headingDeg) {
-  const needle = ensureEl('cbsgoCompassNeedle');
-  if (!needle) return;
+export function bindRealMapView() {
+  const mount = document.querySelector('#mapMount') || document;
+  const el = mount.querySelector('#leafletMap');
+  const status = mount.querySelector('#gpsStatus');
+  const followBtn = mount.querySelector('#followBtn');
 
-  // Compass needle points north; rotate opposite of heading for classic compass feel
-  const h = clampHeading(headingDeg);
-  if (!Number.isFinite(h)) return;
+  if (!el) return;
 
-  needle.style.transform = `rotate(${h}deg)`;
-}
+  const setStatus = (t) => { if (status) status.textContent = t || ''; };
 
-function setUserMarker(lat, lng, headingDeg) {
-  const L = window.L;
-  if (!L || !map) return;
-
-  const icon = buildPlayerIcon(L, headingDeg);
-
-  if (!userMarker) {
-    userMarker = L.marker([lat, lng], { icon }).addTo(map);
-    map.setView([lat, lng], 18);
-    return;
-  }
-
-  userMarker.setIcon(icon);
-  userMarker.setLatLng([lat, lng]);
-}
-
-/* ---------------- Heading sources ---------------- */
-
-// Best: DeviceOrientation (mobile)
-async function tryEnableDeviceHeading() {
-  // iOS needs a user gesture; we request on first tap
-  const request = async () => {
-    try {
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        const p = await DeviceOrientationEvent.requestPermission();
-        if (p !== 'granted') return;
-      }
-      window.addEventListener('deviceorientation', onDeviceOrientation, true);
-      showMapMsg('Compass ready.');
-    } catch {
-      // ignore
-    }
-  };
-
-  const onFirstTap = async () => {
-    window.removeEventListener('pointerdown', onFirstTap);
-    window.removeEventListener('touchstart', onFirstTap);
-    window.removeEventListener('click', onFirstTap);
-    await request();
-  };
-
-  window.addEventListener('pointerdown', onFirstTap, { once: true });
-  window.addEventListener('touchstart', onFirstTap, { once: true });
-  window.addEventListener('click', onFirstTap, { once: true });
-}
-
-function onDeviceOrientation(e) {
-  // e.alpha is compass heading on some devices (0..360), but can vary by browser.
-  // We keep it simple: use alpha if present.
-  if (Number.isFinite(e.alpha)) {
-    deviceHeadingDeg = clampHeading(e.alpha);
-  }
-}
-
-/* ---------------- Bind ---------------- */
-
-export function bindMapView() {
-  // Wait for Leaflet on GitHub Pages
   let tries = 0;
-  const maxTries = 80;
-
-  const tick = () => {
+  const tryInit = () => {
     tries++;
-
-    if (!ensureEl('cbsgoMap')) {
-      if (tries < maxTries) return setTimeout(tick, 100);
-      return;
-    }
-
-    if (!window.L) {
-      showMapMsg('Loading map engine…');
-      if (tries < maxTries) return setTimeout(tick, 100);
-      showMapMsg('Map engine failed to load (Leaflet not found). Refresh.');
-      return;
-    }
-
-    const ok = initLeaflet();
+    const ok = initMapOnce(el);
     if (!ok) {
-      showMapMsg('Could not init map. Refresh.');
+      setStatus('Loading map engine...');
+      if (tries < 30) setTimeout(tryInit, 150);
+      else setStatus('ERR: Leaflet not loaded. Check index.html CDN.');
       return;
     }
 
-    showMapMsg('Waiting for GPS (steps.js)… Tap once if needed.');
-    tryEnableDeviceHeading();
+    setStatus('Map ready. Waiting for GPS from steps.js…');
 
-    // Listen to player position from steps.js
-    if (!window.__cbsgo_playerpos_listener) {
-      window.__cbsgo_playerpos_listener = true;
+    if (followBtn) {
+      followBtn.onclick = () => {
+        const next = !getFollow();
+        setFollow(next);
+        followBtn.textContent = next ? 'Following (ON)' : 'Free look';
+        if (next && map && lastPos) {
+          map.setView([lastPos.lat, lastPos.lng], Math.max(map.getZoom(), 17), { animate: true });
+        }
+      };
+    }
+
+    if (!window.__cbsgo_playerpos_listener_realmap) {
+      window.__cbsgo_playerpos_listener_realmap = true;
 
       window.addEventListener('cbsgo:playerPos', (ev) => {
         const d = ev?.detail || {};
@@ -320,33 +395,33 @@ export function bindMapView() {
 
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-        // Heading priority:
-        // 1) device heading (when available)
-        // 2) GPS heading (when moving)
-        // 3) bearing from last position
         let heading = clampHeading(deviceHeadingDeg);
         if (!Number.isFinite(heading)) heading = clampHeading(d.heading);
+        if (!Number.isFinite(heading) && lastPos) heading = bearingDeg(lastPos, { lat, lng });
 
-        if (!Number.isFinite(heading) && lastPos) {
-          heading = bearingDeg(lastPos, { lat, lng });
-        }
-
-        // save last position
         lastPos = { lat, lng, t: d.t || Date.now() };
-        lastHeadingDeg = heading;
 
-        setUserMarker(lat, lng, heading);
-        if (Number.isFinite(heading)) setCompass(heading);
-
-        // status message
-        if (Number.isFinite(acc)) {
-          showMapMsg(`GPS OK • accuracy ~${Math.round(acc)}m`);
-        } else {
-          showMapMsg('GPS OK');
+        const L = getLeaflet();
+        if (L && map) {
+          const icon = buildMeIcon(L, heading);
+          if (!meMarker) meMarker = L.marker([lat, lng], { icon }).addTo(map);
+          else {
+            meMarker.setIcon(icon);
+            meMarker.setLatLng([lat, lng]);
+          }
         }
+
+        if (map && getFollow()) {
+          map.setView([lat, lng], Math.max(map.getZoom(), 17), { animate: true });
+        }
+
+        renderNodesOnMap({ lat, lng });
+
+        if (Number.isFinite(acc)) setStatus(`GPS OK (+/- ${Math.round(acc)}m)`);
+        else setStatus('GPS OK');
       });
     }
   };
 
-  tick();
+  tryInit();
 }
