@@ -1,13 +1,9 @@
 // src/ui/appShell.js
-// Fullscreen map shell with overlays:
-// - Map is always visible full-screen
-// - Steps widget is subtle under XP (top-right)
-// - Profile tab: profile + leaderboard
-// - Bag tab: inventory (tickets/items)
+// Fullscreen map shell with overlays + required local wallet login (PIN)
+// - On first run: nickname + PIN -> create encrypted local wallet
+// - On later runs: PIN -> unlock
 //
-// ✅ Handles node open -> puzzle modal
-// ✅ Handles puzzle "Solve" -> marks node completed via state.completeNode()
-// ✅ Auto-start steps (GPS) via tryAutoStart()
+// Keeps your existing layout, steps autostart, node open modal, etc.
 
 import { nodes } from '../data/nodes.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -29,9 +25,12 @@ import {
 } from '../app/leaderboard.js';
 
 import { renderMapView, bindMapView } from './mapView.js';
-import { isNodeCompleted, completeNode } from '../app/state.js';
+import { isNodeCompleted } from '../app/state.js';
 
 import { getTickets } from '../app/inventory.js';
+
+import { openLoginModal } from './loginModal.js';
+import { hasLocalWallet, isWalletUnlocked, getWalletPubkey } from '../app/wallet.js';
 
 function esc(s) {
   return String(s || '')
@@ -218,6 +217,10 @@ function renderLeaderboard() {
             </div>
 
             <div id="lbMsg" style="margin-top:8px; font-size:12px; opacity:.9;"></div>
+
+            <div style="margin-top:10px; font-size:12px; opacity:.75;">
+              Local wallet: <b>${esc(getWalletPubkey() || '')}</b>
+            </div>
           </div>
         </div>
       </div>
@@ -355,7 +358,6 @@ function renderBag() {
 
 function renderPanel() {
   const t = getSelectedTab();
-
   if (t === 'profile') return panelWrap('Profile', `<div id="lbMount">${renderLeaderboard()}</div>`);
   if (t === 'bag') return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
   return '';
@@ -372,12 +374,10 @@ export function renderAppShell() {
       overflow:hidden;
       background:#05070b;
     ">
-      <!-- MAP fullscreen -->
       <div id="mapMount" style="position:absolute; inset:0; z-index:1;">
         ${renderMapView()}
       </div>
 
-      <!-- TOPBAR -->
       <header style="
         position:absolute; top:0; left:0; right:0;
         z-index:4000;
@@ -463,12 +463,48 @@ export function mountApp() {
   const app = document.querySelector('#app');
   if (!app) return;
 
+  // ✅ Require wallet login first
+  // - If no wallet yet -> create
+  // - If wallet exists but not unlocked -> unlock
+  if (!hasLocalWallet() || !isWalletUnlocked()) {
+    app.innerHTML = `
+      <div style="
+        position:fixed; inset:0;
+        display:flex; align-items:center; justify-content:center;
+        background:#05070b;
+        color:#fff;
+        font-family:system-ui, sans-serif;
+        padding:18px;
+        text-align:center;
+      ">
+        <div style="max-width:520px;">
+          <div style="font-weight:900; font-size:20px;">CBS GO</div>
+          <div style="opacity:.8; margin-top:8px;">Preparing secure local wallet…</div>
+          <div style="opacity:.65; margin-top:6px; font-size:13px;">A PIN is required to unlock.</div>
+        </div>
+      </div>
+    `;
+
+    // Open login modal
+    setTimeout(() => openLoginModal(), 80);
+
+    // After login, mount app for real
+    if (!window.__cbsgo_login_listener_v1) {
+      window.__cbsgo_login_listener_v1 = true;
+      window.addEventListener('cbsgo:loginDone', () => {
+        mountApp();
+      });
+    }
+    return;
+  }
+
+  // Normal app mount
   app.innerHTML = renderAppShell();
 
   bindTabs();
   bindMapView();
 
-  // ✅ auto-start steps (and first tap fallback)
+  // auto-start steps (and first tap fallback)
   tryAutoStart();
 
   // steps rerender on change
@@ -482,28 +518,14 @@ export function mountApp() {
       bindStepsWidget();
     };
     window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
-    window.addEventListener('cbsgo:boostChanged', rerenderSteps);
   }
 
-  // profile bindings
   const t = getSelectedTab();
   if (t === 'profile') bindLeaderboardEvents();
 
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
     if (btn) btn.addEventListener('click', hardResetCBSGO);
-  }
-
-  // ✅ Puzzle "Solve" -> mark completed
-  if (!window.__cbsgo_complete_node_listener_v1) {
-    window.__cbsgo_complete_node_listener_v1 = true;
-
-    window.addEventListener('cbsgo:completeNode', (ev) => {
-      const id = ev?.detail?.id;
-      if (!id) return;
-      completeNode(id);
-      mountApp(); // refresh UI
-    });
   }
 
   // Open node -> puzzle modal (block if completed)
@@ -513,12 +535,34 @@ export function mountApp() {
     window.addEventListener('cbsgo:openNode', (ev) => {
       const id = ev?.detail?.id;
       if (!id) return;
+
+      // daily node opens directly
+      if (id === '__daily__') {
+        openPuzzleModal({ id: '__daily__', name: 'Daily Glow' });
+        return;
+      }
+
       if (isNodeCompleted(id)) return;
 
       const node = nodes.find(n => n.id === id);
       if (!node) return;
 
       openPuzzleModal(node);
+    });
+  }
+
+  // Node completion events come from puzzleModal "Solve"
+  if (!window.__cbsgo_complete_listener_v1) {
+    window.__cbsgo_complete_listener_v1 = true;
+    window.addEventListener('cbsgo:completeNode', (ev) => {
+      const id = ev?.detail?.id;
+      if (!id) return;
+      // state.js listens? If not, you can handle it there.
+      // (You already have completeNode export in state.js, but this keeps coupling low.)
+      import('../app/state.js').then(({ completeNode }) => {
+        completeNode(id);
+        mountApp();
+      });
     });
   }
 }

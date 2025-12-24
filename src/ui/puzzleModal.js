@@ -1,9 +1,8 @@
 // src/ui/puzzleModal.js
 // Puzzle modal system
 // ✅ Exports openPuzzleModal(node)
-// ✅ Daily Glow puzzle (1x/day) triggered by steps.js event cbsgo:dailyPuzzle
-// ✅ On win: activate 60 min ticket boost
-// ✅ For normal nodes: dispatch "cbsgo:completeNode" so state/app can mark completed
+// ✅ Supports Daily Glow puzzle when node.id === '__daily__'
+// ✅ Daily no longer auto-opens. It opens via a map marker (mapView.js).
 
 import { activateTicketBoost } from '../app/steps.js';
 
@@ -83,9 +82,13 @@ function ensureModalHost() {
     if (e.target === wrap) removeModal();
   });
 
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') removeModal();
-  }, { once: true });
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key === 'Escape') removeModal();
+    },
+    { once: true }
+  );
 
   return wrap;
 }
@@ -124,7 +127,8 @@ function renderGlowMinesweeper(onWin) {
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           if (!dr && !dc) continue;
-          const rr = r + dr, cc = c + dc;
+          const rr = r + dr,
+            cc = c + dc;
           if (inb(rr, cc) && cells[idx(rr, cc)].mine) n++;
         }
       }
@@ -154,10 +158,10 @@ function renderGlowMinesweeper(onWin) {
   status.style.opacity = '.9';
   root.appendChild(status);
 
-  function setStatus(t) { status.textContent = t || ''; }
+  const setStatus = (t) => (status.textContent = t || '');
 
   function countRevealedSafe() {
-    return cells.filter(c => c.revealed && !c.mine).length;
+    return cells.filter((c) => c.revealed && !c.mine).length;
   }
 
   function render() {
@@ -166,14 +170,13 @@ function renderGlowMinesweeper(onWin) {
     const safeTotal = total - mines;
 
     if (revealedSafe >= safeTotal) {
-      setStatus('✅ Glow cleared! Boost activated.');
+      setStatus('✅ Glow cleared! Boost activated (60 min).');
       onWin?.();
-      cells.forEach(c => { c.revealed = true; });
+      cells.forEach((c) => (c.revealed = true));
     }
 
     for (let i = 0; i < total; i++) {
       const c = cells[i];
-
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.style.aspectRatio = '1 / 1';
@@ -190,7 +193,7 @@ function renderGlowMinesweeper(onWin) {
 
       if (c.revealed) {
         btn.style.background = c.mine ? 'rgba(255,80,80,.18)' : 'rgba(90,200,255,.18)';
-        btn.textContent = c.mine ? '💥' : (c.n ? String(c.n) : '');
+        btn.textContent = c.mine ? '💥' : c.n ? String(c.n) : '';
       } else if (c.flagged) {
         btn.textContent = '🚩';
       } else {
@@ -200,10 +203,13 @@ function renderGlowMinesweeper(onWin) {
       btn.onclick = () => {
         if (c.revealed) return;
         if (c.flagged) c.flagged = false;
+
         c.revealed = true;
 
         if (c.mine) {
-          cells.forEach(x => { if (x.mine) x.revealed = true; });
+          cells.forEach((x) => {
+            if (x.mine) x.revealed = true;
+          });
           setStatus('⛔ Boom. Try again tomorrow (daily).');
         } else {
           setStatus('');
@@ -225,10 +231,11 @@ function renderGlowMinesweeper(onWin) {
 
   setStatus('Tip: long-press (or right-click) to flag.');
   render();
+
   return root;
 }
 
-/* ---------------- Modal Content ---------------- */
+/* ---------------- Default node puzzle ---------------- */
 
 function renderNodePuzzle(node) {
   return `
@@ -261,7 +268,6 @@ function renderNodePuzzle(node) {
 
 export function openPuzzleModal(node) {
   const host = ensureModalHost();
-
   const title = host.querySelector('#cbsgoPuzzleTitle');
   const body = host.querySelector('#cbsgoPuzzleBody');
 
@@ -285,21 +291,9 @@ export function openPuzzleModal(node) {
   if (solve) {
     solve.onclick = () => {
       if (node?.id) {
-        // ✅ let app/state decide how to store completion
         window.dispatchEvent(new CustomEvent('cbsgo:completeNode', { detail: { id: node.id } }));
       }
       removeModal();
     };
   }
-}
-
-/* ---------------- DAILY PUZZLE HOOK ---------------- */
-
-if (!window.__cbsgo_daily_listener_v2) {
-  window.__cbsgo_daily_listener_v2 = true;
-
-  window.addEventListener('cbsgo:dailyPuzzle', (ev) => {
-    const d = ev?.detail || {};
-    openPuzzleModal({ id: DAILY_NODE_ID, name: 'Daily Glow Puzzle', lat: d.lat, lng: d.lng });
-  });
 }
