@@ -1,8 +1,16 @@
 // src/ui/stepsWidget.js
-// Compact topbar indicator: Steps + Tickets + small GPS status dot
+// Compact topbar indicator: Steps + Tickets + GPS status dot + Glow (ticket boost) indicator
 // No buttons. Auto-start is handled by steps.js tryAutoStart() from appShell.
 
-import { getSteps, isStepsEnabled, getGpsDebug } from '../app/steps.js';
+import {
+  getSteps,
+  isStepsEnabled,
+  getGpsDebug
+  // (optional exports – may or may not exist in your current steps.js)
+  // getTicketBoostRemainingMs,
+  // isTicketBoostActive
+} from '../app/steps.js';
+
 import { getTickets } from '../app/inventory.js';
 
 function dot() {
@@ -19,15 +27,40 @@ function fmt(n, digits = 0) {
   return x.toFixed(digits);
 }
 
+function msToMinSec(ms) {
+  const v = Math.max(0, Number(ms || 0));
+  const totalSec = Math.floor(v / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}:${String(sec).padStart(2, '0')}`;
+}
+
+function getBoostRemainingMsSafe() {
+  // Try to read from gpsDebug.boostMs first (works even if steps.js doesn't export helpers)
+  const dbg = getGpsDebug() || {};
+  if (Number.isFinite(dbg.boostMs)) return Number(dbg.boostMs);
+
+  // If you later add exports in steps.js, you can uncomment these and remove fallback:
+  // try { return getTicketBoostRemainingMs(); } catch {}
+
+  return 0;
+}
+
+function glowLine() {
+  const ms = getBoostRemainingMsSafe();
+  if (ms <= 0) return '';
+
+  // Our rule: +1 ticket per 1500 steps during glow (1 hour)
+  return `✨ Glow: <b>${msToMinSec(ms)}</b> left · 🎟️ +1 / 1500 steps`;
+}
+
 function debugLine() {
   const dbg = getGpsDebug() || {};
   if (dbg.err) return `GPS: ${dbg.err}`;
   if (!isStepsEnabled()) return `GPS: off`;
 
-  // When enabled but not yet receiving coords
   if (!dbg.lat) return `GPS: starting…`;
 
-  // Show compact “why” info (super useful during walking tests)
   const parts = [];
   if (Number.isFinite(dbg.acc)) parts.push(`acc ${Math.round(dbg.acc)}m`);
   if (dbg.reason) parts.push(dbg.reason);
@@ -41,6 +74,7 @@ function debugLine() {
 export function renderStepsWidget() {
   const steps = getSteps();
   const tickets = getTickets();
+  const glow = glowLine();
 
   return `
     <div style="
@@ -55,6 +89,7 @@ export function renderStepsWidget() {
       gap:6px;
       white-space:nowrap;
       font-size:12px;
+      min-width: 210px;
     ">
       <div style="
         display:flex;
@@ -65,6 +100,21 @@ export function renderStepsWidget() {
         <span style="opacity:.9;">${dot()} <b>${steps}</b> steps</span>
         <span style="opacity:.9;">🎟️ <b>${tickets}</b></span>
       </div>
+
+      ${
+        glow
+          ? `<div style="
+              opacity:.95;
+              font-size:11px;
+              line-height:1.1;
+              border-radius:10px;
+              padding:6px 8px;
+              border:1px solid rgba(120,220,255,.22);
+              background:rgba(90,200,255,.10);
+              box-shadow:0 0 18px rgba(90,200,255,.10);
+            ">${glow}</div>`
+          : ``
+      }
 
       <div style="
         opacity:.75;
