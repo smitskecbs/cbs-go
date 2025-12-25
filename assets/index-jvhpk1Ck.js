@@ -128,7 +128,8 @@
     <nav style="
       position:fixed;
       left:12px;
-      top:calc(96px + env(safe-area-inset-top));
+      /* 🔽 iets lager gezet zodat het niet over de ⌖-knop valt */
+      top:calc(150px + env(safe-area-inset-top));
       z-index:5500;
       display:flex;
       flex-direction:column;
