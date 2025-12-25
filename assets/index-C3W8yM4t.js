@@ -43,7 +43,7 @@
       <span style="opacity:.9;">${ke()} <b>${e}</b> steps</span>
       <span style="opacity:.9;">🎟️ <b>${t}</b></span>
     </div>
-  `}const A="cbsgo_leaderboard_v2",ne="cbsgo_player_name_v2",C="cbsgo_player_avatar_v2";function oe(e,t){try{const n=localStorage.getItem(e);return n?JSON.parse(n):t}catch{return t}}function $e(e,t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}}function z(){try{return localStorage.getItem(ne)||"Sovereign"}catch{return"Sovereign"}}function Ee(e){const t=String(e||"").trim().slice(0,24)||"Sovereign";try{localStorage.setItem(ne,t)}catch{}return t}function T(){try{return localStorage.getItem(C)||""}catch{return""}}function Me(e){const t=String(e||"");try{localStorage.setItem(C,t)}catch{}return t}function Ne(){try{localStorage.removeItem(C)}catch{}}function _e(e=10){const t=oe(A,[]);return Array.isArray(t)?t.slice(0,e):[]}function Le(){const e=z(),t=T(),n=M(),o=P(),r=oe(A,[]),i=Array.isArray(r)?r:[],d=i.find(s=>s.name===e);return d?(d.xp=n,d.level=o,d.avatar=t,d.t=Date.now()):i.push({name:e,xp:n,level:o,avatar:t,t:Date.now()}),i.sort((s,a)=>Number(a.xp||0)-Number(s.xp||0)),$e(A,i),{name:e,xp:n,level:o,avatar:t}}let l=null,m=null,u=null,S=!0;function k(e){return document.getElementById(e)}function f(e){const t=k("cbsgoMapHost");if(!t)return;let n=k("cbsgoMapMsg");n||(n=document.createElement("div"),n.id="cbsgoMapMsg",n.style.position="absolute",n.style.left="12px",n.style.right="12px",n.style.bottom="86px",n.style.zIndex="9999",n.style.padding="10px 12px",n.style.borderRadius="14px",n.style.border="1px solid rgba(255,255,255,.14)",n.style.background="rgba(0,0,0,.40)",n.style.color="#fff",n.style.fontFamily="system-ui, sans-serif",n.style.fontSize="13px",n.style.backdropFilter="blur(10px)",t.appendChild(n)),n.textContent=e||""}function Ie(){const e=String(z()||"").trim();return e?e[0].toUpperCase():"🙂"}function Ae(e){const t=T();if(t){const r=`
+  `}const A="cbsgo_leaderboard_v2",ne="cbsgo_player_name_v2",C="cbsgo_player_avatar_v2";function oe(e,t){try{const n=localStorage.getItem(e);return n?JSON.parse(n):t}catch{return t}}function $e(e,t){try{localStorage.setItem(e,JSON.stringify(t))}catch{}}function z(){try{return localStorage.getItem(ne)||"Sovereign"}catch{return"Sovereign"}}function Ee(e){const t=String(e||"").trim().slice(0,24)||"Sovereign";try{localStorage.setItem(ne,t)}catch{}return t}function T(){try{return localStorage.getItem(C)||""}catch{return""}}function Me(e){const t=String(e||"");try{localStorage.setItem(C,t)}catch{}return t}function Ne(){try{localStorage.removeItem(C)}catch{}}function _e(e=10){const t=oe(A,[]);return Array.isArray(t)?t.slice(0,e):[]}function Le(){const e=z(),t=T(),n=M(),o=P(),r=oe(A,[]),i=Array.isArray(r)?r:[],d=i.find(s=>s.name===e);return d?(d.xp=n,d.level=o,d.avatar=t,d.t=Date.now()):i.push({name:e,xp:n,level:o,avatar:t,t:Date.now()}),i.sort((s,a)=>Number(a.xp||0)-Number(s.xp||0)),$e(A,i),{name:e,xp:n,level:o,avatar:t}}let l=null,m=null,u=null,S=!0;function k(e){return document.getElementById(e)}function f(e){const t=k("cbsgoMapHost");if(!t)return;let n=k("cbsgoMapMsg");n||(n=document.createElement("div"),n.id="cbsgoMapMsg",n.style.position="absolute",n.style.left="12px",n.style.right="12px",n.style.bottom="86px",n.style.zIndex="6000",n.style.padding="10px 12px",n.style.borderRadius="14px",n.style.border="1px solid rgba(255,255,255,.14)",n.style.background="rgba(0,0,0,.40)",n.style.color="#fff",n.style.fontFamily="system-ui, sans-serif",n.style.fontSize="13px",n.style.backdropFilter="blur(10px)",t.appendChild(n)),n.textContent=e||""}function Ie(){const e=String(z()||"").trim();return e?e[0].toUpperCase():"🙂"}function Ae(e){const t=T();if(t){const r=`
       <div style="
         width:42px;height:42px;border-radius:999px;
         border:2px solid rgba(255,255,255,.95);
@@ -65,12 +65,12 @@
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
 
-      <!-- overlay UI: kompas + center knop -->
+      <!-- overlay UI: kompas linksboven -->
       <div style="
         position:absolute;
         top:10px;
         left:10px;
-        z-index:3000;
+        z-index:6000;
         display:flex;
         flex-direction:column;
         gap:8px;
@@ -93,11 +93,12 @@
         </div>
       </div>
 
+      <!-- recenter knop: boven de bottom nav, hoge z-index -->
       <button id="cbsgoRecenterBtn" type="button" style="
         position:absolute;
         right:14px;
-        bottom:100px;
-        z-index:3000;
+        bottom:150px;
+        z-index:7000;
         width:44px;
         height:44px;
         border-radius:999px;
