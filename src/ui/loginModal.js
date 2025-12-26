@@ -6,7 +6,7 @@
 //
 // Emits: cbsgo:loginDone
 
-import { hasLocalWallet, ensureWalletCreated, unlockWallet, getWalletPubkey } from '../app/wallet.js';
+import { hasWallet, createWallet, unlockWallet } from '../app/wallet.js';
 import { getPlayerName, setPlayerName } from '../app/leaderboard.js';
 
 const MODAL_ID = 'cbsgoLoginModal';
@@ -96,7 +96,7 @@ function btnStyle(primary = true) {
 }
 
 export function openLoginModal() {
-  const firstTime = !hasLocalWallet();
+  const firstTime = !hasWallet();
   const curName = getPlayerName() || '';
 
   const body = firstTime
@@ -155,7 +155,7 @@ export function openLoginModal() {
 
   const done = () => {
     remove();
-    window.dispatchEvent(new CustomEvent('cbsgo:loginDone', { detail: { pubkey: getWalletPubkey() } }));
+    window.dispatchEvent(new CustomEvent('cbsgo:loginDone', { detail: {} }));
   };
 
   if (firstTime) {
@@ -174,7 +174,7 @@ export function openLoginModal() {
           setMsg('Creating wallet…');
 
           setPlayerName(n);
-          await ensureWalletCreated(p);
+          await createWallet(p); // sync of async, allebei ok met await
 
           setMsg('✅ Wallet created. Starting…');
           done();

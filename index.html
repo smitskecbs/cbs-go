@@ -8,6 +8,10 @@
     />
     <title>CBS GO</title>
 
+    <!-- PWA manifest + theme -->
+    <link rel="manifest" href="/cbs-go/manifest.webmanifest" />
+    <meta name="theme-color" content="#000000" />
+
     <!-- Leaflet (OpenStreetMap map engine) -->
     <link
       rel="stylesheet"
@@ -29,13 +33,13 @@
         height: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden; /* ⬅️ geen scroll, echte fullscreen */
+        overflow: hidden;
         background: #05070b;
       }
 
       #app {
         position: fixed;
-        inset: 0;          /* ⬅️ vult hele scherm */
+        inset: 0;
         width: 100vw;
         height: 100vh;
       }

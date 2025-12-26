@@ -58,7 +58,9 @@ function boot() {
     const hud = ensureHud();
     hud.textContent = '✅ boot ok';
     hud.style.display = 'block';
-    setTimeout(() => { hud.style.display = 'none'; }, 1000);
+    setTimeout(() => {
+      hud.style.display = 'none';
+    }, 1000);
   } catch (err) {
     showHud(`❌ Boot crash\n${err?.message || err}\n${err?.stack || ''}`);
   }
@@ -68,4 +70,20 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot, { once: true });
 } else {
   boot();
+}
+
+// --- PWA: Service worker registreren ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const swPath = `${import.meta.env.BASE_URL}sw.js`;
+
+    navigator.serviceWorker
+      .register(swPath)
+      .then((reg) => {
+        console.log('[CBS GO] Service worker registered:', reg.scope);
+      })
+      .catch((err) => {
+        console.error('[CBS GO] Service worker registration failed:', err);
+      });
+  });
 }

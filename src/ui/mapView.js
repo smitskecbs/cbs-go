@@ -1,12 +1,10 @@
 // src/ui/mapView.js
 // Fullscreen Leaflet map:
 // ✅ Player marker uses profile avatar/initial
-// ✅ Puzzle nodes visible as "puzzle pieces"
-// ✅ Daily Glow puzzle marker on your exact location (1x/day)
+// ✅ Puzzles tijdelijk UIT (PUZZLES_ENABLED = false)
+// ✅ Daily Glow logic aanwezig maar doet niks als puzzels uit staan
 // ✅ No infinite world scrolling (noWrap + maxBounds)
 // ✅ Can zoom out to world level (minZoom 1/0-ish)
-//
-// NOTE: Leaflet cannot render a true 3D globe. This is the "world map" zoom-out feel.
 
 import { nodes } from '../data/nodes.js';
 import { isNodeCompleted } from '../app/state.js';
@@ -16,9 +14,14 @@ let map = null;
 let userMarker = null;
 let nodesLayer = null;
 let dailyMarker = null;
+let lastUserLatLng = null;      // laatst bekende spelerpositie
+let worldViewMode = false;      // voor het kompas
 
 const NODES_POS_KEY = 'cbsgo_nodes_pos_v3';
 const DAILY_MARKER_KEY = 'cbsgo_daily_marker_v1';
+
+// 🔧 Puzzels uit, zodat je geen 🧩 meer ziet
+const PUZZLES_ENABLED = false;
 
 function ensureEl(id) {
   return document.getElementById(id);
@@ -35,7 +38,8 @@ function showMapMsg(text) {
     msg.style.position = 'absolute';
     msg.style.left = '12px';
     msg.style.right = '12px';
-    msg.style.bottom = '86px';
+    // GPS-balk laag bij de onderrand (onder je Profile/Bag knoppen)
+    msg.style.bottom = '16px';
     msg.style.zIndex = '9999';
     msg.style.padding = '10px 12px';
     msg.style.borderRadius = '14px';
@@ -141,7 +145,7 @@ function buildPuzzleIcon(L, glow = false) {
       border:1px solid rgba(255,255,255,.18);
       background:rgba(10,12,18,.55);
       backdrop-filter: blur(8px);
-      box-shadow:${glow ? '0 0 18px rgba(120,220,255,.55), 0 10px 22px rgba(0,0,0,.35)' : '0 10px 22px rgba(0,0,0,.35)'};
+      box-shadow:${glow ? '0 0 18px rgba(120,220,255,.55), 0 10px 22px rgba(0,0,0,.35)' : '0 10px 22px rgba(0,0,0,.35)'}; 
       font-size:22px;
     ">🧩</div>
   `;
@@ -163,6 +167,25 @@ function buildDailyGlowIcon(L) {
     </div>
   `;
   return L.divIcon({ html, className: '', iconSize: [52, 52], iconAnchor: [26, 26] });
+}
+
+/* ---------- Dag/nacht helpers ---------- */
+
+function isNight() {
+  const hour = new Date().getHours();
+  return hour < 7 || hour >= 19;
+}
+
+/* ---------- Simpele lokale "weather" bubble ---------- */
+
+function getWeatherLabel() {
+  const night = isNight();
+  // Zonder echte weer-API doen we het simpel op tijd:
+  // - overdag: zon
+  // - 's avonds: maan
+  const icon = night ? '🌙' : '☀️';
+  const temp = night ? '-1°' : '3°'; // placeholder, kan later echte data worden
+  return `${icon} ${temp}`;
 }
 
 /* ---------- Node positioning (stable around seed) ---------- */
@@ -220,12 +243,82 @@ function nodeLatLng(node, centerSeed) {
   return { lat: seed.lat + off.dLat, lng: seed.lng + off.dLng };
 }
 
-/* ---------- Leaflet setup ---------- */
+/* ---------- Leaflet setup + UI ---------- */
 
 export function renderMapView() {
+  const weatherLabel = getWeatherLabel();
+  const night = isNight();
+
   return `
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
+
+      <!-- Night overlay: maakt de kaart donker in de avond/nacht -->
+      <div id="cbsgoNightOverlay" style="
+        position:absolute;
+        inset:0;
+        pointer-events:none;
+        z-index:1500;
+        background:${night ? 'rgba(0,0,0,.45)' : 'transparent'};
+        transition: background .4s ease;
+      "></div>
+
+      <!-- Weer-bolletje linksboven -->
+      <div id="cbsgoWeather" style="
+        position:absolute;
+        top:16px;
+        left:12px;
+        z-index:3000;
+        padding:6px 10px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(10,12,18,.78);
+        backdrop-filter: blur(10px);
+        font-size:12px;
+        color:#fff;
+        font-family:system-ui,sans-serif;
+        display:inline-flex;
+        align-items:center;
+        gap:6px;
+      ">
+        <span>${weatherLabel}</span>
+      </div>
+
+      <!-- Kompas + centreer-player RECHTSONDER, groot als Profile/Bag -->
+      <div id="cbsgoMapControls" style="
+        position:absolute;
+        right:16px;              
+        bottom:148px;            
+        z-index:3000;
+        display:flex;
+        flex-direction:row;
+        gap:10px;
+      ">
+        <button id="cbsgoCompassBtn" type="button" style="
+          width:52px;height:52px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(10,12,18,.85);
+          backdrop-filter: blur(10px);
+          color:#fff;
+          font-size:22px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+        ">🧭</button>
+        <button id="cbsgoCenterBtn" type="button" style="
+          width:52px;height:52px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(10,12,18,.85);
+          backdrop-filter: blur(10px);
+          color:#fff;
+          font-size:22px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+        ">🎯</button>
+      </div>
     </div>
   `;
 }
@@ -238,6 +331,8 @@ function destroyMapIfAny() {
       userMarker = null;
       nodesLayer = null;
       dailyMarker = null;
+      lastUserLatLng = null;
+      worldViewMode = false;
     }
   } catch {}
 }
@@ -249,7 +344,6 @@ function initLeaflet() {
 
   destroyMapIfAny();
 
-  // 🌍 World bounds (prevents infinite repeating)
   const worldBounds = L.latLngBounds(
     L.latLng(-85, -180),
     L.latLng(85, 180)
@@ -258,21 +352,19 @@ function initLeaflet() {
   map = L.map(el, {
     zoomControl: false,
     attributionControl: false,
-    worldCopyJump: true,         // jump to same world instead of repeating
-    maxBounds: worldBounds,      // prevents panning outside
-    maxBoundsViscosity: 1.0,     // "hard" bounds
-    minZoom: 1,                  // zoom out to world
+    worldCopyJump: true,
+    maxBounds: worldBounds,
+    maxBoundsViscosity: 1.0,
+    minZoom: 1,
     maxZoom: 19
   });
 
-  // ✅ noWrap stops infinite horizontal tiling
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     noWrap: true,
     bounds: worldBounds
   }).addTo(map);
 
-  // Default view (NL) until GPS comes in
   map.setView([51.687, 4.87], 16);
 
   nodesLayer = L.layerGroup().addTo(map);
@@ -296,16 +388,18 @@ function setUserMarker(latlng) {
   userMarker.setLatLng(latlng);
 }
 
+/* ---------- Puzzels (nu uitgeschakeld) ---------- */
+
 function renderNodes(center) {
+  if (!PUZZLES_ENABLED) return;
+
   const L = window.L;
   if (!L || !map || !nodesLayer) return;
 
-  // keep daily marker if it exists
   const keepDaily = dailyMarker;
 
   nodesLayer.clearLayers();
 
-  // re-add daily marker if needed
   if (keepDaily) {
     dailyMarker = keepDaily;
     dailyMarker.addTo(nodesLayer);
@@ -343,7 +437,7 @@ function renderNodes(center) {
   });
 }
 
-/* ---------- Daily marker (exact on your location) ---------- */
+/* ---------- Daily marker ---------- */
 
 function getDailyMarkerState() {
   return readJSON(DAILY_MARKER_KEY, { date: '', shown: false });
@@ -353,16 +447,17 @@ function setDailyMarkerState(v) {
 }
 
 function ensureDailyMarkerAt(center) {
+  // als puzzels uit zijn, ook geen daily marker tonen
+  if (!PUZZLES_ENABLED) return;
+
   const L = window.L;
   if (!L || !map || !nodesLayer) return;
 
   const s = getDailyMarkerState();
   const t = todayKey();
 
-  // if already consumed/hidden today -> no marker
   if (s.date === t && s.shown === false) return;
 
-  // if not yet created today: create marker on your exact location
   if (s.date !== t) {
     setDailyMarkerState({ date: t, shown: true });
   }
@@ -374,7 +469,8 @@ function ensureDailyMarkerAt(center) {
     window.dispatchEvent(new CustomEvent('cbsgo:openNode', { detail: { id: '__daily__' } }));
   });
 
-  showMapMsg(`✨ Daily Glow puzzle spawned on you (1x/day). Tap it to play.`);
+  // geen extra overlay-tekst meer
+  // showMapMsg(`✨ Daily Glow puzzle spawned on you (1x/day). Tap it to play.`);
 }
 
 if (!window.__cbsgo_daily_marker_listener_v1) {
@@ -400,6 +496,7 @@ function startGps() {
       const { latitude, longitude, accuracy } = pos.coords;
       const center = { lat: latitude, lng: longitude };
 
+      lastUserLatLng = [latitude, longitude];  // voor centreer-knop
       setUserMarker([latitude, longitude]);
 
       ensureDailyMarkerAt(center);
@@ -413,6 +510,8 @@ function startGps() {
     { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
   );
 }
+
+/* ---------- Binding ---------- */
 
 export function bindMapView() {
   let tries = 0;
@@ -437,6 +536,29 @@ export function bindMapView() {
     if (!ok) {
       showMapMsg('Could not init map. Refresh.');
       return;
+    }
+
+    // knoppen koppelen
+    const centerBtn = ensureEl('cbsgoCenterBtn');
+    if (centerBtn) {
+      centerBtn.onclick = () => {
+        if (map && lastUserLatLng) {
+          map.setView(lastUserLatLng, 18);
+        }
+      };
+    }
+
+    const compassBtn = ensureEl('cbsgoCompassBtn');
+    if (compassBtn) {
+      compassBtn.onclick = () => {
+        if (!map) return;
+        worldViewMode = !worldViewMode;
+        if (worldViewMode) {
+          map.setView([51.687, 4.87], 3);  // “wereld” kijken
+        } else if (lastUserLatLng) {
+          map.setView(lastUserLatLng, 16); // terug naar speler / dorp
+        }
+      };
     }
 
     showMapMsg('Loading GPS…');

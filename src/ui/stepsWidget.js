@@ -19,6 +19,7 @@ export function renderStepsWidget() {
 
   return `
     <div style="
+      /* weer normaal: dicht onder de XP-balk */
       margin-top:6px;
       padding:8px 10px;
       border-radius:14px;
@@ -38,6 +39,7 @@ export function renderStepsWidget() {
   `;
 }
 
+// Export blijft nodig voor appShell
 export function bindStepsWidget() {
-  // no interactions
+  // geen interacties
 }

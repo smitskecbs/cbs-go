@@ -16,14 +16,21 @@ const DAILY_PUZZLE_KEY = 'cbsgo_daily_puzzle_v1';
 const METERS_PER_STEP = 0.75;
 
 // GPS quality / movement rules (tuned for phones)
-const MAX_ACCEPTED_ACCURACY_M = 200;
-const MIN_DIST_M = 1.5;     // ignore micro jitter
-const MAX_DIST_M = 250;     // reject huge teleports
-const MAX_SPEED_MPS = 3.6;  // ~13 km/h (fast walk/jog)
+// 👇 Dit zijn je NU werkende waarden – laten we zo!
+const MAX_ACCEPTED_ACCURACY_M = 200;  // accepteer alles tot 200 m nauwkeurigheid
+const MIN_DIST_M = 0.3;               // veel minder snel jitter
+const MAX_DIST_M = 400;               // ruimer om grotere stukken toe te laten
+const MAX_SPEED_MPS = 20;             // tot ~72 km/h, voorkomt dat GPS te snel "too-fast" zegt
 
 // Glow boost
 const BOOST_DURATION_MIN = 60;
 const BOOST_STEP_CHUNK = 1500;
+
+// Treasure chest config
+const CHEST_CHUNK_M = 200;        // elke ~200 meter kans op een chest
+const CHEST_BASE_CHANCE = 0.25;   // 25% kans per chunk
+const CHEST_RARE_CHANCE = 0.05;   // 5% van de chests is "rare"
+const CBS_FLAG_CHANCE = 0.3;      // 30% kans dat rare chest een CBS-flag heeft
 
 let watchId = null;
 let enabled = false;
@@ -50,6 +57,9 @@ function defaultSteps() {
     boostUntil: 0,      // epoch ms
     boostLastStep: 0,   // step counter at last boost award
 
+    // treasure chest progress
+    chestMeters: 0,     // hoeveel meter sinds laatste chest-check
+
     updatedAt: Date.now()
   };
 }
@@ -64,8 +74,20 @@ function saveSteps(s) {
   localStorage.setItem(KEY, JSON.stringify(s));
 }
 
+// aantal stappen
 export function getSteps() {
   return Number(loadSteps().steps || 0);
+}
+
+// afstand in meters (handig voor UI / debug)
+export function getDistanceMeters() {
+  const s = loadSteps();
+  return Number(s.meters || 0);
+}
+
+// afstand in kilometers
+export function getDistanceKm() {
+  return getDistanceMeters() / 1000;
 }
 
 export function isStepsEnabled() {
@@ -165,6 +187,53 @@ function applyBoostTickets(s) {
   s.boostLastStep = last + tickets * BOOST_STEP_CHUNK;
 }
 
+/* ---------------- TREASURE CHESTS ---------------- */
+
+function applyChestProgress(s) {
+  let chestMeters = Number(s.chestMeters || 0);
+  if (!Number.isFinite(chestMeters)) chestMeters = 0;
+
+  // niet doen als we nog geen volle chunk hebben
+  if (chestMeters < CHEST_CHUNK_M) {
+    s.chestMeters = chestMeters;
+    return;
+  }
+
+  let loops = 0;
+  // max 5 chunks per call verwerken zodat we niet in een huge loop komen
+  while (chestMeters >= CHEST_CHUNK_M && loops < 5) {
+    chestMeters -= CHEST_CHUNK_M;
+    loops += 1;
+
+    if (Math.random() < CHEST_BASE_CHANCE) {
+      const isRare = Math.random() < CHEST_RARE_CHANCE;
+
+      const xp = isRare ? 10 : 3;
+      const tickets = isRare ? 2 : 1;
+
+      addXp(xp);
+      addTickets(tickets);
+
+      const hasCBSFlag = isRare && (Math.random() < CBS_FLAG_CHANCE);
+
+      // Event voor UI: kan later een chest-popup tonen
+      window.dispatchEvent(new CustomEvent('cbsgo:treasureFound', {
+        detail: {
+          xp,
+          tickets,
+          rare: isRare,
+          hasCBSFlag
+        }
+      }));
+
+      // 1 chest per call is genoeg
+      break;
+    }
+  }
+
+  s.chestMeters = chestMeters;
+}
+
 /* ---------------- STEPS ---------------- */
 
 function metersBetween(a, b) {
@@ -200,6 +269,7 @@ export function addMeters(meters) {
   const s = loadSteps();
 
   s.meters = Number(s.meters || 0) + m;
+  s.chestMeters = Number(s.chestMeters || 0) + m;
 
   // stable conversion
   const nextSteps = Math.floor((s.meters || 0) / METERS_PER_STEP);
@@ -207,6 +277,7 @@ export function addMeters(meters) {
 
   applyRewards(s);
   applyBoostTickets(s);
+  applyChestProgress(s);
 
   saveSteps(s);
 
