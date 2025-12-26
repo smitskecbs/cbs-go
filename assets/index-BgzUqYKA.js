@@ -383,7 +383,7 @@ DBT
       <div id="fabNav" style="
         position:absolute;
         right:16px;
-        bottom:84px;
+        bottom:112px;
         z-index:5000;
         display:flex;
         flex-direction:row;
