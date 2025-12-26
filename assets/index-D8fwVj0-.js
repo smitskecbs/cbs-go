@@ -368,7 +368,7 @@ DBT
       <div id="fabNav" style="
         position:absolute;
         right:16px;
-        bottom:112px;
+        bottom:72px; /* ⬅ naar beneden gezet zodat ze niet op 🧭/🎯 vallen */
         z-index:5000;
         display:flex;
         flex-direction:row;
