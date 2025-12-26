@@ -378,7 +378,7 @@ DBT
       <div id="fabNav" style="
         position:absolute;
         right:16px;
-        bottom:64px; /* ⬅ iets omhoog gezet zodat ze netjes tussen 🎯/🧭 en GPS-balk zitten */
+        bottom:80px; /* ⬅ iets omhoog gezet zodat ze netjes tussen 🎯/🧭 en GPS-balk zitten */
         z-index:5000;
         display:flex;
         flex-direction:row;
