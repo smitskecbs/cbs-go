@@ -29,11 +29,17 @@ import {
 import { renderMapView, bindMapView } from './mapView.js';
 import { isNodeCompleted } from '../app/state.js';
 
-import { getTickets } from '../app/inventory.js';
+import { getTickets, getCbsCoins } from '../app/inventory.js';
 
-// Geen wallet-imports hier om build errors te voorkomen.
-// import { openLoginModal } from './loginModal.js';
-// import { hasLocalWallet, isWalletUnlocked } from '../app/wallet.js';
+// ✅ Login + wallet weer actief
+import { openLoginModal } from './loginModal.js';
+import { hasWallet, isWalletUnlocked, getPublicKey } from '../app/wallet.js';
+
+// ✅ NIEUW: Supabase helper (profile -> players tabel)
+import { syncPlayerProfile } from '../app/onlinePlayers.js';
+
+// ✅ NIEUW: positie-sync + andere spelers ophalen (oranje bolletjes)
+import '../app/playerSync.js';
 
 function esc(s) {
   return String(s || '')
@@ -131,6 +137,7 @@ function panelWrap(title, innerHtml) {
 function renderProfile() {
   const me = getPlayerName();
   const myAvatar = getPlayerAvatar();
+  const walletPk = getPublicKey(); // ✅ nep-wallet adres ophalen
 
   return `
     <section style="
@@ -172,6 +179,30 @@ function renderProfile() {
               <button class="btn secondary" id="profileRemoveAvatar" type="button">Remove photo</button>
             </div>
           </div>
+
+          ${
+            walletPk
+              ? `
+                <div style="margin-top:12px;">
+                  <div style="font-size:12px; opacity:.8; margin-bottom:4px;">
+                    CBS-GO wallet address (local, game-only)
+                  </div>
+                  <div style="
+                    font-size:11px;
+                    opacity:.95;
+                    padding:8px 10px;
+                    border-radius:10px;
+                    border:1px solid rgba(255,255,255,.16);
+                    background:rgba(255,255,255,.04);
+                    word-break:break-all;
+                    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+                  ">
+                    ${esc(walletPk)}
+                  </div>
+                </div>
+              `
+              : ''
+          }
 
           <div id="profileMsg" style="margin-top:8px; font-size:12px; opacity:.9;"></div>
         </div>
@@ -229,7 +260,7 @@ function bindProfileEvents() {
       reader.onload = () => {
         setPlayerAvatar(String(reader.result || ''));
         setMsg('✅ Photo saved');
-        updatePanel(); // alleen panel/avataar updaten, map blijft staan
+        updatePanel(); // alleen panel/avatar updaten, map blijft staan
       };
       reader.onerror = () => setMsg('⛔ Failed to read image.');
       reader.readAsDataURL(f);
@@ -245,10 +276,12 @@ function bindProfileEvents() {
   }
 }
 
-// ---------- Bag (inventory – alleen tickets) ----------
+// ---------- Bag (inventory – tickets + CBS play money) ----------
 
 function renderBag() {
   const tickets = getTickets();
+  const cbs = getCbsCoins();
+
   return `
     <section style="
       padding:14px;
@@ -275,6 +308,16 @@ function renderBag() {
           font-size:13px;
         ">
           🎟️ Tickets: <b>${tickets}</b>
+        </div>
+
+        <div style="
+          padding:8px 14px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(10,12,18,.9);
+          font-size:13px;
+        ">
+          🪙 CBS (play money): <b>${cbs}</b>
         </div>
       </div>
     </section>
@@ -337,7 +380,7 @@ export function renderAppShell() {
       <div id="fabNav" style="
         position:absolute;
         right:16px;
-        bottom:64px; /* ⬅ iets omhoog gezet zodat ze netjes tussen 🎯/🧭 en GPS-balk zitten */
+        bottom:80px; /* netjes tussen 🎯/🧭 en GPS-balk */
         z-index:5000;
         display:flex;
         flex-direction:row;
@@ -431,14 +474,20 @@ function bindUi() {
   });
 }
 
-// ---------- Mount ----------
+// ---------- Interne helper: hele app bootstrappen (zonder login) ----------
 
-export function mountApp() {
+function bootstrapApp() {
   const app = document.querySelector('#app');
   if (!app) return;
 
-  // Tijdelijk GEEN wallet/PIN check, direct app tonen
   app.innerHTML = renderAppShell();
+
+  // 🔌 Supabase: rustig op achtergrond profiel syncen (nickname + wallet_pk)
+  try {
+    syncPlayerProfile();
+  } catch (e) {
+    console.warn('CBS GO: failed to sync player profile (ignored)', e);
+  }
 
   bindUi();
   bindMapView();
@@ -446,7 +495,7 @@ export function mountApp() {
   // auto-start steps
   tryAutoStart();
 
-  // steps rerender op change
+  // steps rerender op change (stepsWidget is nu leeg, maar laten we staan voor later)
   bindStepsWidget();
   if (!window.__cbsgo_steps_rerender_listener) {
     window.__cbsgo_steps_rerender_listener = true;
@@ -457,6 +506,32 @@ export function mountApp() {
       bindStepsWidget();
     };
     window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
+  }
+
+  // XP-balk rerender bij XP/level wijziging + stappen wijziging
+  if (!window.__cbsgo_xp_rerender_listener) {
+    window.__cbsgo_xp_rerender_listener = true;
+    const rerenderXp = () => {
+      const mount = document.querySelector('#xpMount');
+      if (!mount) return;
+      mount.innerHTML = renderXpBar();
+    };
+    ['cbsgo:xpChanged', 'cbsgo:levelChanged', 'cbsgo:stepsChanged'].forEach(evtName => {
+      window.addEventListener(evtName, rerenderXp);
+    });
+  }
+
+  // Bag/inventory rerender bij loot-verandering
+  if (!window.__cbsgo_inventory_rerender_listener) {
+    window.__cbsgo_inventory_rerender_listener = true;
+    const rerenderBagIfOpen = () => {
+      if (getSelectedTab() === 'bag') {
+        updatePanel(); // renderBag() leest getTickets/getCbsCoins opnieuw
+      }
+    };
+    ['cbsgo:inventoryChanged', 'cbsgo:bagChanged'].forEach(evtName => {
+      window.addEventListener(evtName, rerenderBagIfOpen);
+    });
   }
 
   // Init panel (als er al een tab gekozen was)
@@ -504,3 +579,25 @@ export function mountApp() {
   }
 }
 
+// ---------- Mount + login/PIN flow ----------
+
+export function mountApp() {
+  const app = document.querySelector('#app');
+  if (!app) return;
+
+  // Als er al een wallet is én hij is in deze sessie unlocked -> direct starten
+  if (hasWallet() && isWalletUnlocked()) {
+    bootstrapApp();
+    return;
+  }
+
+  // Anders: eerst login/pin modal
+  openLoginModal();
+
+  const onLoginDone = () => {
+    window.removeEventListener('cbsgo:loginDone', onLoginDone);
+    bootstrapApp();
+  };
+
+  window.addEventListener('cbsgo:loginDone', onLoginDone);
+}

@@ -6,7 +6,7 @@
 // Autostart + "first tap" fallback (for browsers that require a user gesture)
 
 import { addXp } from './state.js';
-import { addTickets } from './inventory.js';
+import { addTickets, addCbsCoins } from './inventory.js';
 
 const KEY = 'cbsgo_steps_v6';
 const AUTOSTART_KEY = 'cbsgo_gps_autostart_v2';
@@ -15,22 +15,26 @@ const DAILY_PUZZLE_KEY = 'cbsgo_daily_puzzle_v1';
 // Steps model
 const METERS_PER_STEP = 0.75;
 
+// Daily goal + streak
+const DAILY_GOAL_STEPS = 5000;
+const STREAK_LENGTH = 7;
+const STREAK_REWARD_CBS = 100;
+
 // GPS quality / movement rules (tuned for phones)
-// 👇 Dit zijn je NU werkende waarden – laten we zo!
-const MAX_ACCEPTED_ACCURACY_M = 200;  // accepteer alles tot 200 m nauwkeurigheid
-const MIN_DIST_M = 0.3;               // veel minder snel jitter
-const MAX_DIST_M = 400;               // ruimer om grotere stukken toe te laten
-const MAX_SPEED_MPS = 20;             // tot ~72 km/h, voorkomt dat GPS te snel "too-fast" zegt
+const MAX_ACCEPTED_ACCURACY_M = 1000;
+const MIN_DIST_M = 0.5;
+const MAX_DIST_M = 2000;
+const MAX_SPEED_MPS = 4.5;
 
 // Glow boost
 const BOOST_DURATION_MIN = 60;
 const BOOST_STEP_CHUNK = 1500;
 
 // Treasure chest config
-const CHEST_CHUNK_M = 200;        // elke ~200 meter kans op een chest
-const CHEST_BASE_CHANCE = 0.25;   // 25% kans per chunk
-const CHEST_RARE_CHANCE = 0.05;   // 5% van de chests is "rare"
-const CBS_FLAG_CHANCE = 0.3;      // 30% kans dat rare chest een CBS-flag heeft
+const CHEST_CHUNK_M = 200;
+const CHEST_BASE_CHANCE = 0.25;
+const CHEST_RARE_CHANCE = 0.05;
+const CBS_FLAG_CHANCE = 0.3;
 
 let watchId = null;
 let enabled = false;
@@ -45,28 +49,124 @@ function safeParse(raw, fallback) {
   }
 }
 
+/* ---------- DATE HELPERS ---------- */
+
+function todayKeyLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseDateKey(key) {
+  if (!key || typeof key !== 'string') return null;
+  const parts = key.split('-').map(Number);
+  if (parts.length !== 3) return null;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+function formatDateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getLastNDates(endKey, n) {
+  const base = parseDateKey(endKey);
+  if (!base) return [];
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(base.getTime());
+    d.setDate(d.getDate() - i);
+    out.push(formatDateKey(d));
+  }
+  return out;
+}
+
 function defaultSteps() {
   return {
+    // lifetime
     steps: 0,
     meters: 0,
-    lastPos: null, // { lat, lng, t }
-    rewarded5k: false,
-    rewarded10k: false,
+    totalMeters: 0,
+
+    lastPos: null,
 
     // glow boost
-    boostUntil: 0,      // epoch ms
-    boostLastStep: 0,   // step counter at last boost award
+    boostUntil: 0,
+    boostLastStep: 0,
 
-    // treasure chest progress
-    chestMeters: 0,     // hoeveel meter sinds laatste chest-check
+    // treasure chest
+    chestMeters: 0,
+
+    // distance-based rewards (lifetime)
+    xpKmAwarded: 0,
+    ticketChunksAwarded: 0,
+
+    // daily
+    dayKey: todayKeyLocal(),
+    daySteps: 0,
+    dayMeters: 0,
+    dailyGoalSteps: DAILY_GOAL_STEPS,
+    dailyGoalReached: false,
+
+    // streak { [dateKey]: true/false }
+    streak: {},
+    lastStreakRewardDate: null,
+
+    // versie van daily-systeem (voor migratie)
+    dailyVersion: 1,
 
     updatedAt: Date.now()
   };
 }
 
-export function loadSteps() {
-  const raw = localStorage.getItem(KEY);
-  return safeParse(raw, defaultSteps());
+/* ---------- MIGRATIE + DAG RESET ---------- */
+
+function migrateStepsState(s) {
+  const nowKey = todayKeyLocal();
+  if (!s || typeof s !== 'object') return defaultSteps();
+
+  // defensief: nummers normaliseren
+  if (typeof s.steps !== 'number') s.steps = 0;
+  if (typeof s.meters !== 'number') s.meters = 0;
+  if (typeof s.chestMeters !== 'number') s.chestMeters = 0;
+  if (typeof s.xpKmAwarded !== 'number') s.xpKmAwarded = 0;
+  if (typeof s.ticketChunksAwarded !== 'number') s.ticketChunksAwarded = 0;
+
+  // totalMeters voor lifetime XP/tickets
+  if (typeof s.totalMeters !== 'number') {
+    s.totalMeters = Number(s.meters || 0);
+  }
+
+  // 🔥 Nieuwe daily-logica: eerste keer alles schoon starten
+  if (typeof s.dailyVersion !== 'number' || s.dailyVersion < 1) {
+    s.dayKey = nowKey;
+    s.daySteps = 0;
+    s.dayMeters = 0;
+    s.dailyGoalSteps = DAILY_GOAL_STEPS;
+    s.dailyGoalReached = false;
+    s.streak = {};
+    s.lastStreakRewardDate = null;
+    s.dailyVersion = 1;
+  } else {
+    if (!s.dayKey) s.dayKey = nowKey;
+    if (typeof s.daySteps !== 'number') s.daySteps = 0;
+    if (typeof s.dayMeters !== 'number') s.dayMeters = 0;
+    if (typeof s.dailyGoalSteps !== 'number' || s.dailyGoalSteps <= 0) {
+      s.dailyGoalSteps = DAILY_GOAL_STEPS;
+    }
+    if (typeof s.dailyGoalReached !== 'boolean') s.dailyGoalReached = false;
+    if (!s.streak || typeof s.streak !== 'object') s.streak = {};
+    if (typeof s.lastStreakRewardDate !== 'string') s.lastStreakRewardDate = null;
+  }
+
+  return s;
 }
 
 function saveSteps(s) {
@@ -74,20 +174,128 @@ function saveSteps(s) {
   localStorage.setItem(KEY, JSON.stringify(s));
 }
 
-// aantal stappen
-export function getSteps() {
-  return Number(loadSteps().steps || 0);
+// 7-dagen streak reward
+function maybeRewardStreak(s, lastDayKey) {
+  if (!lastDayKey) return;
+
+  const keys = getLastNDates(lastDayKey, STREAK_LENGTH);
+  if (!keys.length) return;
+
+  const allFilled = keys.every(k => !!s.streak[k]);
+  if (!allFilled) return;
+
+  if (s.lastStreakRewardDate === lastDayKey) return;
+
+  addCbsCoins(STREAK_REWARD_CBS);
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', {}));
+
+  s.lastStreakRewardDate = lastDayKey;
+
+  window.dispatchEvent(new CustomEvent('cbsgo:streakReward', {
+    detail: {
+      days: STREAK_LENGTH,
+      rewardCbs: STREAK_REWARD_CBS,
+      lastDayKey
+    }
+  }));
 }
 
-// afstand in meters (handig voor UI / debug)
+// Dag wisselen + vorige dag vastleggen
+function ensureDay(s) {
+  s = migrateStepsState(s || defaultSteps());
+
+  const today = todayKeyLocal();
+
+  if (s.dayKey !== today) {
+    const prevKey = s.dayKey;
+
+    if (prevKey) {
+      if (!s.streak) s.streak = {};
+      s.streak[prevKey] = !!s.dailyGoalReached;
+      maybeRewardStreak(s, prevKey);
+    }
+
+    s.dayKey = today;
+    s.daySteps = 0;
+    s.dayMeters = 0;
+    s.dailyGoalReached = false;
+
+    saveSteps(s);
+  }
+
+  return s;
+}
+
+export function loadSteps() {
+  const raw = localStorage.getItem(KEY);
+  const parsed = safeParse(raw, defaultSteps());
+  return ensureDay(parsed);
+}
+
+/* ---------- UI HELPERS/EVENTS ---------- */
+
+function notifyStepsChanged() {
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+  );
+}
+
+function notifyXpChanged() {
+  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', {}));
+}
+
+function notifyInventoryChanged() {
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', {}));
+}
+
+// aantal stappen VANDAAG (voor UI)
+export function getSteps() {
+  const s = loadSteps();
+  return Number(s.daySteps != null ? s.daySteps : s.steps || 0);
+}
+
+// afstand in meters VANDAAG (voor UI / xpBar)
 export function getDistanceMeters() {
   const s = loadSteps();
-  return Number(s.meters || 0);
+  const m = (s.dayMeters != null ? s.dayMeters : s.meters || 0);
+  return Number(m || 0);
 }
 
-// afstand in kilometers
+// afstand in kilometers VANDAAG
 export function getDistanceKm() {
   return getDistanceMeters() / 1000;
+}
+
+// Daily stats voor stappen-widget (sterren)
+export function getDailyStats() {
+  const s = loadSteps();
+
+  const stepsToday = Number(s.daySteps != null ? s.daySteps : s.steps || 0);
+  const goalSteps = Number(s.dailyGoalSteps || DAILY_GOAL_STEPS);
+  const goalReached = !!s.dailyGoalReached;
+  const today = s.dayKey || todayKeyLocal();
+  const streakObj = s.streak || {};
+
+  const keys = getLastNDates(today, STREAK_LENGTH);
+  const streak = keys.map(k => {
+    let reached = false;
+    if (k === today) {
+      reached = goalReached;
+    } else {
+      reached = !!streakObj[k];
+    }
+    return { dateKey: k, reached };
+  });
+
+  return {
+    stepsToday,
+    goalSteps,
+    goalReached,
+    streak,
+    todayKey: today,
+    streakLength: STREAK_LENGTH,
+    rewardPerStreak: STREAK_REWARD_CBS
+  };
 }
 
 export function isStepsEnabled() {
@@ -99,15 +307,6 @@ export function getGpsDebug() {
 }
 
 /* ---------------- DAILY PUZZLE ---------------- */
-
-function todayKeyLocal() {
-  // local date key (NL time)
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 function dailyShownToday() {
   try { return localStorage.getItem(DAILY_PUZZLE_KEY) === todayKeyLocal(); }
@@ -144,16 +343,15 @@ export function isTicketBoostActive() {
 
 export function activateTicketBoost(minutes = BOOST_DURATION_MIN) {
   const mins = Number(minutes);
-  const durMs = (Number.isFinite(mins) && mins > 0 ? mins : BOOST_DURATION_MIN) * 60 * 1000;
+  const durMs =
+    (Number.isFinite(mins) && mins > 0 ? mins : BOOST_DURATION_MIN) *
+    60 * 1000;
 
   const s = loadSteps();
   const now = Date.now();
   const until = now + durMs;
 
-  // extend if already active
   s.boostUntil = Math.max(Number(s.boostUntil || 0), until);
-
-  // start ticket counting from current steps
   s.boostLastStep = Number(s.steps || 0);
 
   saveSteps(s);
@@ -184,6 +382,8 @@ function applyBoostTickets(s) {
   if (tickets <= 0) return;
 
   addTickets(tickets);
+  notifyInventoryChanged();
+
   s.boostLastStep = last + tickets * BOOST_STEP_CHUNK;
 }
 
@@ -193,14 +393,12 @@ function applyChestProgress(s) {
   let chestMeters = Number(s.chestMeters || 0);
   if (!Number.isFinite(chestMeters)) chestMeters = 0;
 
-  // niet doen als we nog geen volle chunk hebben
   if (chestMeters < CHEST_CHUNK_M) {
     s.chestMeters = chestMeters;
     return;
   }
 
   let loops = 0;
-  // max 5 chunks per call verwerken zodat we niet in een huge loop komen
   while (chestMeters >= CHEST_CHUNK_M && loops < 5) {
     chestMeters -= CHEST_CHUNK_M;
     loops += 1;
@@ -212,21 +410,17 @@ function applyChestProgress(s) {
       const tickets = isRare ? 2 : 1;
 
       addXp(xp);
+      notifyXpChanged();
+
       addTickets(tickets);
+      notifyInventoryChanged();
 
       const hasCBSFlag = isRare && (Math.random() < CBS_FLAG_CHANCE);
 
-      // Event voor UI: kan later een chest-popup tonen
       window.dispatchEvent(new CustomEvent('cbsgo:treasureFound', {
-        detail: {
-          xp,
-          tickets,
-          rare: isRare,
-          hasCBSFlag
-        }
+        detail: { xp, tickets, rare: isRare, hasCBSFlag }
       }));
 
-      // 1 chest per call is genoeg
       break;
     }
   }
@@ -251,14 +445,34 @@ function metersBetween(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+// distance rewards (lifetime)
 function applyRewards(s) {
-  if (!s.rewarded5k && s.steps >= 5000) {
-    s.rewarded5k = true;
-    addXp(20);
+  const totalMeters = Number(
+    (s.totalMeters != null ? s.totalMeters : s.meters) || 0
+  );
+  if (!Number.isFinite(totalMeters) || totalMeters <= 0) return;
+
+  const totalKm = Math.floor(totalMeters / 1000);
+  const prevKmAwarded = Number(s.xpKmAwarded || 0);
+  if (totalKm > prevKmAwarded) {
+    const deltaKm = totalKm - prevKmAwarded;
+    if (deltaKm > 0) {
+      addXp(deltaKm);
+      notifyXpChanged();
+      s.xpKmAwarded = totalKm;
+    }
   }
-  if (!s.rewarded10k && s.steps >= 10000) {
-    s.rewarded10k = true;
-    addTickets(1);
+
+  const TICKET_CHUNK_M = 2500;
+  const totalTicketChunks = Math.floor(totalMeters / TICKET_CHUNK_M);
+  const prevTicketChunksAwarded = Number(s.ticketChunksAwarded || 0);
+  if (totalTicketChunks > prevTicketChunksAwarded) {
+    const deltaChunks = totalTicketChunks - prevTicketChunksAwarded;
+    if (deltaChunks > 0) {
+      addTickets(deltaChunks);
+      notifyInventoryChanged();
+      s.ticketChunksAwarded = totalTicketChunks;
+    }
   }
 }
 
@@ -268,20 +482,43 @@ export function addMeters(meters) {
 
   const s = loadSteps();
 
+  // lifetime
+  s.totalMeters = Number(s.totalMeters || 0) + m;
   s.meters = Number(s.meters || 0) + m;
+
+  // dagelijks
+  s.dayMeters = Number(s.dayMeters || 0) + m;
   s.chestMeters = Number(s.chestMeters || 0) + m;
 
-  // stable conversion
-  const nextSteps = Math.floor((s.meters || 0) / METERS_PER_STEP);
-  if (nextSteps > s.steps) s.steps = nextSteps;
+  const prevStepsLifetime = Number(s.steps || 0);
+  const nextStepsLifetime = Math.floor((s.meters || 0) / METERS_PER_STEP);
+
+  if (nextStepsLifetime > prevStepsLifetime) {
+    const delta = nextStepsLifetime - prevStepsLifetime;
+    s.steps = nextStepsLifetime;
+    s.daySteps = Number(s.daySteps || 0) + delta;
+  }
+
+  // daily goal check
+  if (!s.dailyGoalReached &&
+      s.daySteps >= (s.dailyGoalSteps || DAILY_GOAL_STEPS)) {
+    s.dailyGoalReached = true;
+
+    window.dispatchEvent(new CustomEvent('cbsgo:dailyGoalReached', {
+      detail: {
+        dayKey: s.dayKey || todayKeyLocal(),
+        steps: s.daySteps,
+        goal: s.dailyGoalSteps || DAILY_GOAL_STEPS
+      }
+    }));
+  }
 
   applyRewards(s);
   applyBoostTickets(s);
   applyChestProgress(s);
 
   saveSteps(s);
-
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: s.steps } }));
+  notifyStepsChanged();
   return s;
 }
 
@@ -297,7 +534,7 @@ export function disableSteps() {
   enabled = false;
   gpsDebug = { msg: 'disabled', t: Date.now() };
   try { localStorage.setItem(AUTOSTART_KEY, '0'); } catch {}
-  window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+  notifyStepsChanged();
 }
 
 export function shouldAutoStart() {
@@ -333,11 +570,9 @@ export async function enableSteps(opts = {}) {
         const s = loadSteps();
         const last = s.lastPos;
 
-        // Always update lastPos so we can accumulate once accuracy improves
         s.lastPos = { lat, lng, t: now };
         saveSteps(s);
 
-        // ✅ Broadcast player position for the map + compass + arrow
         const heading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
         const speedGps = Number.isFinite(pos.coords.speed) ? pos.coords.speed : null;
 
@@ -345,18 +580,16 @@ export async function enableSteps(opts = {}) {
           detail: { lat, lng, acc, heading, speed: speedGps, t: now }
         }));
 
-        // If accuracy is bad, do not count movement
         if (acc > MAX_ACCEPTED_ACCURACY_M) {
           gpsDebug = {
             lat, lng, acc, t: now,
             reason: 'accuracy',
             boostMs: getTicketBoostRemainingMs()
           };
-          window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+          notifyStepsChanged();
           return;
         }
 
-        // ✅ 1x/day daily puzzle exactly at your GPS location
         triggerDailyPuzzle(lat, lng);
 
         let dist = 0;
@@ -365,15 +598,21 @@ export async function enableSteps(opts = {}) {
         let added = 0;
         let reason = 'no-last';
 
-        if (last && typeof last.lat === 'number' && typeof last.lng === 'number' && typeof last.t === 'number') {
+        if (last && typeof last.lat === 'number' &&
+            typeof last.lng === 'number' &&
+            typeof last.t === 'number') {
+
           dist = metersBetween({ lat: last.lat, lng: last.lng }, { lat, lng });
           dt = Math.max(1, (now - last.t) / 1000);
           speed = dist / dt;
 
-          if (dist < MIN_DIST_M) reason = 'jitter';
-          else if (dist > MAX_DIST_M) reason = 'teleport';
-          else if (speed > MAX_SPEED_MPS) reason = 'too-fast';
-          else {
+          if (dist < MIN_DIST_M) {
+            reason = 'jitter';
+          } else if (dist > MAX_DIST_M) {
+            reason = 'teleport';
+          } else if (speed > MAX_SPEED_MPS) {
+            reason = 'too-fast';
+          } else {
             addMeters(dist);
             added = dist;
             reason = 'ok';
@@ -384,21 +623,21 @@ export async function enableSteps(opts = {}) {
           lat, lng, acc, t: now,
           dist: Math.round(dist),
           dt: Math.round(dt),
-          speed: Number(speed.toFixed(2)),
+          speed: Number.isFinite(speed) ? Number(speed.toFixed(2)) : 0,
           added: Math.round(added),
           reason,
           boostMs: getTicketBoostRemainingMs()
         };
 
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+        notifyStepsChanged();
       },
       (err) => {
         enabled = false;
         gpsDebug = { err: err?.message || 'GPS blocked', t: Date.now() };
         if (!silent) {
-          // browsers that require a user gesture are handled by tryAutoStart()
+          // handled by tryAutoStart()
         }
-        window.dispatchEvent(new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }));
+        notifyStepsChanged();
       },
       {
         enableHighAccuracy: true,
@@ -425,10 +664,8 @@ export function tryAutoStart() {
     await enableSteps({ silent: true });
   };
 
-  // Try immediately
   attempt();
 
-  // Some browsers require a user gesture: start on first tap anywhere
   const onFirstTap = async () => {
     if (!isStepsEnabled()) await enableSteps({ silent: true });
     window.removeEventListener('pointerdown', onFirstTap);
@@ -439,4 +676,27 @@ export function tryAutoStart() {
   window.addEventListener('pointerdown', onFirstTap, { once: true });
   window.addEventListener('touchstart', onFirstTap, { once: true });
   window.addEventListener('click', onFirstTap, { once: true });
+}
+
+/* ---------------- LOOT REWARD LISTENER ---------------- */
+
+if (!window.__cbsgo_loot_reward_listener_v1) {
+  window.__cbsgo_loot_reward_listener_v1 = true;
+
+  window.addEventListener('cbsgo:lootReward', (ev) => {
+    const d = ev?.detail || {};
+    const xp = Number(d.xp || 0);
+    const tickets = Number(d.tickets || 0);
+    const cbs = Number(d.cbs || 0);
+
+    if (xp > 0) {
+      addXp(xp);
+      notifyXpChanged();
+    }
+    if (tickets > 0 || cbs > 0) {
+      if (tickets > 0) addTickets(tickets);
+      if (cbs > 0) addCbsCoins(cbs);
+      notifyInventoryChanged();
+    }
+  });
 }
