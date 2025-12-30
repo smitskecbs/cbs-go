@@ -653,7 +653,7 @@ Needed: ≤ ${xr}m`);return}yr.removeLayer(s),Vr=null,Nn({id:`puzzle-${Date.now(
     color:#fff;
     font-weight:900;
     cursor:pointer;
-  `}function Da(){const t=!Si(),e=Pr()||"",r=t?`
+  `}function Da(){const t=!Si();let e="";try{const y=Pr();t?y&&y!=="Sovereign"?e=y:e="":e=y||""}catch{e=""}const r=t?`
       <div style="opacity:.85; font-size:13px; line-height:1.35;">
         Create your CBS-GO wallet now. It will be saved locally on this device.
         <br/>If you lose the PIN or clear browser data, the wallet is gone.
