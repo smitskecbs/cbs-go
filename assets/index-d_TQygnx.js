@@ -691,7 +691,6 @@ Needed: ≤ ${Er}m`);return}wr.removeLayer(s),Jr=null,zn({id:`puzzle-${Date.now(
       display:flex;
       flex-direction:column;
       gap:10px;
-      height:100%;
     ">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <div style="font-size:11px;opacity:.8;">
@@ -726,6 +725,7 @@ Needed: ≤ ${Er}m`);return}wr.removeLayer(s),Jr=null,zn({id:`puzzle-${Date.now(
 
       <div style="
         flex:1;
+        max-height:60vh;
         overflow:auto;
         padding:4px 2px 2px 2px;
       ">
