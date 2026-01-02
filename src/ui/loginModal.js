@@ -1,6 +1,6 @@
 // src/ui/loginModal.js
 // First-time login flow:
-// - User sets nickname + PIN -> creates local encrypted wallet
+// - User sets nickname + PIN -> creates local local wallet (stored on this device)
 // Returning user:
 // - PIN only -> unlock wallet
 //
@@ -97,12 +97,30 @@ function btnStyle(primary = true) {
 
 export function openLoginModal() {
   const firstTime = !hasWallet();
-  const curName = getPlayerName() || '';
+
+  // 🔧 Nickname ophalen, maar "Sovereign" NIET standaard invullen bij eerste keer
+  let curName = '';
+  try {
+    const raw = getPlayerName();
+    if (!firstTime) {
+      // Bij terugkerende gebruiker gewoon tonen wat er staat (ook Sovereign)
+      curName = raw || '';
+    } else {
+      // Eerste keer: alleen vooraf invullen als het echt een custom naam is
+      if (raw && raw !== 'Sovereign') {
+        curName = raw;
+      } else {
+        curName = '';
+      }
+    }
+  } catch {
+    curName = '';
+  }
 
   const body = firstTime
     ? `
       <div style="opacity:.85; font-size:13px; line-height:1.35;">
-        Create your CBS-GO wallet now. It will be saved on this device (encrypted).
+        Create your CBS-GO wallet now. It will be saved locally on this device.
         <br/>If you lose the PIN or clear browser data, the wallet is gone.
       </div>
 
@@ -173,6 +191,7 @@ export function openLoginModal() {
 
           setMsg('Creating wallet…');
 
+          // ✅ Nickname direct opslaan samen met PIN/wallet
           setPlayerName(n);
           await createWallet(p); // sync of async, allebei ok met await
 

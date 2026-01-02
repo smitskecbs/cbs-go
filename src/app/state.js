@@ -86,11 +86,43 @@ export function addXp(amount) {
   const a = Number(amount || 0);
   if (!Number.isFinite(a) || a <= 0) return load();
 
+  // 🔹 Level vóór de update
+  const beforeLevel = getLevel();
+
   const s = load();
   s.xp = Number(s.xp || 0) + a;
   save(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: s.xp, level: getLevel() } }));
+  // 🔹 Level ná de update
+  const afterLevel = getLevel();
+
+  // XP event (zoals je al had)
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:xpChanged', {
+      detail: { xp: s.xp, level: afterLevel }
+    })
+  );
+
+  // 🔔 Nieuw: los level-up event als je level gestegen is
+  if (afterLevel > beforeLevel) {
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:levelUp', {
+        detail: {
+          from: beforeLevel,
+          to: afterLevel,
+          xp: s.xp
+        }
+      })
+    );
+
+    // (optioneel, als je ooit nog iets met cbsgo:levelChanged wilt)
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:levelChanged', {
+        detail: { level: afterLevel, xp: s.xp }
+      })
+    );
+  }
+
   return s;
 }
 
@@ -113,7 +145,9 @@ export function completeNode(nodeId) {
   s.completed[id] = Date.now();
   save(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:nodeCompleted', { detail: { id } })
+  );
 }
 
 // Optional helper (handig later)
@@ -124,5 +158,7 @@ export function getCompletedMap() {
 // Used by your dev reset button
 export function hardResetState() {
   localStorage.removeItem(KEY);
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, level: 1 } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, level: 1 } })
+  );
 }

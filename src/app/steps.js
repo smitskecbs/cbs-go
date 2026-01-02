@@ -9,6 +9,9 @@ import { addXp } from './state.js';
 import { addTickets, addCbsCoins } from './inventory.js';
 
 const KEY = 'cbsgo_steps_v6';
+// 🔙 Probeer oude data te migreren als die nog bestaat
+const OLD_KEY = 'cbsgo_steps_v5';
+
 const AUTOSTART_KEY = 'cbsgo_gps_autostart_v2';
 const DAILY_PUZZLE_KEY = 'cbsgo_daily_puzzle_v1';
 
@@ -47,6 +50,162 @@ function safeParse(raw, fallback) {
   } catch {
     return fallback;
   }
+}
+
+/* ---------- CARDS (COLLECTIBLES) ---------- */
+
+// 🔑 Zelfde key als cardsPanel.js
+const CARDS_KEY = 'cbsgo_cards_v1';
+
+// IDs hier MOETEN matchen met cardsPanel.js
+// (bijv. walk_sun_1, cbs_heart_1, ...)
+const CARD_DEFS = [
+  {
+    id: 'walk_sun_1',
+    name: 'Sunny Walk',
+    emoji: '☀️',
+    rarity: 'common',
+  },
+  {
+    id: 'cbs_heart_1',
+    name: 'CBS Heart',
+    emoji: '❤️',
+    rarity: 'rare',
+  },
+  // later kun je hier meer kaarten bijzetten
+];
+
+// Eventueel handig voor UI / debug
+export function getCardDefs() {
+  return CARD_DEFS.slice();
+}
+
+// Voor compatibiliteit: oude IDs mappen naar nieuwe
+function normalizeCardId(rawId) {
+  if (!rawId) return null;
+  const id = String(rawId);
+
+  if (id === 'sunny_walker') return 'walk_sun_1';
+  if (id === 'cbs_heart') return 'cbs_heart_1';
+
+  return id;
+}
+
+// Card-def lookup
+function findCardDef(cardId) {
+  return (
+    CARD_DEFS.find((c) => c.id === cardId) || {
+      id: cardId,
+      name: cardId,
+      emoji: '🃏',
+      rarity: 'common',
+    }
+  );
+}
+
+// Kaarten state in zelfde vorm als cardsPanel:
+// localStorage: { counts: { [cardId]: number } }
+export function loadCardsCollection() {
+  try {
+    const raw = localStorage.getItem(CARDS_KEY);
+    const data = safeParse(raw, {});
+
+    // Nieuwe vorm: { counts: { id: n } }
+    if (data && typeof data.counts === 'object' && data.counts !== null) {
+      return { counts: { ...data.counts } };
+    }
+
+    // Migratie van oude flat vorm: { cardId: { count: n, ... }, ... }
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const counts = {};
+      for (const [id, val] of Object.entries(data)) {
+        if (val && typeof val === 'object' && 'count' in val) {
+          const n = Number(val.count);
+          if (Number.isFinite(n) && n > 0) {
+            counts[id] = n;
+          }
+        }
+      }
+      if (Object.keys(counts).length > 0) {
+        return { counts };
+      }
+    }
+
+    return { counts: {} };
+  } catch {
+    return { counts: {} };
+  }
+}
+
+function saveCardsCollection(state) {
+  try {
+    const counts =
+      state && state.counts && typeof state.counts === 'object'
+        ? state.counts
+        : {};
+    const safeCounts = {};
+    for (const [id, n] of Object.entries(counts)) {
+      const num = Number(n || 0);
+      if (Number.isFinite(num) && num > 0) {
+        safeCounts[id] = num;
+      }
+    }
+    const payload = { counts: safeCounts };
+    localStorage.setItem(CARDS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore
+  }
+}
+
+// ⭐ Kaart geven aan speler + events uitsturen
+function grantCard(cardIdRaw, count = 1) {
+  const cardId = normalizeCardId(cardIdRaw);
+  if (!cardId) return null;
+
+  const add = Number(count || 0);
+  if (!Number.isFinite(add) || add <= 0) return null;
+
+  const state = loadCardsCollection();
+  const counts = { ...(state.counts || {}) };
+
+  const prev = Number(counts[cardId] || 0);
+  const nextCount = prev + add;
+  counts[cardId] = nextCount;
+
+  saveCardsCollection({ counts });
+
+  const def = findCardDef(cardId);
+
+  try {
+    // Volledige state naar UI (optioneel, als je later wilt luisteren)
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:cardsChanged', {
+        detail: { counts },
+      }),
+    );
+
+    // Specifieke "kaart gevonden" event (popup / animatie)
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:cardFound', {
+        detail: {
+          cardId,
+          count: nextCount,
+          card: def,
+        },
+      }),
+    );
+
+    // Bag / My Cards laten rerenderen
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:bagChanged', {
+        detail: { reason: 'cardDrop', card: def },
+      }),
+    );
+  } catch {
+    // UI events zijn niet kritisch
+  }
+
+  return { cardId, count: nextCount, card: def };
 }
 
 /* ---------- DATE HELPERS ---------- */
@@ -122,7 +281,7 @@ function defaultSteps() {
     // versie van daily-systeem (voor migratie)
     dailyVersion: 1,
 
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   };
 }
 
@@ -144,15 +303,19 @@ function migrateStepsState(s) {
     s.totalMeters = Number(s.meters || 0);
   }
 
-  // 🔥 Nieuwe daily-logica: eerste keer alles schoon starten
+  // 🔥 Daily-logica: alleen aanvullen wat mist, niet je hele streak leeggooien
   if (typeof s.dailyVersion !== 'number' || s.dailyVersion < 1) {
-    s.dayKey = nowKey;
-    s.daySteps = 0;
-    s.dayMeters = 0;
-    s.dailyGoalSteps = DAILY_GOAL_STEPS;
-    s.dailyGoalReached = false;
-    s.streak = {};
-    s.lastStreakRewardDate = null;
+    if (!s.dayKey) s.dayKey = nowKey;
+    if (typeof s.daySteps !== 'number') s.daySteps = s.steps || 0;
+    if (typeof s.dayMeters !== 'number') s.dayMeters = s.meters || 0;
+    if (typeof s.dailyGoalSteps !== 'number' || s.dailyGoalSteps <= 0) {
+      s.dailyGoalSteps = DAILY_GOAL_STEPS;
+    }
+    if (typeof s.dailyGoalReached !== 'boolean') s.dailyGoalReached = false;
+    if (!s.streak || typeof s.streak !== 'object') s.streak = {};
+    if (typeof s.lastStreakRewardDate !== 'string') {
+      s.lastStreakRewardDate = null;
+    }
     s.dailyVersion = 1;
   } else {
     if (!s.dayKey) s.dayKey = nowKey;
@@ -181,23 +344,25 @@ function maybeRewardStreak(s, lastDayKey) {
   const keys = getLastNDates(lastDayKey, STREAK_LENGTH);
   if (!keys.length) return;
 
-  const allFilled = keys.every(k => !!s.streak[k]);
+  const allFilled = keys.every((k) => !!s.streak[k]);
   if (!allFilled) return;
 
   if (s.lastStreakRewardDate === lastDayKey) return;
 
   addCbsCoins(STREAK_REWARD_CBS);
-  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', {}));
+  notifyInventoryChanged();
 
   s.lastStreakRewardDate = lastDayKey;
 
-  window.dispatchEvent(new CustomEvent('cbsgo:streakReward', {
-    detail: {
-      days: STREAK_LENGTH,
-      rewardCbs: STREAK_REWARD_CBS,
-      lastDayKey
-    }
-  }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:streakReward', {
+      detail: {
+        days: STREAK_LENGTH,
+        rewardCbs: STREAK_REWARD_CBS,
+        lastDayKey,
+      },
+    }),
+  );
 }
 
 // Dag wisselen + vorige dag vastleggen
@@ -227,7 +392,20 @@ function ensureDay(s) {
 }
 
 export function loadSteps() {
-  const raw = localStorage.getItem(KEY);
+  // Eerst nieuwe key proberen
+  let raw = localStorage.getItem(KEY);
+
+  // Als daar niks staat, proberen we oude key te migreren (als die bestaat)
+  if (!raw) {
+    const oldRaw = localStorage.getItem(OLD_KEY);
+    if (oldRaw) {
+      const parsedOld = safeParse(oldRaw, defaultSteps());
+      const migrated = ensureDay(parsedOld);
+      saveSteps(migrated);
+      return migrated;
+    }
+  }
+
   const parsed = safeParse(raw, defaultSteps());
   return ensureDay(parsed);
 }
@@ -236,7 +414,7 @@ export function loadSteps() {
 
 function notifyStepsChanged() {
   window.dispatchEvent(
-    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } })
+    new CustomEvent('cbsgo:stepsChanged', { detail: { steps: getSteps() } }),
   );
 }
 
@@ -248,6 +426,29 @@ function notifyInventoryChanged() {
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', {}));
 }
 
+// 🔔 Meldingen speciaal voor XP/tickets/CBS door lopen
+function dispatchStepReward(xp, tickets, cbs, reason) {
+  const dxp = Number(xp || 0);
+  const dt = Number(tickets || 0);
+  const dc = Number(cbs || 0);
+  if (!dxp && !dt && !dc) return;
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:stepReward', {
+        detail: {
+          xp: dxp,
+          tickets: dt,
+          cbs: dc,
+          reason: reason || 'distance',
+        },
+      }),
+    );
+  } catch {
+    // ignore
+  }
+}
+
 // aantal stappen VANDAAG (voor UI)
 export function getSteps() {
   const s = loadSteps();
@@ -257,7 +458,7 @@ export function getSteps() {
 // afstand in meters VANDAAG (voor UI / xpBar)
 export function getDistanceMeters() {
   const s = loadSteps();
-  const m = (s.dayMeters != null ? s.dayMeters : s.meters || 0);
+  const m = s.dayMeters != null ? s.dayMeters : s.meters || 0;
   return Number(m || 0);
 }
 
@@ -277,7 +478,7 @@ export function getDailyStats() {
   const streakObj = s.streak || {};
 
   const keys = getLastNDates(today, STREAK_LENGTH);
-  const streak = keys.map(k => {
+  const streak = keys.map((k) => {
     let reached = false;
     if (k === today) {
       reached = goalReached;
@@ -294,7 +495,7 @@ export function getDailyStats() {
     streak,
     todayKey: today,
     streakLength: STREAK_LENGTH,
-    rewardPerStreak: STREAK_REWARD_CBS
+    rewardPerStreak: STREAK_REWARD_CBS,
   };
 }
 
@@ -309,21 +510,27 @@ export function getGpsDebug() {
 /* ---------------- DAILY PUZZLE ---------------- */
 
 function dailyShownToday() {
-  try { return localStorage.getItem(DAILY_PUZZLE_KEY) === todayKeyLocal(); }
-  catch { return false; }
+  try {
+    return localStorage.getItem(DAILY_PUZZLE_KEY) === todayKeyLocal();
+  } catch {
+    return false;
+  }
 }
 
 function markDailyShownToday() {
-  try { localStorage.setItem(DAILY_PUZZLE_KEY, todayKeyLocal()); }
-  catch {}
+  try {
+    localStorage.setItem(DAILY_PUZZLE_KEY, todayKeyLocal());
+  } catch {}
 }
 
 function triggerDailyPuzzle(lat, lng) {
   if (dailyShownToday()) return false;
 
-  window.dispatchEvent(new CustomEvent('cbsgo:dailyPuzzle', {
-    detail: { lat, lng, date: todayKeyLocal() }
-  }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:dailyPuzzle', {
+      detail: { lat, lng, date: todayKeyLocal() },
+    }),
+  );
 
   markDailyShownToday();
   return true;
@@ -345,7 +552,8 @@ export function activateTicketBoost(minutes = BOOST_DURATION_MIN) {
   const mins = Number(minutes);
   const durMs =
     (Number.isFinite(mins) && mins > 0 ? mins : BOOST_DURATION_MIN) *
-    60 * 1000;
+    60 *
+    1000;
 
   const s = loadSteps();
   const now = Date.now();
@@ -356,9 +564,11 @@ export function activateTicketBoost(minutes = BOOST_DURATION_MIN) {
 
   saveSteps(s);
 
-  window.dispatchEvent(new CustomEvent('cbsgo:boostChanged', {
-    detail: { boostUntil: s.boostUntil }
-  }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:boostChanged', {
+      detail: { boostUntil: s.boostUntil },
+    }),
+  );
 
   return { ok: true, boostUntil: s.boostUntil };
 }
@@ -383,6 +593,9 @@ function applyBoostTickets(s) {
 
   addTickets(tickets);
   notifyInventoryChanged();
+
+  // 🔔 melding: tickets via glow boost (lopen)
+  dispatchStepReward(0, tickets, 0, 'boost');
 
   s.boostLastStep = last + tickets * BOOST_STEP_CHUNK;
 }
@@ -415,11 +628,21 @@ function applyChestProgress(s) {
       addTickets(tickets);
       notifyInventoryChanged();
 
-      const hasCBSFlag = isRare && (Math.random() < CBS_FLAG_CHANCE);
+      const hasCBSFlag = isRare && Math.random() < CBS_FLAG_CHANCE;
 
-      window.dispatchEvent(new CustomEvent('cbsgo:treasureFound', {
-        detail: { xp, tickets, rare: isRare, hasCBSFlag }
-      }));
+      // 🔔 melding: schatkist door lopen
+      dispatchStepReward(
+        xp,
+        tickets,
+        0,
+        isRare ? 'treasure-rare' : 'treasure',
+      );
+
+      window.dispatchEvent(
+        new CustomEvent('cbsgo:treasureFound', {
+          detail: { xp, tickets, rare: isRare, hasCBSFlag },
+        }),
+      );
 
       break;
     }
@@ -448,9 +671,12 @@ function metersBetween(a, b) {
 // distance rewards (lifetime)
 function applyRewards(s) {
   const totalMeters = Number(
-    (s.totalMeters != null ? s.totalMeters : s.meters) || 0
+    (s.totalMeters != null ? s.totalMeters : s.meters) || 0,
   );
   if (!Number.isFinite(totalMeters) || totalMeters <= 0) return;
+
+  let xpAwardedHere = 0;
+  let ticketsAwardedHere = 0;
 
   const totalKm = Math.floor(totalMeters / 1000);
   const prevKmAwarded = Number(s.xpKmAwarded || 0);
@@ -460,6 +686,7 @@ function applyRewards(s) {
       addXp(deltaKm);
       notifyXpChanged();
       s.xpKmAwarded = totalKm;
+      xpAwardedHere += deltaKm;
     }
   }
 
@@ -472,7 +699,13 @@ function applyRewards(s) {
       addTickets(deltaChunks);
       notifyInventoryChanged();
       s.ticketChunksAwarded = totalTicketChunks;
+      ticketsAwardedHere += deltaChunks;
     }
+  }
+
+  // 🔔 melding: pure afstands-rewards door lopen
+  if (xpAwardedHere > 0 || ticketsAwardedHere > 0) {
+    dispatchStepReward(xpAwardedHere, ticketsAwardedHere, 0, 'distance');
   }
 }
 
@@ -500,17 +733,21 @@ export function addMeters(meters) {
   }
 
   // daily goal check
-  if (!s.dailyGoalReached &&
-      s.daySteps >= (s.dailyGoalSteps || DAILY_GOAL_STEPS)) {
+  if (
+    !s.dailyGoalReached &&
+    s.daySteps >= (s.dailyGoalSteps || DAILY_GOAL_STEPS)
+  ) {
     s.dailyGoalReached = true;
 
-    window.dispatchEvent(new CustomEvent('cbsgo:dailyGoalReached', {
-      detail: {
-        dayKey: s.dayKey || todayKeyLocal(),
-        steps: s.daySteps,
-        goal: s.dailyGoalSteps || DAILY_GOAL_STEPS
-      }
-    }));
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:dailyGoalReached', {
+        detail: {
+          dayKey: s.dayKey || todayKeyLocal(),
+          steps: s.daySteps,
+          goal: s.dailyGoalSteps || DAILY_GOAL_STEPS,
+        },
+      }),
+    );
   }
 
   applyRewards(s);
@@ -533,7 +770,9 @@ export function disableSteps() {
   clearWatch();
   enabled = false;
   gpsDebug = { msg: 'disabled', t: Date.now() };
-  try { localStorage.setItem(AUTOSTART_KEY, '0'); } catch {}
+  try {
+    localStorage.setItem(AUTOSTART_KEY, '0');
+  } catch {}
   notifyStepsChanged();
 }
 
@@ -553,7 +792,9 @@ export async function enableSteps(opts = {}) {
     return { ok: false, reason: 'GPS not supported' };
   }
 
-  try { localStorage.setItem(AUTOSTART_KEY, '1'); } catch {}
+  try {
+    localStorage.setItem(AUTOSTART_KEY, '1');
+  } catch {}
 
   clearWatch();
   enabled = true;
@@ -573,18 +814,27 @@ export async function enableSteps(opts = {}) {
         s.lastPos = { lat, lng, t: now };
         saveSteps(s);
 
-        const heading = Number.isFinite(pos.coords.heading) ? pos.coords.heading : null;
-        const speedGps = Number.isFinite(pos.coords.speed) ? pos.coords.speed : null;
+        const heading = Number.isFinite(pos.coords.heading)
+          ? pos.coords.heading
+          : null;
+        const speedGps = Number.isFinite(pos.coords.speed)
+          ? pos.coords.speed
+          : null;
 
-        window.dispatchEvent(new CustomEvent('cbsgo:playerPos', {
-          detail: { lat, lng, acc, heading, speed: speedGps, t: now }
-        }));
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:playerPos', {
+            detail: { lat, lng, acc, heading, speed: speedGps, t: now },
+          }),
+        );
 
         if (acc > MAX_ACCEPTED_ACCURACY_M) {
           gpsDebug = {
-            lat, lng, acc, t: now,
+            lat,
+            lng,
+            acc,
+            t: now,
             reason: 'accuracy',
-            boostMs: getTicketBoostRemainingMs()
+            boostMs: getTicketBoostRemainingMs(),
           };
           notifyStepsChanged();
           return;
@@ -598,11 +848,16 @@ export async function enableSteps(opts = {}) {
         let added = 0;
         let reason = 'no-last';
 
-        if (last && typeof last.lat === 'number' &&
-            typeof last.lng === 'number' &&
-            typeof last.t === 'number') {
-
-          dist = metersBetween({ lat: last.lat, lng: last.lng }, { lat, lng });
+        if (
+          last &&
+          typeof last.lat === 'number' &&
+          typeof last.lng === 'number' &&
+          typeof last.t === 'number'
+        ) {
+          dist = metersBetween(
+            { lat: last.lat, lng: last.lng },
+            { lat, lng },
+          );
           dt = Math.max(1, (now - last.t) / 1000);
           speed = dist / dt;
 
@@ -620,13 +875,16 @@ export async function enableSteps(opts = {}) {
         }
 
         gpsDebug = {
-          lat, lng, acc, t: now,
+          lat,
+          lng,
+          acc,
+          t: now,
           dist: Math.round(dist),
           dt: Math.round(dt),
           speed: Number.isFinite(speed) ? Number(speed.toFixed(2)) : 0,
           added: Math.round(added),
           reason,
-          boostMs: getTicketBoostRemainingMs()
+          boostMs: getTicketBoostRemainingMs(),
         };
 
         notifyStepsChanged();
@@ -642,8 +900,8 @@ export async function enableSteps(opts = {}) {
       {
         enableHighAccuracy: true,
         maximumAge: 1000,
-        timeout: 12000
-      }
+        timeout: 12000,
+      },
     );
 
     return { ok: true };
@@ -689,6 +947,8 @@ if (!window.__cbsgo_loot_reward_listener_v1) {
     const tickets = Number(d.tickets || 0);
     const cbs = Number(d.cbs || 0);
 
+    // ⚠️ Loot = cadeautjes → hier GEEN stepReward toast,
+    // want jij wilde alleen meldingen van "lopen".
     if (xp > 0) {
       addXp(xp);
       notifyXpChanged();
@@ -697,6 +957,20 @@ if (!window.__cbsgo_loot_reward_listener_v1) {
       if (tickets > 0) addTickets(tickets);
       if (cbs > 0) addCbsCoins(cbs);
       notifyInventoryChanged();
+    }
+
+    // 🃏 Kaarten uit cadeautjes: als payload een cardId heeft -> opslaan
+    const cardId = d.cardId || d.card_id;
+    if (cardId) {
+      try {
+        const cardCount =
+          Number(d.cardCount || d.count || 1) > 0
+            ? Number(d.cardCount || d.count || 1)
+            : 1;
+        grantCard(cardId, cardCount);
+      } catch (e) {
+        console.warn('CBS GO: grantCard from lootReward failed', e);
+      }
     }
   });
 }

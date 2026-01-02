@@ -115,6 +115,7 @@ async function fetchOnlinePlayers() {
   const sinceIso = new Date(Date.now() - ONLINE_WINDOW_MS).toISOString();
 
   try {
+    // 1) Positie van alle "online" spelers ophalen
     const { data, error } = await supabase
       .from('player_state')
       .select('wallet_pk, nickname, lat, lng, heading, last_seen')
@@ -126,6 +127,32 @@ async function fetchOnlinePlayers() {
     }
 
     const rows = Array.isArray(data) ? data : [];
+
+    // 2) Alle wallet_pk's verzamelen en bijbehorende profielen (avatar + nickname) ophalen
+    const walletPks = Array.from(
+      new Set(
+        rows
+          .map((r) => r.wallet_pk)
+          .filter((v) => typeof v === 'string' && v.length > 0)
+      )
+    );
+
+    let profileByWallet = new Map();
+
+    if (walletPks.length > 0) {
+      const { data: profiles, error: profileError } = await supabase
+        .from('players')
+        .select('wallet_pk, avatar, nickname')
+        .in('wallet_pk', walletPks);
+
+      if (profileError) {
+        console.warn('CBS GO: fetch player profiles failed', profileError);
+      } else if (Array.isArray(profiles)) {
+        profileByWallet = new Map(
+          profiles.map((p) => [p.wallet_pk, p])
+        );
+      }
+    }
 
     const players = rows
       .map((row) => {
@@ -139,9 +166,17 @@ async function fetchOnlinePlayers() {
           return null; // overslaan als het geen geldige nummers zijn
         }
 
+        const profile = profileByWallet.get(row.wallet_pk) || null;
+        const nickname =
+          (profile && profile.nickname) ||
+          row.nickname ||
+          'Anon';
+        const avatar = profile && profile.avatar ? String(profile.avatar) : '';
+
         return {
           wallet_pk: row.wallet_pk || '',
-          nickname: row.nickname || 'Anon',
+          nickname,
+          avatar,
           lat,
           lng,
           heading: typeof row.heading === 'number' ? row.heading : null,

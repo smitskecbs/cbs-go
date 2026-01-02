@@ -1,67 +1,79 @@
 // src/app/onlinePlayers.js
-// Kleine helper om jouw speler in Supabase te zetten.
-// Geen layout of gameplay, alleen een rustige netwerk-call.
+// Profiel-sync naar Supabase (nickname + avatar + wallet + optioneel locatie)
+//
+// Wordt o.a. aangeroepen vanuit appShell.js:
+//   syncPlayerProfile();
+//
+// En later ook vanuit playerSync.js:
+//   syncPlayerProfile({ lat, lng });
 
-import { supabase } from './supabaseClient.js';
-import { getPlayerName } from './leaderboard.js';
 import { getPublicKey } from './wallet.js';
+import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
 
-let currentPlayerId = null;
+// 🔧 Belangrijk: we gaan er hier vanuit dat je al een supabase client hebt.
+// Meest gebruikelijk:
+//
+//   import { supabase } from './supabaseClient.js';
+//
+// Pas deze import aan als jouw pad anders is.
+import { supabase } from './supabaseClient.js';
 
-export function getCurrentPlayerId() {
-  return currentPlayerId;
+// Kleine helper om te voorkomen dat we syncen zonder wallet
+function getBaseProfile() {
+  const walletPk = getPublicKey();
+  if (!walletPk) return null;
+
+  const nickname = getPlayerName();
+  const avatar = getPlayerAvatar(); // data URL (base64) van jouw profielfoto
+
+  return {
+    wallet_pk: walletPk,
+    nickname,
+    avatar,
+  };
 }
 
-// Stuur (nickname + wallet_pk) naar de "players" tabel.
-// Als er geen internet is of Supabase faalt -> alleen een console.warn.
-export async function syncPlayerProfile() {
+/**
+ * syncPlayerProfile(extra?: object)
+ *
+ * - Stuurt wallet_pk + nickname + avatar naar Supabase.
+ * - 'extra' kan dingen zijn als { lat, lng } vanuit playerSync.js.
+ * - Upsert op wallet_pk zodat één rij per speler blijft.
+ *
+ * Vereiste tabel in Supabase:
+ *   tabel: players
+ *   kolommen:
+ *     - wallet_pk (text, PRIMARY KEY of UNIQUE)
+ *     - nickname (text)
+ *     - avatar (text)        // data URL of later URL naar geuploade image
+ *     - lat (numeric, optioneel)
+ *     - lng (numeric, optioneel)
+ *     - last_seen (timestamptz)
+ */
+export async function syncPlayerProfile(extra = {}) {
   try {
-    const nicknameRaw = getPlayerName() || '';
-    const nickname = nicknameRaw.trim() || 'Anon';
-    const wallet_pk = getPublicKey() || null;
-
-    // Als we geen wallet hebben, doen we niets
-    if (!wallet_pk) {
-      console.warn('CBS GO: no local wallet yet, skip Supabase sync.');
-      return null;
+    const base = getBaseProfile();
+    if (!base) {
+      console.warn('CBS GO: no local wallet, skip profile sync');
+      return;
     }
 
-    // 1) kijken of er al een row is voor deze wallet
-    const { data: existing, error: selectError } = await supabase
-      .from('players')
-      .select('id')
-      .eq('wallet_pk', wallet_pk)
-      .limit(1);
+    const payload = {
+      ...base,
+      ...extra,
+      last_seen: new Date().toISOString(),
+    };
 
-    if (selectError) {
-      console.warn('CBS GO: Supabase select failed', selectError);
-    }
-
-    if (existing && existing.length > 0) {
-      currentPlayerId = existing[0].id;
-      return currentPlayerId;
-    }
-
-    // 2) anders: nieuwe speler aanmaken
-    const { data, error } = await supabase
-      .from('players')
-      .insert({
-        nickname,
-        wallet_pk
-      })
-      .select('id')
-      .single();
+    const { error } = await supabase
+      .from('players') // 🔧 check of jouw tabel ook echt "players" heet
+      .upsert(payload, {
+        onConflict: 'wallet_pk', // 1 rij per wallet
+      });
 
     if (error) {
-      console.warn('CBS GO: Supabase insert failed', error);
-      return null;
+      console.warn('CBS GO: failed to sync player profile', error);
     }
-
-    currentPlayerId = data?.id || null;
-    console.log('CBS GO: player synced to Supabase:', currentPlayerId);
-    return currentPlayerId;
   } catch (e) {
-    console.warn('CBS GO: Supabase sync error', e);
-    return null;
+    console.warn('CBS GO: syncPlayerProfile crashed', e);
   }
 }

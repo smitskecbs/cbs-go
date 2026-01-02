@@ -1,11 +1,22 @@
 // src/app/wallet.js
-// Eenvoudige lokale "game wallet" voor CBS GO.
-// - 1 wallet per browser (geen echte SOL, alleen een pseudo public key).
-// - PIN wordt als string opgeslagen (game, geen echte crypto).
+// Lokale "game wallet" voor CBS GO – nu met echte Ed25519 keypair.
+// ---------------------------------------------------------------
+// - 1 wallet per browser (Solana-compatibel keypair).
+// - PIN is een simpele lock (niet cryptografisch sterk!).
 // - "Unlocked" status is per tab/sessie (sessionStorage).
+//
+// ⚠️ Let op: secret key staat in plaintext in localStorage.
+//   Gebruik dit NIET voor grote bedragen. Dit is nu puur
+//   voor CBS-GO loot / kleine bedragen. Voor echte funds
+//   moeten we later encryptie toevoegen.
 
-const WALLET_KEY = 'cbsgo_wallet_v2';         // v2 om oude, kapotte data te negeren
-const UNLOCK_KEY = 'cbsgo_wallet_unlocked_v2';
+// Nieuwe versie -> oude fake wallet negeren
+const WALLET_KEY = 'cbsgo_wallet_v3';
+const UNLOCK_KEY = 'cbsgo_wallet_unlocked_v3';
+
+// Kleine dependency voor Ed25519 + base58
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 
 function loadWallet() {
   try {
@@ -13,9 +24,11 @@ function loadWallet() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    if (!parsed.pk || !parsed.pin) return null;
+    if (!parsed.pk || !parsed.sk || !parsed.pin) return null;
+
     return {
       pk: String(parsed.pk),
+      sk: String(parsed.sk),
       pin: String(parsed.pin),
     };
   } catch (e) {
@@ -29,24 +42,23 @@ function saveWallet(wallet) {
     WALLET_KEY,
     JSON.stringify({
       pk: String(wallet.pk),
+      sk: String(wallet.sk),
       pin: String(wallet.pin),
     }),
   );
 }
 
-// Simpele pseudo-public key generator (base58-achtig, begint met "CBS")
-function generatePublicKey() {
-  const alphabet =
-    '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  let out = 'CBS';
-  for (let i = 0; i < 36; i += 1) {
-    const r = Math.floor(Math.random() * alphabet.length);
-    out += alphabet[r];
-  }
-  return out;
+// Genereer een echte Ed25519 keypair (Solana-stijl)
+// - pk = publicKey (base58)
+// - sk = secretKey (base58, 64 bytes)
+function generateKeypair() {
+  const pair = nacl.sign.keyPair();
+  const pk = bs58.encode(pair.publicKey);
+  const sk = bs58.encode(pair.secretKey);
+  return { pk, sk };
 }
 
-// == Public API ==
+/* == Public API == */
 
 // Is er überhaupt een wallet op dit apparaat?
 export function hasWallet() {
@@ -61,8 +73,10 @@ export function isWalletUnlocked() {
 }
 
 // Maak een nieuwe wallet met gegeven PIN.
-// Wordt direct als "unlocked" gemarkeerd in deze sessie.
-// createWallet(pin) moet de public key teruggeven (zoals jouw modal verwacht).
+// - Maakt een echte Ed25519 keypair
+// - Slaat (pk + sk + pin) op in localStorage
+// - Markeer sessie als unlocked
+// - Return de public key (zoals loginModal verwacht)
 export function createWallet(pin) {
   const p = String(pin || '');
 
@@ -72,12 +86,11 @@ export function createWallet(pin) {
 
   const existing = loadWallet();
   if (existing) {
-    // Optioneel: overschrijven is toegestaan; als je dit niet wilt, kun je hier throwen.
-    console.warn('CBS GO: overwriting existing wallet');
+    console.warn('CBS GO: overwriting existing wallet (v3)');
   }
 
-  const pk = generatePublicKey();
-  const wallet = { pk, pin: p };
+  const { pk, sk } = generateKeypair();
+  const wallet = { pk, sk, pin: p };
   saveWallet(wallet);
   sessionStorage.setItem(UNLOCK_KEY, '1');
   return pk;
@@ -107,8 +120,14 @@ export function getPublicKey() {
   return wallet ? wallet.pk : '';
 }
 
+// Extra helper om (later) secretKey te kunnen gebruiken
+// Bijvoorbeeld voor signeren met @solana/web3.js.
+export function getSecretKeyBase58() {
+  const wallet = loadWallet();
+  return wallet ? wallet.sk : '';
+}
+
 // Optionele helper om alles te wissen (voor dev / reset)
-// Gebruik bv. via console: window.cbsgoDevResetWallet()
 export function devResetWallet() {
   localStorage.removeItem(WALLET_KEY);
   sessionStorage.removeItem(UNLOCK_KEY);

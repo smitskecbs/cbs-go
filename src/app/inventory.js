@@ -1,7 +1,7 @@
 // src/app/inventory.js
-// Simple local inventory for CBS-GO (tickets + CBS play money)
+// Inventory for CBS-GO (tickets + CBS play money + collectible cards)
 
-const KEY = 'cbsgo_inventory_v1';
+const KEY = 'cbsgo_inventory_v2';
 
 function safeParse(raw, fallback) {
   try {
@@ -16,6 +16,13 @@ function defaultInv() {
   return {
     tickets: 0,
     cbs: 0, // 🪙 CBS play money
+
+    // 🃏 Collectible cards
+    cards: {
+      // structure:
+      // "forest_explorer": 2,
+      // "chain_breaker": 1
+    }
   };
 }
 
@@ -23,9 +30,10 @@ export function loadInventory() {
   const raw = localStorage.getItem(KEY);
   const inv = safeParse(raw, defaultInv());
 
-  // defensief: zorg dat beide keys bestaan
   if (typeof inv.tickets !== 'number') inv.tickets = 0;
   if (typeof inv.cbs !== 'number') inv.cbs = 0;
+
+  if (!inv.cards || typeof inv.cards !== 'object') inv.cards = {};
 
   return inv;
 }
@@ -34,7 +42,9 @@ export function saveInventory(inv) {
   const safe = {
     tickets: Number(inv.tickets || 0),
     cbs: Number(inv.cbs || 0),
+    cards: inv.cards && typeof inv.cards === 'object' ? inv.cards : {}
   };
+
   localStorage.setItem(KEY, JSON.stringify(safe));
 }
 
@@ -45,6 +55,8 @@ export function getTickets() {
 export function getCbsCoins() {
   return Number(loadInventory().cbs || 0);
 }
+
+/* ---------- TICKETS / CBS ---------- */
 
 export function addTickets(n = 1) {
   const add = Number(n || 0);
@@ -73,6 +85,54 @@ export function addCbsCoins(n = 1) {
   );
   return inv;
 }
+
+/* ---------- CARDS ---------- */
+
+export function getAllCards() {
+  const inv = loadInventory();
+  return { ...(inv.cards || {}) };
+}
+
+export function addCard(cardId, qty = 1) {
+  const id = String(cardId || '').trim();
+  const n = Number(qty || 1);
+  if (!id || !Number.isFinite(n) || n <= 0) return loadInventory();
+
+  const inv = loadInventory();
+  if (!inv.cards) inv.cards = {};
+
+  inv.cards[id] = Number(inv.cards[id] || 0) + n;
+
+  saveInventory(inv);
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
+  );
+
+  return inv;
+}
+
+export function removeCard(cardId, qty = 1) {
+  const id = String(cardId || '').trim();
+  const n = Number(qty || 1);
+  if (!id || !Number.isFinite(n) || n <= 0) return loadInventory();
+
+  const inv = loadInventory();
+  if (!inv.cards || typeof inv.cards[id] !== 'number') return inv;
+
+  inv.cards[id] -= n;
+  if (inv.cards[id] <= 0) delete inv.cards[id];
+
+  saveInventory(inv);
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
+  );
+
+  return inv;
+}
+
+/* ---------- RESET ---------- */
 
 export function resetInventory() {
   const inv = defaultInv();

@@ -6,7 +6,7 @@
 // ✅ Cadeautjes + puzzels spawnen rond speler
 // ✅ Compass + Center knoppen rechtsonder
 // ✅ Weather-bubble + regen/sneeuw + nacht-dimming
-// ✅ Online spelers (andere wallets) als oranje bolletjes (met toggle + clustering)
+// ✅ Online spelers (andere wallets) als oranje pf / bolletjes (met toggle + clustering)
 // ✅ Auto-follow op speler, tenzij je zelf sleept of over map scrolt
 // ✅ Speler(pf) altijd boven loot/puzzels/andere spelers dankzij panes
 
@@ -23,7 +23,7 @@ let lastUserLatLng = null;
 let lastHeadingDeg = 0;
 let worldViewMode = false;
 
-// 👣 auto-follow state
+// 👣 auto-follow state (volg speler automatisch)
 let followPlayer = true;
 
 // 🔶 andere spelers
@@ -52,6 +52,19 @@ const LOOT_MAX_ACTIVE = 6;
 const LOOT_SPAWN_MIN_DISTANCE_M = 80;
 const LOOT_SPAWN_MAX_DISTANCE_M = 220;
 const LOOT_RESPAWN_MS = 60_000;
+// 🔧 NIEUW: loot despawn
+const LOOT_DESPAWN_AGE_MS = 5 * 60_000;   // 5 minuten
+const LOOT_DESPAWN_DIST_M = 300;          // 300m vanaf speler
+
+// 🃏 Card-drop config voor cadeautjes
+const CARD_DROP_CHANCE = 0.35; // 35% kans dat er 1 kaart in een gift zit
+const CARD_POOL = [
+  // IDs matchen met cardsPanel.js definities
+  'walk_sun_1',
+  'walk_rain_1',
+  'walk_city_1',
+  'cbs_heart_1'
+];
 
 // 🔧 Puzzle spawn config (rond speler)
 const PUZZLES_ENABLED = true;
@@ -64,6 +77,9 @@ let lastLootSpawnAt = 0;
 let puzzleMeters = 0;
 let activePuzzleMarker = null;
 let firstPuzzleSpawned = false;
+
+// Houdt actieve loot bij met metadata (voor despawn)
+let lootItems = [];
 
 function ensureEl(id) {
   return document.getElementById(id);
@@ -152,6 +168,35 @@ function computeHeadingDeg(prev, cur) {
   brng = (brng * 180) / Math.PI;    // naar graden
   brng = (brng + 360) % 360;        // 0–360
   return brng;
+}
+
+// 🔹 Punt X meter vooruit projecteren in een bepaalde richting
+function projectAhead(latlng, distanceM, bearingDeg) {
+  const R = 6371000; // aarde-radius in meters
+  const dByR = distanceM / R;
+  const brng = (bearingDeg * Math.PI) / 180;
+
+  const lat1 = (latlng[0] * Math.PI) / 180;
+  const lng1 = (latlng[1] * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinD = Math.sin(dByR);
+  const cosD = Math.cos(dByR);
+
+  const lat2 = Math.asin(
+    sinLat1 * cosD + cosLat1 * sinD * Math.cos(brng),
+  );
+
+  const lng2 = lng1 + Math.atan2(
+    Math.sin(brng) * sinD * cosLat1,
+    cosD - sinLat1 * Math.sin(lat2),
+  );
+
+  return [
+    (lat2 * 180) / Math.PI,
+    (lng2 * 180) / Math.PI,
+  ];
 }
 
 /* ---------- Weather helpers ---------- */
@@ -437,7 +482,23 @@ function buildArrowIcon(L, headingDeg) {
 }
 
 // 🔶 Online speler-icon (andere mensen / clusters)
-function buildOtherPlayerIcon(L, label) {
+function buildOtherPlayerIcon(L, label, avatar, isCluster) {
+  // Voor clusters altijd een bolletje, nooit avatar
+  if (!isCluster && avatar) {
+    const safeAvatar = esc(avatar);
+    const html = `
+      <div style="
+        width:30px;height:30px;border-radius:999px;
+        border:2px solid rgba(251,191,36,0.95);
+        box-shadow:0 8px 18px rgba(0,0,0,.55);
+        background-image:url('${safeAvatar}');
+        background-size:cover;
+        background-position:center;
+      "></div>
+    `;
+    return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
+  }
+
   const txt = String(label || '').trim() || '🙂';
 
   const html = `
@@ -453,12 +514,8 @@ function buildOtherPlayerIcon(L, label) {
   return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
 }
 
-// 🎁 Loot-icon (cadeautje)
-function buildLootIcon(L, kind) {
-  let badge = '⭐';
-  if (kind === 'ticket') badge = '🎟️';
-  if (kind === 'cbs') badge = '🪙';
-
+// 🎁 Mystery gift-icon (cadeautje met vraagteken)
+function buildLootIcon(L) {
   const html = `
     <div style="
       position:relative;
@@ -477,11 +534,13 @@ function buildLootIcon(L, kind) {
         width:20px;height:20px;
         border-radius:999px;
         border:1px solid rgba(0,0,0,.7);
-        background:rgba(0,0,0,.85);
+        background:rgba(15,23,42,.96);
         display:flex;align-items:center;justify-content:center;
-        font-size:11px;
+        font-size:12px;
+        color:#facc15;
+        font-weight:900;
       ">
-        ${badge}
+        ?
       </div>
     </div>
   `;
@@ -506,25 +565,66 @@ function buildPuzzleIcon(L) {
   return L.divIcon({ html, className: '', iconSize: [46, 46], iconAnchor: [23, 23] });
 }
 
-/* ---------- Loot ---------- */
+/* ---------- Loot (MYSTERY GIFTS) ---------- */
 
+// Soorten mystery loot (intern) -> alleen reward-combinatie, icon blijft altijd hetzelfde
 function rollLootKind() {
   const r = Math.random();
-  if (r < 0.70) return 'xp';
-  if (r < 0.95) return 'ticket';
-  return 'cbs';
+  if (r < 0.60) return 'small';     // 60%: kleine reward
+  if (r < 0.90) return 'medium';    // 30%: normale reward
+  if (r < 0.98) return 'large';     // 8%: grote reward
+  return 'jackpot';                 // 2%: alles-in-één klapper
+}
+
+function pickRandomCardId() {
+  if (!CARD_POOL.length) return null;
+  const idx = Math.floor(Math.random() * CARD_POOL.length);
+  return CARD_POOL[idx];
 }
 
 function computeLootReward(kind) {
-  if (kind === 'xp') {
-    const xp = 10 + Math.floor(Math.random() * 21);
-    return { xp, tickets: 0, cbs: 0, text: `+${xp} XP` };
+  const k = kind || 'small';
+
+  // Alle gifts kunnen XP / tickets / CBS hebben.
+  let xp;
+  let tickets;
+  let cbs;
+
+  if (k === 'jackpot') {
+    xp = 30 + Math.floor(Math.random() * 31);      // 30–60 XP
+    tickets = 2 + Math.floor(Math.random() * 2);   // 2–3 tickets
+    cbs = 20 + Math.floor(Math.random() * 31);     // 20–50 CBS
+  } else if (k === 'large') {
+    xp = 20 + Math.floor(Math.random() * 21);      // 20–40 XP
+    tickets = 1 + Math.floor(Math.random() * 2);   // 1–2 tickets
+    cbs = 10 + Math.floor(Math.random() * 16);     // 10–25 CBS
+  } else if (k === 'medium') {
+    xp = 10 + Math.floor(Math.random() * 16);      // 10–25 XP
+    tickets = Math.random() < 0.7 ? 1 : 0;         // meestal 1 ticket
+    cbs = Math.random() < 0.5
+      ? (5 + Math.floor(Math.random() * 11))       // 5–15 CBS
+      : 0;
+  } else {
+    // small
+    xp = 5 + Math.floor(Math.random() * 11);       // 5–15 XP
+    tickets = Math.random() < 0.25 ? 1 : 0;        // soms 1 ticket
+    cbs = Math.random() < 0.25
+      ? (3 + Math.floor(Math.random() * 8))        // 3–10 CBS
+      : 0;
   }
-  if (kind === 'ticket') {
-    return { xp: 0, tickets: 1, cbs: 0, text: '+1 ticket' };
+
+  // 🎴 Kaart-drop (los van xp/tickets/cbs)
+  let cardId = null;
+  let cardCount = 0;
+  if (Math.random() < CARD_DROP_CHANCE) {
+    const chosen = pickRandomCardId();
+    if (chosen) {
+      cardId = chosen;
+      cardCount = 1;
+    }
   }
-  const c = 5 + Math.floor(Math.random() * 11);
-  return { xp: 0, tickets: 0, cbs: c, text: `+${c} CBS Coin` };
+
+  return { xp, tickets, cbs, cardId, cardCount };
 }
 
 function spawnLootAround(center) {
@@ -540,10 +640,30 @@ function spawnLootAround(center) {
   if (!L) return;
 
   const kind = rollLootKind();
-  const pos = randomNearbyLatLng(center, LOOT_SPAWN_MIN_DISTANCE_M, LOOT_SPAWN_MAX_DISTANCE_M);
-  const icon = buildLootIcon(L, kind);
+  const reward = computeLootReward(kind);
 
-  const marker = L.marker([pos.lat, pos.lng], { icon, pane: 'cbsgo-loot-pane' });
+  const pos = randomNearbyLatLng(
+    center,
+    LOOT_SPAWN_MIN_DISTANCE_M,
+    LOOT_SPAWN_MAX_DISTANCE_M
+  );
+  const icon = buildLootIcon(L);
+
+  const marker = L.marker([pos.lat, pos.lng], {
+    icon,
+    pane: 'cbsgo-loot-pane'
+  });
+
+  const createdAt = now;
+
+  const item = {
+    marker,
+    createdAt,
+    lat: pos.lat,
+    lng: pos.lng,
+    reward
+  };
+  lootItems.push(item);
 
   marker.on('click', () => {
     if (!lastUserLatLng) {
@@ -564,13 +684,33 @@ function spawnLootAround(center) {
       return;
     }
 
+    // Cadeautje is geopend -> weg uit de map + uit lootItems
     lootLayer.removeLayer(marker);
+    lootItems = lootItems.filter(li => li.marker !== marker);
 
-    const reward = computeLootReward(kind);
-    const msg = `You found a gift!\n\nReward: ${reward.text}`;
-    alert(msg);
+    const { xp, tickets, cbs, cardId, cardCount } = reward;
 
-    const payload = { kind, ...reward };
+    const parts = [];
+    if (xp) parts.push(`+${xp} XP`);
+    if (tickets) parts.push(`+${tickets} ticket${tickets === 1 ? '' : 's'}`);
+    if (cbs) parts.push(`+${cbs} CBS`);
+    if (cardId && cardCount > 0) {
+      parts.push(`+${cardCount} card${cardCount === 1 ? '' : 's'}`);
+    }
+
+    const text = parts.length ? parts.join(' · ') : 'Nothing? That\'s weird…';
+
+    alert(`You opened a mystery gift!\n\n${text}`);
+
+    const payload = {
+      kind: 'mystery',
+      xp: xp || 0,
+      tickets: tickets || 0,
+      cbs: cbs || 0,
+      cardId: cardId || null,
+      cardCount: cardCount || 0
+    };
+
     try {
       window.dispatchEvent(new CustomEvent('cbsgo:lootReward', { detail: payload }));
     } catch {
@@ -580,6 +720,44 @@ function spawnLootAround(center) {
 
   marker.addTo(lootLayer);
   lastLootSpawnAt = now;
+}
+
+// Loot despawn: ouder dan X minuten of te ver weg van speler
+function cleanupLoot(center) {
+  if (!LOOT_ENABLED || !map || !lootLayer || !center) return;
+
+  const now = Date.now();
+  let removedCount = 0;
+
+  lootItems = lootItems.filter((item) => {
+    if (!item || !item.marker) return false;
+    if (!lootLayer.hasLayer(item.marker)) return false;
+
+    const age = now - (item.createdAt || 0);
+    if (age > LOOT_DESPAWN_AGE_MS) {
+      lootLayer.removeLayer(item.marker);
+      removedCount += 1;
+      return false;
+    }
+
+    const dist = metersBetween(
+      { lat: center.lat, lng: center.lng },
+      { lat: item.lat, lng: item.lng }
+    );
+
+    if (Number.isFinite(dist) && dist > LOOT_DESPAWN_DIST_M) {
+      lootLayer.removeLayer(item.marker);
+      removedCount += 1;
+      return false;
+    }
+
+    return true;
+  });
+
+  // Als alles weg is, mag er snel weer nieuwe loot respawnen rond je nieuwe plek
+  if (removedCount > 0 && lootLayer.getLayers().length === 0) {
+    lastLootSpawnAt = 0;
+  }
 }
 
 /* ---------- Puzzles ---------- */
@@ -699,17 +877,28 @@ function setUserMarker(latlng) {
   // Glow-range
   updatePlayerRange(latlng);
 
-  // Auto-follow: kaart blijft om je heen gecentreerd, tenzij je zelf hebt gescrolld of worldViewMode aan staat
+  // Auto-follow: kaart volgt je. In plaats van exact op jou,
+  // kijken we een stukje VÓÓR je in je looprichting.
   if (followPlayer && !worldViewMode && map) {
     try {
+      const zoom = map.getZoom() || 19;
+
+      // standaard: centreer op speler
+      let targetCenter = latlng;
+
+      // Als we een heading hebben, 40m vooruit projecteren
+      if (Number.isFinite(lastHeadingDeg)) {
+        targetCenter = projectAhead(latlng, 40, lastHeadingDeg);
+      }
+
       const center = map.getCenter();
       const distToCenter = metersBetween(
         { lat: center.lat, lng: center.lng },
-        { lat: latlng[0], lng: latlng[1] }
+        { lat: targetCenter[0], lng: targetCenter[1] }
       );
+
       if (!Number.isFinite(distToCenter) || distToCenter > 20) {
-        const zoom = map.getZoom() || 19;
-        map.setView(latlng, zoom);
+        map.setView(targetCenter, zoom);
       }
     } catch {
       // ignore
@@ -717,7 +906,7 @@ function setUserMarker(latlng) {
   }
 }
 
-/* ---------- Online players (oranje bolletjes) ---------- */
+/* ---------- Online players (oranje bolletjes / avatars) ---------- */
 
 function ensureOtherPlayersLayer() {
   const L = window.L;
@@ -778,6 +967,7 @@ function clusterOnlinePlayers(players) {
         lng: p.lng,
         count: 1,
         nickname: p.nickname || 'Anon',
+        avatar: p.avatar || '',
         isCluster: false
       });
     } else {
@@ -796,6 +986,7 @@ function clusterOnlinePlayers(players) {
         lng: avgLng,
         count: list.length,
         nickname: `${list.length} players`,
+        avatar: '',
         isCluster: true
       });
     }
@@ -837,7 +1028,7 @@ function renderOnlinePlayers(players) {
         ? String(c.count)
         : (c.nickname || 'Anon');
 
-      const icon = buildOtherPlayerIcon(L, label);
+      const icon = buildOtherPlayerIcon(L, label, c.avatar, c.isCluster);
       marker = L.marker(latlng, { icon, pane: 'cbsgo-others-pane' });
 
       const popupText = c.isCluster && c.count > 1
@@ -973,6 +1164,8 @@ function destroyMapIfAny() {
 
   otherPlayersLayer = null;
   otherPlayerMarkers.clear();
+
+  lootItems = [];
 }
 
 function initLeaflet() {
@@ -1022,11 +1215,12 @@ function initLeaflet() {
   nodesLayer = L.layerGroup().addTo(map);
   lootLayer = L.layerGroup().addTo(map);
 
-  // Als je de kaart met de hand beweegt/zoomt -> auto-follow uit
-  map.on('movestart', (ev) => {
-    if (ev && ev.originalEvent) {
-      followPlayer = false;
-    }
+  // 🧲 Als je de kaart met de hand sleept/zoomt -> auto-follow uit
+  map.on('dragstart', () => {
+    followPlayer = false;
+  });
+  map.on('zoomstart', () => {
+    followPlayer = false;
   });
 
   return true;
@@ -1064,10 +1258,25 @@ function startGps() {
         if (Number.isFinite(distMoved) && distMoved > 1) {
           puzzleMeters += distMoved;
         }
+
+        // 👣 Je hebt een stuk gelopen terwijl follow UIT stond:
+        // -> automatisch weer aanzetten en terug naar speler
+        if (
+          Number.isFinite(distMoved) &&
+          distMoved > 20 &&     // drempel ±20m
+          !followPlayer &&
+          !worldViewMode &&
+          map
+        ) {
+          followPlayer = true;
+          const zoom = map.getZoom() || 19;
+          map.setView([latitude, longitude], zoom);
+        }
       }
 
       maybeSpawnPuzzle(center);
       spawnLootAround(center);
+      cleanupLoot(center);
 
       fetchWeatherForLatLng(latitude, longitude);
 
@@ -1107,27 +1316,11 @@ export function bindMapView() {
       return;
     }
 
-    // 🔹 pointerdown op de kaart => user wil kijken / scrollen => follow uit
-    const host = ensureEl('cbsgoMapHost');
-    if (host && !host.__cbsgo_followPointerBound) {
-      host.__cbsgo_followPointerBound = true;
-      host.addEventListener('pointerdown', (ev) => {
-        const btn = ev.target.closest('button');
-        if (btn && (
-          btn.id === 'cbsgoCenterBtn' ||
-          btn.id === 'cbsgoCompassBtn' ||
-          btn.id === 'cbsgoOnlineToggleBtn'
-        )) {
-          return; // knoppen mogen follow niet uitzetten
-        }
-        followPlayer = false;
-      });
-    }
-
     const centerBtn = ensureEl('cbsgoCenterBtn');
     if (centerBtn) {
       centerBtn.onclick = () => {
         if (map && lastUserLatLng) {
+          // 🎯 Handmatig centreren = follow weer aan
           followPlayer = true;
           worldViewMode = false;
           map.setView(lastUserLatLng, 19);
@@ -1141,9 +1334,11 @@ export function bindMapView() {
         if (!map) return;
         worldViewMode = !worldViewMode;
         if (worldViewMode) {
+          // wereld-view: geen follow
           followPlayer = false;
           map.setView([51.687, 4.87], 3);
         } else if (lastUserLatLng) {
+          // terug naar speler: follow weer aan
           followPlayer = true;
           map.setView(lastUserLatLng, 16);
         }
