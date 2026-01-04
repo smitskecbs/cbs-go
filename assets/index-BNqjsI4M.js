@@ -400,16 +400,10 @@ DBT
       position:absolute;
       top:-10%;
       width:2px;
-      height:32px;
-      background:linear-gradient(
-        to bottom,
-        rgba(255,255,255,0),
-        rgba(173,216,230,0.95)
-      );
+      height:22px;
+      background:rgba(173,216,230,0.9);
       border-radius:999px;
       opacity:0;
-      pointer-events:none;
-      will-change:transform,opacity;
       animation-name:cbsgoRainFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
@@ -421,16 +415,14 @@ DBT
       width:10px;
       height:10px;
       border-radius:50%;
-      background:rgba(255,255,255,0.98);
-      box-shadow:0 0 10px rgba(255,255,255,0.9);
+      background:rgba(255,255,255,0.95);
+      box-shadow:0 0 6px rgba(255,255,255,0.9);
       opacity:0;
-      pointer-events:none;
-      will-change:transform,opacity;
       animation-name:cbsgoSnowFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
     }
-  `,document.head.appendChild(t)}function Wr(){const{temp:t,iconEmoji:n}=jt;return t==null?"⛅ …°":`${n} ${Math.round(t)}°`}function Dr(){const t=document.getElementById("cbsgoWeatherFx");if(!t)return;vi();const{condition:n,isNight:o}=jt;t.style.background=o?"radial-gradient(ellipse at top, rgba(0,0,0,0.45), rgba(0,0,0,0.85))":"transparent";let l="";if(n==="rain"||n==="storm"){const f=[];for(let u=0;u<80;u++){const p=Math.random()*100,b=Math.random()*18-9,x=Math.random()*2.5,h=1.8+Math.random()*1.8;f.push(`
+  `,document.head.appendChild(t)}function Wr(){const{temp:t,iconEmoji:n}=jt;return t==null?"⛅ …°":`${n} ${Math.round(t)}°`}function Dr(){const t=document.getElementById("cbsgoWeatherFx");if(!t)return;vi();const{condition:n,isNight:o}=jt;t.style.background=o?"radial-gradient(ellipse at top, rgba(0,0,0,0.45), rgba(0,0,0,0.85))":"transparent";let l="";if(n==="rain"||n==="storm"){const f=[];for(let u=0;u<96;u++){const p=Math.random()*100,b=Math.random()*16-8,x=Math.random()*2.5,h=2+Math.random()*1.5;f.push(`
         <div
           class="cbsgoRainDrop"
           style="
@@ -441,7 +433,7 @@ DBT
             animation-duration:${h}s;
           "
         ></div>
-      `)}l=f.join("")}else if(n==="snow"){const f=[];for(let u=0;u<70;u++){const p=Math.random()*100,b=Math.random()*24-12,x=Math.random()*4,h=6+Math.random()*5;f.push(`
+      `)}l=f.join("")}else if(n==="snow"){const f=[];for(let u=0;u<80;u++){const p=Math.random()*100,b=Math.random()*20-10,x=Math.random()*4,h=6+Math.random()*4;f.push(`
         <div
           class="cbsgoSnowFlake"
           style="
