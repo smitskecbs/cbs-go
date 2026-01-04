@@ -270,7 +270,8 @@ function updateWeatherFx() {
   let html = '';
 
   if (condition === 'rain' || condition === 'storm') {
-    const count = 48;
+    // 👇 meer druppels zodat het echt over het hele scherm regent
+    const count = 96;
     const parts = [];
     for (let i = 0; i < count; i++) {
       const x = Math.random() * 100;
@@ -293,7 +294,8 @@ function updateWeatherFx() {
     }
     html = parts.join('');
   } else if (condition === 'snow') {
-    const count = 42;
+    // 👇 meer sneeuwvlokken zodat het over het hele scherm dwarrelt
+    const count = 80;
     const parts = [];
     for (let i = 0; i < count; i++) {
       const x = Math.random() * 100;

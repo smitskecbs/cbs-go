@@ -1,10 +1,10 @@
 // src/app/supabaseClient.js
-import { createClient } from '@supabase/supabase-js';
+// Centrale Supabase client voor CBS-GO
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL = 'https://cxfedvowjgkqrakkkjpi.supabase.co';
-const SUPABASE_PUBLIC_ANON_KEY = 'sb_publishable_Eed_27P11ry75z-QL7gGCg_6VQ4WTqT';
+const SUPABASE_KEY = 'sb_publishable_Eed_27P11ry75z-QL7gGCg_6VQ4WTqT';
 
-export const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_PUBLIC_ANON_KEY
-);
+// 1 gedeelde client voor de hele app
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);

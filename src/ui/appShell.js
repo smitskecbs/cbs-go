@@ -1,9 +1,8 @@
 // src/ui/appShell.js
 // Fullscreen map shell met overlays.
 //
-// Layout afspraken (NIET meer aankomen zonder dat jij het vraagt):
+// Layout afspraken :
 // - Map is fullscreen.
-// - GEEN "CBS GO + profiel foto" linksboven.
 // - Rechtsboven: alleen XP + stappen.
 // - Rechtsonder: 2 ronde knoppen op de kaart (Profile & Bag), naast elkaar, net boven GPS-tekst.
 // - Geen extra weather-dot linksonder (jouw eigen weer bovenin blijft leidend).
@@ -31,28 +30,38 @@ import {
 import { renderMapView, bindMapView } from './mapView.js';
 import { isNodeCompleted } from '../app/state.js';
 
-import { getTickets, getCbsCoins } from '../app/inventory.js';
+// ✅ inventory helpers
+import {
+  getTickets,
+  getCbsCoins,
+  loadInventory,
+  saveInventory,
+} from '../app/inventory.js';
+
 import { openCardsPanel } from './cardsPanel.js';
 
 // ✅ Login + wallet weer actief
 import { openLoginModal } from './loginModal.js';
 import { hasWallet, isWalletUnlocked, getPublicKey } from '../app/wallet.js';
 
-// ✅ NIEUW: Supabase helper (profile -> players tabel)
+// ✅ Supabase helper (profile -> players tabel)
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
 
-// ✅ NIEUW: positie-sync + andere spelers ophalen (oranje bolletjes)
+// ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
 import '../app/playerSync.js';
 
-// ✅ NIEUW: friends helpers
+// ✅ friends helpers
 import {
   loadFriendsOverview,
   sendFriendRequest,
-  acceptFriendRequest
+  acceptFriendRequest,
 } from '../app/friends.js';
 
-// ✅ NIEUW: scherm wakker houden tijdens spelen
+// ✅ scherm wakker houden tijdens spelen
 import { enableWakeLock, bindWakeLockVisibilityHandler } from '../app/wakeLock.js';
+
+// ✅ trades (tickets + CBS + cards via Supabase)
+import { sendGiftToWallet, pullIncomingGifts } from '../app/trades.js';
 
 function esc(s) {
   return String(s || '')
@@ -81,6 +90,112 @@ function avatarCircle(dataUrl, size = 30) {
   `;
 }
 
+// ---------- Cards in Bag: zelfde storage als My Cards ----------
+
+const CARDS_STORAGE_KEY = 'cbsgo_cards_v1';
+
+function safeParse(raw, fallback) {
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// leest counts uit cbsgo_cards_v1 (nieuwe + oude vorm)
+function loadBagCardCounts() {
+  const raw = localStorage.getItem(CARDS_STORAGE_KEY);
+  const data = safeParse(raw, {});
+
+  let counts = {};
+
+  if (data && typeof data.counts === 'object' && data.counts !== null) {
+    counts = { ...data.counts };
+  } else if (Array.isArray(data.cards)) {
+    // oude vorm { cards: [ { id, count } ] }
+    data.cards.forEach((c) => {
+      if (!c || !c.id) return;
+      const n = Number(c.count || 0);
+      if (Number.isFinite(n) && n > 0) {
+        counts[c.id] = n;
+      }
+    });
+  }
+
+  return counts;
+}
+
+// schrijft counts terug naar cbsgo_cards_v1
+function saveBagCardCounts(counts) {
+  const safe = {
+    counts: { ...(counts || {}) },
+  };
+  try {
+    localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(safe));
+  } catch {
+    // ignore
+  }
+}
+
+// inventory.cards in sync brengen met My Cards storage
+function syncInventoryCardsFromBag() {
+  const counts = loadBagCardCounts();
+  const inv = loadInventory();
+  inv.cards = { ...(counts || {}) };
+  saveInventory(inv);
+}
+
+// zelfde IDs als in cardsPanel.js, met korte labels voor dropdown
+const BAG_CARD_DEFS = [
+  { id: 'walk_sun_1', label: 'Sunny Walk' },
+  { id: 'walk_rain_1', label: 'Rainy Walk' },
+  { id: 'walk_night_1', label: 'Night Walk' },
+  { id: 'walk_city_1', label: 'City Steps' },
+  { id: 'walk_nature_1', label: 'Forest Trail' },
+  { id: 'walk_beach_1', label: 'Beach Walk' },
+
+  { id: 'cbs_heart_1', label: 'CBS Heart' },
+  { id: 'cbs_chain_1', label: 'Break the Chain' },
+  { id: 'cbs_fire_1', label: 'Builder Flame' },
+  { id: 'cbs_go_1', label: 'CBS-GO Explorer' },
+
+  { id: 'walk_morning_1', label: 'Morning Steps' },
+  { id: 'walk_evening_1', label: 'Evening Glow' },
+  { id: 'walk_park_1', label: 'Park Loop' },
+  { id: 'walk_bridge_1', label: 'River Bridge' },
+
+  { id: 'cbs_star_1', label: 'Community Star' },
+  { id: 'cbs_glow_1', label: 'Glow Ticket' },
+  { id: 'cbs_team_1', label: 'Builder Squad' },
+  { id: 'cbs_legend_1', label: 'CBS Legend' },
+
+  { id: 'walk_placeholder_1', label: 'Mystery Walk I' },
+  { id: 'walk_placeholder_2', label: 'Mystery Walk II' },
+  { id: 'cbs_placeholder_1', label: 'Mystery CBS I' },
+  { id: 'cbs_placeholder_2', label: 'Mystery CBS II' },
+];
+
+// gebruikt dezelfde IDs als My Cards en telt alleen die kaarten
+function getBagCardStats() {
+  const counts = loadBagCardCounts();
+
+  let cardTypes = 0;
+  let cardTotal = 0;
+  const sendable = [];
+
+  for (const def of BAG_CARD_DEFS) {
+    const n = Number(counts[def.id] || 0);
+    if (Number.isFinite(n) && n > 0) {
+      cardTypes += 1;
+      cardTotal += n;
+      sendable.push({ id: def.id, count: n, label: def.label });
+    }
+  }
+
+  return { cardTypes, cardTotal, sendable };
+}
+
 // Tab state: 'map' = geen panel, 'profile' = profiel-panel, 'bag' = inventaris
 function getSelectedTab() {
   try {
@@ -90,7 +205,9 @@ function getSelectedTab() {
   }
 }
 function setSelectedTab(tab) {
-  try { sessionStorage.setItem('cbsgo_selected_tab_v5', tab); } catch {}
+  try {
+    sessionStorage.setItem('cbsgo_selected_tab_v5', tab);
+  } catch {}
 }
 
 // ---------- Panel wrapper (onderin) ----------
@@ -110,7 +227,6 @@ function panelWrap(title, innerHtml) {
         width:min(860px, 96vw);
         margin:0 auto;
         border-radius:22px;
-        /* 🔧 buitenste rand + achtergrond transparanter gemaakt */
         border:1px solid rgba(255,255,255,.30);
         background:rgba(10,12,18,.30);
         backdrop-filter: blur(14px);
@@ -157,7 +273,6 @@ function renderProfile() {
       padding:14px;
       border-radius:18px;
       border:1px solid rgba(255,255,255,.12);
-      /* 🔧 binnenste kaart transparanter (ongeveer 70% transparant) */
       background:rgba(8,10,16,.30);
     ">
       <h3 style="margin:0 0 8px 0; font-size:16px;">Profile</h3>
@@ -299,7 +414,6 @@ function bindProfileEvents() {
     if (!nameInput) return;
     const n = setPlayerName(nameInput.value);
     setMsg(`✅ Name saved: ${n}`);
-    // 👉 Naam wijziging ook naar Supabase pushen
     try {
       syncPlayerProfile();
     } catch (e) {
@@ -336,9 +450,8 @@ function bindProfileEvents() {
       reader.onload = () => {
         setPlayerAvatar(String(reader.result || ''));
         setMsg('✅ Photo saved');
-        updatePanel(); // alleen panel/avatar updaten, map blijft staan
+        updatePanel();
 
-        // 👉 Avatar wijziging ook naar Supabase pushen
         try {
           syncPlayerProfile();
         } catch (e) {
@@ -356,7 +469,6 @@ function bindProfileEvents() {
       setMsg('✅ Photo removed');
       updatePanel();
 
-      // 👉 Avatar verwijderen ook syncen
       try {
         syncPlayerProfile();
       } catch (e) {
@@ -384,11 +496,11 @@ function bindProfileEvents() {
     return `${s.slice(0, 5)}…${s.slice(-4)}`;
   };
 
-  // 🔹 shared renderer voor een vriend (avatar + nickname + wallet)
   const renderFriendRow = (fr, rightHtml = '') => {
-    const nick = fr.nickname && fr.nickname.trim()
-      ? fr.nickname.trim()
-      : shortWallet(fr.otherWallet);
+    const nick =
+      fr.nickname && fr.nickname.trim()
+        ? fr.nickname.trim()
+        : shortWallet(fr.otherWallet);
 
     const walletShort = shortWallet(fr.otherWallet);
     const avatarHtml = avatarCircle(fr.avatar || '', 32);
@@ -439,59 +551,95 @@ function bindProfileEvents() {
 
       const data = await loadFriendsOverview();
 
-      // Incoming requests (die jij kunt accepteren)
+      // Incoming requests
       if (!data.incoming.length) {
         incomingListEl.textContent = 'No incoming requests.';
       } else {
         incomingListEl.innerHTML = data.incoming
           .map((fr) => {
             const btnHtml = `
-              <button
-                type="button"
-                class="friendAcceptBtn"
-                data-friend-id="${fr.id}"
-                style="
-                  padding:4px 8px;
-                  border-radius:999px;
-                  border:1px solid rgba(34,197,94,0.9);
-                  background:rgba(22,163,74,0.95);
-                  color:#fff;
-                  font-size:11px;
-                  cursor:pointer;
-                "
-              >
-                Accept
-              </button>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <button
+                  type="button"
+                  class="friendCopyBtn"
+                  data-wallet="${fr.otherWallet}"
+                  style="
+                    padding:3px 7px;
+                    border-radius:999px;
+                    border:1px solid rgba(148,163,184,.8);
+                    background:rgba(15,23,42,.9);
+                    color:#e5e7eb;
+                    font-size:10px;
+                    cursor:pointer;
+                  "
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  class="friendAcceptBtn"
+                  data-friend-id="${fr.id}"
+                  style="
+                    padding:4px 8px;
+                    border-radius:999px;
+                    border:1px solid rgba(34,197,94,0.9);
+                    background:rgba(22,163,74,0.95);
+                    color:#fff;
+                    font-size:11px;
+                    cursor:pointer;
+                  "
+                >
+                  Accept
+                </button>
+              </div>
             `;
             return renderFriendRow(fr, btnHtml);
           })
           .join('');
       }
 
-      // Accepted friends (lijst)
+      // Accepted friends
       if (!data.accepted.length) {
         acceptedListEl.textContent = 'No friends yet.';
       } else {
         acceptedListEl.innerHTML = data.accepted
           .map((fr) => {
             const badgeHtml = `
-              <span style="
-                display:inline-block;
-                padding:3px 6px;
-                border-radius:999px;
-                border:1px solid rgba(148,163,184,0.8);
-                font-size:10px;
-                opacity:.85;
-              ">
-                ✔ Friend
-              </span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="
+                  display:inline-block;
+                  padding:3px 6px;
+                  border-radius:999px;
+                  border:1px solid rgba(148,163,184,0.8);
+                  font-size:10px;
+                  opacity:.85;
+                ">
+                  ✔ Friend
+                </span>
+                <button
+                  type="button"
+                  class="friendCopyBtn"
+                  data-wallet="${fr.otherWallet}"
+                  style="
+                    padding:3px 7px;
+                    border-radius:999px;
+                    border:1px solid rgba(148,163,184,.8);
+                    background:rgba(15,23,42,.9);
+                    color:#e5e7eb;
+                    font-size:10px;
+                    cursor:pointer;
+                  "
+                >
+                  Copy
+                </button>
+              </div>
             `;
             return renderFriendRow(fr, badgeHtml);
           })
           .join('');
       }
 
-      // ✅ id als string gebruiken (UUID), dus GEEN Number() meer
+      // Accept-knoppen
       document.querySelectorAll('.friendAcceptBtn').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const id = btn.getAttribute('data-friend-id');
@@ -507,6 +655,25 @@ function bindProfileEvents() {
             console.warn(e);
             setFriendsMsg(`⛔ ${e.message || e}`);
             btn.disabled = false;
+          }
+        });
+      });
+
+      // Copy-knoppen
+      document.querySelectorAll('.friendCopyBtn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const w = btn.getAttribute('data-wallet') || '';
+          if (!w) return;
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(w);
+              setFriendsMsg('✅ Friend wallet copied.');
+            } else {
+              setFriendsMsg('📋 Copy not supported in this browser.');
+            }
+          } catch (err) {
+            console.warn('CBS GO: copy friend wallet failed', err);
+            setFriendsMsg('⛔ Could not copy wallet address.');
           }
         });
       });
@@ -540,23 +707,77 @@ function bindProfileEvents() {
     });
   }
 
-  // Initial load (stilletjes, zonder message als het faalt)
+  // Initial load
   refreshFriends().catch(() => {});
 }
 
-// ---------- Bag (inventory – tickets + CBS play money + wallet view + My Cards) ----------
+// ---------- Bag (inventory – tickets + CBS + wallet view + My Cards + Send to friend) ----------
 
 function renderBag() {
   const tickets = getTickets();
   const cbs = getCbsCoins();
   const walletPk = getPublicKey();
+  const { cardTypes, cardTotal, sendable } = getBagCardStats();
+
+  const cardsLine =
+    cardTotal > 0
+      ? `You own ${cardTotal} cards (${cardTypes} different). You can also send some to friends as gifts.`
+      : 'You don’t have any cards yet to send.';
+
+  const hasSendableCards = sendable.length > 0;
+
+  const cardSelectHtml = hasSendableCards
+    ? `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">
+          <label for="giftCardSelect" style="font-size:11px;opacity:.8;">Card (optional)</label>
+          <select id="giftCardSelect" style="
+            margin-top:4px;
+            width:100%;
+            padding:7px 9px;
+            border-radius:10px;
+            border:1px solid rgba(148,163,184,.7);
+            background:rgba(15,23,42,.95);
+            color:#fff;
+            font-size:12px;
+          ">
+            <option value="">No card</option>
+            ${sendable
+              .map(
+                (c) =>
+                  `<option value="${esc(c.id)}">${esc(
+                    c.label || c.id,
+                  )} (x${c.count})</option>`,
+              )
+              .join('')}
+          </select>
+        </div>
+        <div style="width:80px;">
+          <label for="giftCardQtyInput" style="font-size:11px;opacity:.8;">Qty</label>
+          <input id="giftCardQtyInput" type="number" min="0" step="1" placeholder="0" style="
+            margin-top:4px;
+            width:100%;
+            padding:7px 9px;
+            border-radius:10px;
+            border:1px solid rgba(148,163,184,.7);
+            background:rgba(15,23,42,.95);
+            color:#fff;
+            font-size:12px;
+          " />
+        </div>
+      </div>
+    `
+    : `
+      <div style="font-size:11px;opacity:.7;margin-top:4px;">
+        You don’t have any cards yet to send.
+      </div>
+    `;
 
   return `
     <section style="
       padding:14px;
       border-radius:18px;
       border:1px solid rgba(255,255,255,.12);
-      /* 🔧 zelfde transparantie als profile */
       background:rgba(8,10,16,.30);
     ">
       <h3 style="margin:0 0 8px 0; font-size:16px;">Bag</h3>
@@ -648,7 +869,7 @@ function renderBag() {
               🃏 My Cards
             </div>
             <div style="font-size:11px;opacity:.8;max-width:260px;">
-              Walking & CBS cards you collect on your journey. Later you can trade and send them to friends.
+              Walking & CBS cards you collect on your journey. You can also send some to friends as gifts.
             </div>
           </div>
           <button id="cbsgoOpenCardsBtn" type="button" style="
@@ -665,6 +886,110 @@ function renderBag() {
           ">
             Open collection
           </button>
+        </div>
+        <div style="font-size:11px;opacity:.8;margin-top:6px;">
+          ${esc(cardsLine)}
+        </div>
+      </div>
+
+      <!-- Send to friend blok -->
+      <div style="
+        margin-top:16px;
+        padding:10px 12px;
+        border-radius:14px;
+        border:1px solid rgba(56,189,248,.75);
+        background:rgba(15,23,42,.92);
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
+              🎁 Send a gift to a friend
+            </div>
+            <div style="font-size:11px;opacity:.8;max-width:260px;">
+              Send tickets, CBS (play money) and optional cards to another CBS-GO wallet. Off-chain via Supabase.
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div>
+            <label for="giftWalletInput" style="font-size:11px;opacity:.8;">Friend wallet address</label>
+            <input id="giftWalletInput" placeholder="Paste CBS-GO wallet address" style="
+              margin-top:4px;
+              width:100%;
+              padding:8px 9px;
+              border-radius:10px;
+              border:1px solid rgba(148,163,184,.7);
+              background:rgba(15,23,42,.95);
+              color:#fff;
+              font-size:12px;
+            " />
+          </div>
+
+          <div style="margin-top:2px;">
+            <label for="giftFriendSelect" style="font-size:11px;opacity:.8;">Or pick a friend</label>
+            <select id="giftFriendSelect" style="
+              margin-top:4px;
+              width:100%;
+              padding:7px 9px;
+              border-radius:10px;
+              border:1px solid rgba(148,163,184,.7);
+              background:rgba(15,23,42,.95);
+              color:#fff;
+              font-size:12px;
+            ">
+              <option value="">-- No friend selected --</option>
+            </select>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:90px;">
+              <label for="giftTicketsInput" style="font-size:11px;opacity:.8;">Tickets</label>
+              <input id="giftTicketsInput" type="number" min="0" step="1" placeholder="0" style="
+                margin-top:4px;
+                width:100%;
+                padding:7px 9px;
+                border-radius:10px;
+                border:1px solid rgba(148,163,184,.7);
+                background:rgba(15,23,42,.95);
+                color:#fff;
+                font-size:12px;
+              " />
+            </div>
+
+            <div style="flex:1;min-width:90px;">
+              <label for="giftCbsInput" style="font-size:11px;opacity:.8;">CBS (play money)</label>
+              <input id="giftCbsInput" type="number" min="0" step="1" placeholder="0" style="
+                margin-top:4px;
+                width:100%;
+                padding:7px 9px;
+                border-radius:10px;
+                border:1px solid rgba(148,163,184,.7);
+                background:rgba(15,23,42,.95);
+                color:#fff;
+                font-size:12px;
+              " />
+            </div>
+          </div>
+
+          ${cardSelectHtml}
+
+          <div style="display:flex;justify-content:flex-end;margin-top:4px;">
+            <button id="giftSendBtn" type="button" style="
+              padding:8px 14px;
+              border-radius:999px;
+              border:1px solid rgba(56,189,248,.9);
+              background:rgba(56,189,248,.2);
+              color:#e0f2fe;
+              font-size:12px;
+              font-weight:700;
+              cursor:pointer;
+            ">
+              Send gift
+            </button>
+          </div>
+
+          <div id="giftMsg" style="font-size:11px;opacity:.9;margin-top:2px;"></div>
         </div>
       </div>
     </section>
@@ -687,8 +1012,174 @@ function bindBagEvents() {
     };
   }
 
+  // bij openen Bag: inventory.cards gelijk trekken aan My Cards
+  try {
+    syncInventoryCardsFromBag();
+  } catch (e) {
+    console.warn('CBS GO: failed to sync inventory cards from bag', e);
+  }
+
   const walletPk = getPublicKey();
-  if (!copyBtn || !walletPk) return;
+
+  // Send-to-friend blok
+  const giftWalletInput = document.querySelector('#giftWalletInput');
+  const giftFriendSelect = document.querySelector('#giftFriendSelect');
+  const giftTicketsInput = document.querySelector('#giftTicketsInput');
+  const giftCbsInput = document.querySelector('#giftCbsInput');
+  const giftCardSelect = document.querySelector('#giftCardSelect');
+  const giftCardQtyInput = document.querySelector('#giftCardQtyInput');
+  const giftSendBtn = document.querySelector('#giftSendBtn');
+  const giftMsgEl = document.querySelector('#giftMsg');
+
+  const setGiftMsg = (t) => {
+    if (giftMsgEl) giftMsgEl.textContent = t || '';
+  };
+
+  // friend dropdown vullen met accepted friends
+  async function populateFriendSelect() {
+    if (!giftFriendSelect) return;
+    try {
+      const data = await loadFriendsOverview();
+      const opts = [];
+      opts.push('<option value="">-- No friend selected --</option>');
+      if (data.accepted && data.accepted.length) {
+        data.accepted.forEach((fr) => {
+          const wallet = fr.otherWallet || '';
+          if (!wallet) return;
+          const nickRaw =
+            fr.nickname && fr.nickname.trim()
+              ? fr.nickname.trim()
+              : wallet;
+          const nick = esc(nickRaw);
+          const short =
+            wallet.length > 12
+              ? `${wallet.slice(0, 5)}…${wallet.slice(-4)}`
+              : wallet;
+          const label = `${nick} (${esc(short)})`;
+          opts.push(
+            `<option value="${esc(wallet)}">${label}</option>`,
+          );
+        });
+      }
+      giftFriendSelect.innerHTML = opts.join('');
+    } catch (e) {
+      console.warn('CBS GO: populateFriendSelect failed', e);
+      giftFriendSelect.innerHTML =
+        '<option value="">-- Friends not available --</option>';
+    }
+  }
+
+  populateFriendSelect().catch(() => {});
+
+  if (giftSendBtn && (giftWalletInput || giftFriendSelect)) {
+    giftSendBtn.addEventListener('click', async () => {
+      let toWallet =
+        giftWalletInput && giftWalletInput.value
+          ? giftWalletInput.value.trim()
+          : '';
+
+      if ((!toWallet || !toWallet.length) && giftFriendSelect) {
+        const v = giftFriendSelect.value.trim();
+        if (v) toWallet = v;
+      }
+
+      const ticketsVal = giftTicketsInput?.value ?? '';
+      const cbsVal = giftCbsInput?.value ?? '';
+      const cardId = giftCardSelect ? giftCardSelect.value.trim() : '';
+      const cardQtyVal = giftCardQtyInput?.value ?? '';
+      const cardQty = Number(cardQtyVal || '0');
+
+      const tickets = Number(ticketsVal || '0');
+      const cbs = Number(cbsVal || '0');
+
+      if (!toWallet) {
+        setGiftMsg('Enter a wallet address first, or pick a friend.');
+        return;
+      }
+
+      if ((!tickets || tickets <= 0) && (!cbs || cbs <= 0) && !cardId) {
+        setGiftMsg('Set tickets and/or CBS above 0, or choose a card.');
+        return;
+      }
+
+      if (cardId && (!cardQty || cardQty <= 0)) {
+        setGiftMsg('Set card quantity above 0.');
+        return;
+      }
+
+      if (cardId && cardQty > 0) {
+        const counts = loadBagCardCounts();
+        const owned = Number(counts[cardId] || 0);
+        if (!Number.isFinite(owned) || owned < cardQty) {
+          setGiftMsg('Not enough of that card in your collection.');
+          return;
+        }
+      }
+
+      giftSendBtn.disabled = true;
+      setGiftMsg('Sending gift…');
+
+      try {
+        await sendGiftToWallet(toWallet, {
+          tickets,
+          cbs,
+          cardId: cardId || null,
+          cardQty: cardId ? cardQty : 0,
+        });
+
+        // lokaal kaarten bijwerken als we een kaart versturen
+        if (cardId && cardQty > 0) {
+          const counts = loadBagCardCounts();
+          const cur = Number(counts[cardId] || 0);
+          const next = cur - cardQty;
+          if (next > 0) counts[cardId] = next;
+          else delete counts[cardId];
+          saveBagCardCounts(counts);
+          syncInventoryCardsFromBag();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('cbsgo:bagChanged', {
+                detail: { cards: { ...counts } },
+              }),
+            );
+          }
+        }
+
+        setGiftMsg('✅ Gift sent.');
+        if (giftTicketsInput) giftTicketsInput.value = '';
+        if (giftCbsInput) giftCbsInput.value = '';
+        if (giftCardQtyInput) giftCardQtyInput.value = '';
+        if (giftCardSelect) giftCardSelect.value = '';
+        if (giftFriendSelect) giftFriendSelect.value = '';
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:tradePopup', {
+              detail: {
+                direction: 'sent',
+                toWallet,
+                tickets,
+                cbs,
+                cardId: cardId || null,
+                cardQty: cardId ? cardQty : 0,
+              },
+            }),
+          );
+        }
+      } catch (e) {
+        console.warn(e);
+        setGiftMsg(`⛔ ${e.message || 'Could not send gift.'}`);
+      } finally {
+        giftSendBtn.disabled = false;
+      }
+    });
+  }
+
+  // Copy wallet knop
+  if (!copyBtn || !walletPk) {
+    pullIncomingGifts().catch(() => {});
+    return;
+  }
 
   const setMsg = (t) => {
     if (msgEl) msgEl.textContent = t || '';
@@ -706,6 +1197,9 @@ function bindBagEvents() {
       setMsg('⛔ Failed to copy address.');
     }
   };
+
+  // Bij openen Bag ook even incoming gifts ophalen
+  pullIncomingGifts().catch(() => {});
 }
 
 // ---------- Panel router ----------
@@ -760,11 +1254,11 @@ export function renderAppShell() {
         </div>
       </header>
 
-      <!-- Floating knoppen rechtsonder: Profile + Bag, naast elkaar, NET boven GPS -->
+      <!-- Floating knoppen rechtsonder: Profile + Bag -->
       <div id="fabNav" style="
         position:absolute;
         right:16px;
-        bottom:80px; /* netjes tussen 🎯/🧭 en GPS-balk */
+        bottom:80px;
         z-index:5000;
         display:flex;
         flex-direction:row;
@@ -793,12 +1287,12 @@ export function renderAppShell() {
         ">🎒</button>
       </div>
 
-      <!-- Panel-root: alleen deze wordt gewisseld bij tabs -->
+      <!-- Panel-root -->
       <div id="panelRoot">
         ${renderPanel()}
       </div>
 
-      <!-- 🔔 Kleine toast voor step-rewards (XP/tickets/CBS via lopen) -->
+      <!-- Toast -->
       <div id="cbsgoToastHost" style="
         position:fixed;
         left:0;
@@ -810,7 +1304,7 @@ export function renderAppShell() {
         pointer-events:none;
       "></div>
 
-      <!-- 🎁 Groot overlay-venster voor cadeautjes + streak + daily-goal -->
+      <!-- Loot / trade overlay -->
       <div id="cbsgoLootOverlayHost" style="
         position:fixed;
         inset:0;
@@ -852,7 +1346,6 @@ function updatePanel() {
     bindBagEvents();
   }
 
-  // Close-knop opnieuw koppelen na elke panel-render
   const close = document.querySelector('#cbsgoClosePanel');
   if (close) {
     close.addEventListener('click', () => {
@@ -865,19 +1358,153 @@ function updatePanel() {
 // ---------- Binding van knoppen / panel ----------
 
 function bindUi() {
-  // Floating knoppen
-  document.querySelectorAll('[data-panel]').forEach(b => {
+  document.querySelectorAll('[data-panel]').forEach((b) => {
     b.addEventListener('click', () => {
       const panel = b.getAttribute('data-panel');
       const current = getSelectedTab();
-      // Zelfde panel klik = sluiten -> terug naar map
       if (current === panel) {
         setSelectedTab('map');
       } else {
         setSelectedTab(panel || 'map');
       }
-      updatePanel(); // alleen panel wisselen, map/weer/GPS blijven intact
+      updatePanel();
     });
+  });
+}
+
+// ---------- Gift / trade popup helper ----------
+
+function showTradePopup(detail) {
+  const host = document.querySelector('#cbsgoLootOverlayHost');
+  if (!host) return;
+
+  const {
+    direction = 'received',
+    fromNickname,
+    fromAvatar,
+    toWallet,
+    tickets = 0,
+    cbs = 0,
+    cardId = null,
+    cardQty = 0,
+  } = detail || {};
+
+  if (!tickets && !cbs && !(cardId && cardQty)) return;
+
+  host.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.style.position = 'fixed';
+  wrap.style.inset = '0';
+  wrap.style.display = 'flex';
+  wrap.style.alignItems = 'center';
+  wrap.style.justifyContent = 'center';
+  wrap.style.background = 'rgba(5,7,11,0.78)';
+  wrap.style.pointerEvents = 'auto';
+
+  const card = document.createElement('div');
+  card.style.width = 'min(320px, 90vw)';
+  card.style.borderRadius = '22px';
+  card.style.border = '1px solid rgba(56,189,248,.85)';
+  card.style.background = 'rgba(10,12,18,0.98)';
+  card.style.boxShadow = '0 24px 80px rgba(0,0,0,.88)';
+  card.style.padding = '18px 16px 14px 16px';
+  card.style.color = '#fff';
+  card.style.fontFamily = 'system-ui,sans-serif';
+  card.style.opacity = '0';
+  card.style.transform = 'translateY(12px) scale(0.97)';
+  card.style.transition = 'opacity .22s ease-out, transform .22s ease-out';
+
+  const meName = getPlayerName();
+
+  const title =
+    direction === 'sent'
+      ? 'Gift sent'
+      : 'You received a gift';
+
+  const lineParts = [];
+  if (tickets) lineParts.push(`🎟️ ${tickets} ticket${tickets === 1 ? '' : 's'}`);
+  if (cbs) lineParts.push(`🪙 ${cbs} CBS`);
+  if (cardId && cardQty) lineParts.push(`🃏 ${cardQty} card${cardQty === 1 ? '' : 's'}`);
+
+  const fromHtml =
+    direction === 'sent'
+      ? `
+        <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
+          Sent from <b>${esc(meName)}</b> to <span style="opacity:.9;">${esc(toWallet || '')}</span>
+        </div>
+      `
+      : `
+        <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
+          From <b>${esc(fromNickname || 'Friend')}</b>
+        </div>
+      `;
+
+  const avatarHtml =
+    direction === 'sent'
+      ? `
+        <div style="
+          width:40px;height:40px;border-radius:999px;
+          border:1px solid rgba(148,163,184,.5);
+          background:rgba(15,23,42,.9);
+          display:flex;align-items:center;justify-content:center;
+          font-size:20px;
+        ">
+          📤
+        </div>
+      `
+      : avatarCircle(fromAvatar || '', 40);
+
+  card.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+      ${avatarHtml}
+      <div>
+        <div style="font-size:15px;font-weight:800;">${esc(title)}</div>
+        ${fromHtml}
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">
+      ${esc(lineParts.join(' · '))}
+    </div>
+    <div style="font-size:11px;opacity:.78;margin-bottom:10px;">
+      Gifts are added to your Bag. Later you can also send and trade cards with friends.
+    </div>
+    <button type="button" id="cbsgoTradePopupCloseBtn" style="
+      padding:8px 14px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.9);
+      background:rgba(15,23,42,.96);
+      color:#e5e7eb;
+      font-size:12px;
+      font-weight:600;
+      cursor:pointer;
+      margin-top:2px;
+    ">
+      Okay
+    </button>
+  `;
+
+  wrap.appendChild(card);
+  host.appendChild(wrap);
+
+  requestAnimationFrame(() => {
+    card.style.opacity = '1';
+    card.style.transform = 'translateY(0) scale(1)';
+  });
+
+  const close = () => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(12px) scale(0.97)';
+    setTimeout(() => {
+      host.innerHTML = '';
+    }, 220);
+  };
+
+  const btn = document.getElementById('cbsgoTradePopupCloseBtn');
+  if (btn) btn.onclick = close;
+
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) close();
   });
 }
 
@@ -889,7 +1516,7 @@ function bootstrapApp() {
 
   app.innerHTML = renderAppShell();
 
-  // 📵 Scherm wakker houden tijdens het spelen
+  // scherm wakker houden
   try {
     enableWakeLock();
     bindWakeLockVisibilityHandler();
@@ -897,7 +1524,7 @@ function bootstrapApp() {
     console.warn('CBS GO: wake lock niet beschikbaar', e);
   }
 
-  // 🔌 Supabase: rustig op achtergrond profiel syncen (nickname + wallet_pk + avatar)
+  // Supabase profiel-sync
   try {
     syncPlayerProfile();
   } catch (e) {
@@ -907,10 +1534,9 @@ function bootstrapApp() {
   bindUi();
   bindMapView();
 
-  // auto-start steps
   tryAutoStart();
 
-  // steps rerender op change
+  // steps widget rerender
   bindStepsWidget();
   if (!window.__cbsgo_steps_rerender_listener) {
     window.__cbsgo_steps_rerender_listener = true;
@@ -923,7 +1549,7 @@ function bootstrapApp() {
     window.addEventListener('cbsgo:stepsChanged', rerenderSteps);
   }
 
-  // XP-balk rerender bij XP/level wijziging + stappen wijziging
+  // XP-balk
   if (!window.__cbsgo_xp_rerender_listener) {
     window.__cbsgo_xp_rerender_listener = true;
     const rerenderXp = () => {
@@ -931,9 +1557,11 @@ function bootstrapApp() {
       if (!mount) return;
       mount.innerHTML = renderXpBar();
     };
-    ['cbsgo:xpChanged', 'cbsgo:levelChanged', 'cbsgo:stepsChanged'].forEach(evtName => {
-      window.addEventListener(evtName, rerenderXp);
-    });
+    ['cbsgo:xpChanged', 'cbsgo:levelChanged', 'cbsgo:stepsChanged'].forEach(
+      (evtName) => {
+        window.addEventListener(evtName, rerenderXp);
+      },
+    );
   }
 
   // Bag/inventory rerender bij loot-verandering
@@ -941,15 +1569,15 @@ function bootstrapApp() {
     window.__cbsgo_inventory_rerender_listener = true;
     const rerenderBagIfOpen = () => {
       if (getSelectedTab() === 'bag') {
-        updatePanel(); // renderBag() leest getTickets/getCbsCoins opnieuw
+        updatePanel();
       }
     };
-    ['cbsgo:inventoryChanged', 'cbsgo:bagChanged'].forEach(evtName => {
+    ['cbsgo:inventoryChanged', 'cbsgo:bagChanged'].forEach((evtName) => {
       window.addEventListener(evtName, rerenderBagIfOpen);
     });
   }
 
-  // 🔔 Step-reward toast listener (alleen bij lopen, event cbsgo:stepReward)
+  // Step-reward toast
   let toastTimer = null;
 
   function showStepToast(text) {
@@ -972,7 +1600,8 @@ function bootstrapApp() {
       box.style.boxShadow = '0 10px 30px rgba(0,0,0,.6)';
       box.style.opacity = '0';
       box.style.transform = 'translateY(10px)';
-      box.style.transition = 'opacity .25s ease-out, transform .25s ease-out';
+      box.style.transition =
+        'opacity .25s ease-out, transform .25s ease-out';
       host.appendChild(box);
     }
 
@@ -1004,14 +1633,15 @@ function bootstrapApp() {
 
       let label = 'Walking reward';
       if (d.reason === 'boost') label = 'Glow boost';
-      else if (d.reason === 'treasure' || d.reason === 'treasure-rare') label = 'Treasure reward';
+      else if (d.reason === 'treasure' || d.reason === 'treasure-rare')
+        label = 'Treasure reward';
       else if (d.reason === 'distance') label = 'Distance reward';
 
       showStepToast(`${label}: ${parts.join(' · ')}`);
     });
   }
 
-  // 🎯 Daily goal overlay (grote felicitatie in beeld)
+  // Daily goal overlay
   function showDailyGoalOverlay(detail) {
     const host = document.querySelector('#cbsgoLootOverlayHost');
     if (!host) return;
@@ -1043,11 +1673,10 @@ function bootstrapApp() {
     card.style.fontFamily = 'system-ui,sans-serif';
     card.style.opacity = '0';
     card.style.transform = 'translateY(14px) scale(0.96)';
-    card.style.transition = 'opacity .25s ease-out, transform .25s ease-out';
+    card.style.transition =
+      'opacity .25s ease-out, transform .25s ease-out';
 
-    const progressLine = goal
-      ? `${steps}/${goal} steps`
-      : `${steps} steps`;
+    const progressLine = goal ? `${steps}/${goal} steps` : `${steps} steps`;
 
     card.innerHTML = `
       <div style="font-size:32px;margin-bottom:8px;">🎯</div>
@@ -1114,7 +1743,7 @@ function bootstrapApp() {
     });
   }
 
-  // 🎁 Loot overlay (groot in beeld als je cadeau opent, luistert naar cbsgo:lootReward)
+  // Gift loot overlay (walk gifts)
   function showLootOverlay(detail) {
     const host = document.querySelector('#cbsgoLootOverlayHost');
     if (!host) return;
@@ -1148,7 +1777,8 @@ function bootstrapApp() {
     card.style.fontFamily = 'system-ui,sans-serif';
     card.style.opacity = '0';
     card.style.transform = 'translateY(12px) scale(0.97)';
-    card.style.transition = 'opacity .25s ease-out, transform .25s ease-out';
+    card.style.transition =
+      'opacity .25s ease-out, transform .25s ease-out';
 
     const lines = [];
     if (xp) lines.push(`+${xp} XP`);
@@ -1178,13 +1808,11 @@ function bootstrapApp() {
     wrap.appendChild(card);
     host.appendChild(wrap);
 
-    // animatie in
     requestAnimationFrame(() => {
       card.style.opacity = '1';
       card.style.transform = 'translateY(0) scale(1)';
     });
 
-    // na ~2.5s weer weg
     setTimeout(() => {
       card.style.opacity = '0';
       card.style.transform = 'translateY(12px) scale(0.97)';
@@ -1201,7 +1829,7 @@ function bootstrapApp() {
     });
   }
 
-  // 🧑‍🚀 7-day streak overlay (CBS reward)
+  // Streak overlay
   function showStreakOverlay(detail) {
     const host = document.querySelector('#cbsgoLootOverlayHost');
     if (!host) return;
@@ -1232,7 +1860,8 @@ function bootstrapApp() {
     card.style.fontFamily = 'system-ui,sans-serif';
     card.style.opacity = '0';
     card.style.transform = 'translateY(14px) scale(0.96)';
-    card.style.transition = 'opacity .25s ease-out, transform .25s ease-out';
+    card.style.transition =
+      'opacity .25s ease-out, transform .25s ease-out';
 
     card.innerHTML = `
       <div style="font-size:32px;margin-bottom:8px;">🔥</div>
@@ -1291,7 +1920,6 @@ function bootstrapApp() {
     });
   }
 
-  // 🧑‍🚀 streak listener
   if (!window.__cbsgo_streak_overlay_listener) {
     window.__cbsgo_streak_overlay_listener = true;
     window.addEventListener('cbsgo:streakReward', (ev) => {
@@ -1299,7 +1927,53 @@ function bootstrapApp() {
     });
   }
 
-  // Init panel (als er al een tab gekozen was)
+  // Trade popup events
+  if (!window.__cbsgo_trade_popup_listener) {
+    window.__cbsgo_trade_popup_listener = true;
+    window.addEventListener('cbsgo:tradePopup', (ev) => {
+      showTradePopup(ev?.detail || {});
+    });
+  }
+
+  // Bridge + lokale card-update bij ontvangen gifts
+  if (!window.__cbsgo_friendGift_popup_bridge) {
+    window.__cbsgo_friendGift_popup_bridge = true;
+    window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
+      const d = ev?.detail || {};
+
+      // kaarten lokaal bijwerken
+      const cardId = d.cardId || null;
+      const cardQty = Number(d.cardQty || 0);
+      if (cardId && cardQty > 0) {
+        const counts = loadBagCardCounts();
+        const cur = Number(counts[cardId] || 0);
+        const next = cur + cardQty;
+        counts[cardId] = next;
+        saveBagCardCounts(counts);
+        syncInventoryCardsFromBag();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:bagChanged', {
+              detail: { cards: { ...counts } },
+            }),
+          );
+        }
+      }
+
+      showTradePopup({
+        direction: 'received',
+        fromNickname: d.senderNickname || '',
+        fromAvatar: d.senderAvatar || '',
+        toWallet: d.toWallet || '',
+        tickets: d.tickets || 0,
+        cbs: d.cbs || 0,
+        cardId: d.cardId || null,
+        cardQty: d.cardQty || 0,
+      });
+    });
+  }
+
+  // Init panel
   updatePanel();
 
   // Dev reset knop
@@ -1323,7 +1997,7 @@ function bootstrapApp() {
 
       if (isNodeCompleted(id)) return;
 
-      const node = nodes.find(n => n.id === id);
+      const node = nodes.find((n) => n.id === id);
       if (!node) return;
 
       openPuzzleModal(node);
@@ -1338,10 +2012,13 @@ function bootstrapApp() {
       if (!id) return;
       import('../app/state.js').then(({ completeNode }) => {
         completeNode(id);
-        mountApp(); // bij complete node mag alles opnieuw tekenen
+        mountApp();
       });
     });
   }
+
+  // Bij app-start alvast incoming gifts ophalen
+  pullIncomingGifts().catch(() => {});
 }
 
 // ---------- Mount + login/PIN flow ----------
@@ -1350,13 +2027,11 @@ export function mountApp() {
   const app = document.querySelector('#app');
   if (!app) return;
 
-  // Als er al een wallet is én hij is in deze sessie unlocked -> direct starten
   if (hasWallet() && isWalletUnlocked()) {
     bootstrapApp();
     return;
   }
 
-  // Anders: eerst login/pin modal
   openLoginModal();
 
   const onLoginDone = () => {

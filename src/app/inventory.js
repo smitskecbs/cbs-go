@@ -58,31 +58,53 @@ export function getCbsCoins() {
 
 /* ---------- TICKETS / CBS ---------- */
 
+// 👉 addTickets ondersteunt nu ook aftrekken met een negatief getal
 export function addTickets(n = 1) {
-  const add = Number(n || 0);
-  if (!Number.isFinite(add) || add <= 0) return loadInventory();
+  const delta = Number(n || 0);
+
+  // als geen geldig getal: niks doen
+  if (!Number.isFinite(delta) || delta === 0) {
+    return loadInventory();
+  }
 
   const inv = loadInventory();
-  inv.tickets = Number(inv.tickets || 0) + add;
+  const current = Number(inv.tickets || 0);
+
+  let next = current + delta;
+  if (next < 0) next = 0; // nooit onder 0
+
+  inv.tickets = next;
   saveInventory(inv);
 
   window.dispatchEvent(
     new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
   );
+
   return inv;
 }
 
+// 👉 addCbsCoins ondersteunt nu ook aftrekken met een negatief getal
 export function addCbsCoins(n = 1) {
-  const add = Number(n || 0);
-  if (!Number.isFinite(add) || add <= 0) return loadInventory();
+  const delta = Number(n || 0);
+
+  // als geen geldig getal: niks doen
+  if (!Number.isFinite(delta) || delta === 0) {
+    return loadInventory();
+  }
 
   const inv = loadInventory();
-  inv.cbs = Number(inv.cbs || 0) + add;
+  const current = Number(inv.cbs || 0);
+
+  let next = current + delta;
+  if (next < 0) next = 0; // nooit onder 0
+
+  inv.cbs = next;
   saveInventory(inv);
 
   window.dispatchEvent(
     new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
   );
+
   return inv;
 }
 
