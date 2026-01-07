@@ -841,12 +841,12 @@ Needed: ≤ ${ao}m`);return}eo.removeLayer(i),Do=null,us({id:`puzzle-${Date.now(
     color:#fff;
     outline:none;
     font-size:14px;
-  `}function ba(){return`
+  `}function ba(n=!0){return`
     width:100%;
     padding:12px 14px;
     border-radius:16px;
     border:1px solid rgba(255,255,255,.14);
-    background:rgba(90,200,255,.22);
+    background:${n?"rgba(90,200,255,.22)":"rgba(255,255,255,.08)"};
     color:#fff;
     font-weight:900;
     cursor:pointer;
@@ -882,17 +882,17 @@ Needed: ≤ ${ao}m`);return}eo.removeLayer(i),Do=null,us({id:`puzzle-${Date.now(
 
         <div id="cbsgoEmailMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
 
-        <div style="margin-top:12px; display:flex; gap:10px;">
-          <button id="cbsgoSendEmail" type="button" style="${ba()}">
+        <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="cbsgoSendEmail" type="button" style="${ba(!0)}">
             Send login link
           </button>
-          <button id="cbsgoEmailClose" type="button" style="${ba()}">
+          <button id="cbsgoEmailClose" type="button" style="${ba(!1)}">
             Cancel
           </button>
         </div>
       </div>
     </div>
-  `,t=bd(n),e=t.querySelector("#cbsgoEmail"),r=t.querySelector("#cbsgoEmailMsg"),i=t.querySelector("#cbsgoSendEmail"),o=t.querySelector("#cbsgoEmailClose"),s=a=>r.textContent=a||"";o&&(o.onclick=Wc),i&&(i.onclick=async()=>{try{const a=String(e?.value||"").trim();if(!a.includes("@"))return s("⛔ Invalid email");s("Sending magic link…");const{error:f}=await hn.auth.signInWithOtp({email:a});if(f)return s("⛔ "+f.message);s("✅ Email sent! Check your inbox.")}catch{s("⛔ Could not send email.")}})}const Kc="cbsgoLoginModal";function jc(n){return String(n||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function Gc(){const n=document.getElementById(Kc);n&&n.remove()}function vd(n){Gc();const t=document.createElement("div");return t.id=Kc,t.style.position="fixed",t.style.inset="0",t.style.zIndex="999999",t.style.display="flex",t.style.alignItems="center",t.style.justifyContent="center",t.style.padding="16px",t.style.background="rgba(0,0,0,.70)",t.style.backdropFilter="blur(12px)",t.innerHTML=n,document.body.appendChild(t),t}function Sd(n,t){return`
+  `,t=bd(n),e=t.querySelector("#cbsgoEmail"),r=t.querySelector("#cbsgoEmailMsg"),i=t.querySelector("#cbsgoSendEmail"),o=t.querySelector("#cbsgoEmailClose"),s=a=>{r&&(r.textContent=a||"")};o&&(o.onclick=()=>{Wc()}),i&&(i.onclick=async()=>{try{const a=String(e?.value||"").trim();if(!a||!a.includes("@")){s("⛔ Invalid email");return}s("Sending magic link…");const f=window.location.origin+window.location.pathname,{error:y}=await hn.auth.signInWithOtp({email:a,options:{emailRedirectTo:f}});if(y){console.warn("CBS GO: magic link error",y),s("⛔ "+(y.message||"Could not send email."));return}s("✅ Email sent! Check your inbox (spam folder if needed).")}catch(a){console.warn("CBS GO: magic link send crashed",a),s("⛔ Could not send email.")}})}const Kc="cbsgoLoginModal";function jc(n){return String(n||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function Gc(){const n=document.getElementById(Kc);n&&n.remove()}function vd(n){Gc();const t=document.createElement("div");return t.id=Kc,t.style.position="fixed",t.style.inset="0",t.style.zIndex="999999",t.style.display="flex",t.style.alignItems="center",t.style.justifyContent="center",t.style.padding="16px",t.style.background="rgba(0,0,0,.70)",t.style.backdropFilter="blur(12px)",t.innerHTML=n,document.body.appendChild(t),t}function Sd(n,t){return`
     <div style="
       width:min(720px, 96vw);
       border-radius:22px;
