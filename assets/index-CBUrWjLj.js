@@ -1816,35 +1816,47 @@ Continue?`)){_(!0),v("Working… (create new wallet, encrypt, update PIN)");try{
           ⚠️ This private key controls all funds in this wallet. Never share it with anyone.
           Anyone with this key can move your tokens.
         </div>
-
         <div id="walletSecretMasked" style="
-          font-size:12px;
-          padding:6px 8px;
-          border-radius:10px;
-          border:1px dashed rgba(248,250,252,.35);
-          background:rgba(15,23,42,1);
-          font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-          letter-spacing:3px;
-          margin-bottom:6px;
-          color:#9ca3af;
-        ">
-          ${t}
-        </div>
+  font-size:12px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px dashed rgba(248,250,252,.35);
+  background:rgba(15,23,42,1);
+  font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  letter-spacing:3px;
+  margin-bottom:6px;
+  color:#9ca3af;
 
+  /* ✅ mobile fix */
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+">
+  ${t}
+</div>
+
+   
         <div id="walletSecretRealWrap" style="display:none; margin-bottom:6px;">
           <div style="font-size:11px;opacity:.9;margin-bottom:4px;color:#fee2e2;">
             This is your actual Base58 private key:
           </div>
           <div id="walletSecretReal" style="
-            font-size:11px;
-            padding:6px 8px;
-            border-radius:10px;
-            border:1px solid rgba(248,250,252,.6);
-            background:rgba(15,23,42,1);
-            font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-            word-break:break-all;
-            color:#f9fafb;
-          "></div>
+  font-size:11px;
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px solid rgba(248,250,252,.6);
+  background:rgba(15,23,42,1);
+  font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  /* ✅ mobile-safe */
+  max-width:100%;
+  overflow:auto;
+  white-space:nowrap;
+
+  color:#f9fafb;
+"></div>
+
         </div>
 
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
