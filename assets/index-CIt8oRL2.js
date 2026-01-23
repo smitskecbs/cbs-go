@@ -1956,38 +1956,50 @@ Show private key?`))try{const F=$r();v.textContent=F,b.style.display="block",y.s
         </div>
       </header>
 
-      <!-- Floating knoppen rechtsonder: Profile + Bag -->
-      <div id="fabNav" style="
-        position:absolute;
-        right:16px;
-        bottom:80px;
-        z-index:5000;
-        display:flex;
-        flex-direction:row;
-        gap:10px;
-      ">
-        <button type="button" data-panel="profile" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-          color:#fff;
-        ">👤</button>
+     <!-- Floating knoppen rechtsonder: Profile + Bag + Wallet -->
+<div id="fabNav" style="
+  position:absolute;
+  right:16px;
+  bottom:80px;
+  z-index:5000;
+  display:flex;
+  flex-direction:row;
+  gap:10px;
+">
+  <button type="button" data-panel="profile" style="
+    width:52px;height:52px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.18);
+    background:rgba(10,12,18,.85);
+    backdrop-filter: blur(10px);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;
+    color:#fff;
+  ">👤</button>
 
-        <button type="button" data-panel="bag" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-          color:#fff;
-        ">🎒</button>
-      </div>
+  <button type="button" data-panel="bag" style="
+    width:52px;height:52px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.18);
+    background:rgba(10,12,18,.85);
+    backdrop-filter: blur(10px);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;
+    color:#fff;
+  ">🎒</button>
+
+  <button type="button" data-panel="wallet" style="
+    width:52px;height:52px;
+    border-radius:999px;
+    border:1px solid rgba(56,189,248,.55);
+    background:rgba(10,12,18,.85);
+    backdrop-filter: blur(10px);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;
+    color:#e0f2fe;
+  ">👛</button>
+</div>
+
 
       <!-- Panel-root -->
       <div id="panelRoot">
