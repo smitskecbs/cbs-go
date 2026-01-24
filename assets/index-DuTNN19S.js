@@ -333,8 +333,8 @@ DBT
         <div>${i.toFixed(2)} km walked</div>
       </div>
     </div>
-  `}function yl(){const{stepsToday:e,goalSteps:t,goalReached:n,streak:r,streakLength:i,rewardPerStreak:o}=nd(),s=t>0?Math.min(100,Math.round(e/t*100)):0,c=(r||[]).map(y=>y.reached?"★":"☆").join(" ");return`
-    <div id="cbsgoDailyWidget" style="
+  `}function yl(){const{level:e,levelProgressPct:t}=nd(),n=Number.isFinite(t)?Math.max(0,Math.min(100,Math.round(t))):0;return`
+    <div id="cbsgoStepsWidget" style="
       min-width:160px;
       max-width:220px;
       font-family:system-ui,sans-serif;
@@ -351,36 +351,31 @@ DBT
         align-items:center;
         justify-content:space-between;
         gap:6px;
-        margin-bottom:4px;
+        margin-bottom:6px;
       ">
-        <div style="font-weight:700;font-size:11px;">Daily goal</div>
-        <div style="font-size:10px;opacity:.9;">${`${e} / ${t} steps${n?" ✅":""}`}</div>
+        <div style="font-weight:800;font-size:11px;">Level</div>
+        <div style="font-size:11px;opacity:.95;">${e??"-"}</div>
       </div>
 
       <div style="
         position:relative;
-        height:5px;
+        height:6px;
         border-radius:999px;
         background:rgba(255,255,255,.10);
         overflow:hidden;
-        margin-bottom:4px;
       ">
         <div style="
           position:absolute;
           inset:0;
-          width:${s}%;
+          width:${n}%;
           background:linear-gradient(90deg,#22c55e,#a855f7);
-          box-shadow:0 0 8px rgba(168,85,247,.6);
+          box-shadow:0 0 8px rgba(168,85,247,.45);
           transition:width .25s ease-out;
         "></div>
       </div>
 
-      <div style="text-align:right;font-size:11px;letter-spacing:1px;margin-bottom:2px;">
-        ${c}
-      </div>
-
-      <div style="text-align:right;font-size:9px;opacity:.75;">
-        ${i}-day streak → +${o} CBS
+      <div style="text-align:right;font-size:10px;opacity:.8;margin-top:5px;">
+        ${n}% to next
       </div>
     </div>
   `}function ml(){try{return new URLSearchParams(window.location.search).get("dev")==="1"}catch{return!1}}function hd(){try{const e=[];for(let t=0;t<localStorage.length;t++){const n=localStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>localStorage.removeItem(t))}catch{}try{const e=[];for(let t=0;t<sessionStorage.length;t++){const n=sessionStorage.key(t);n&&n.startsWith("cbsgo_")&&e.push(n)}e.forEach(t=>sessionStorage.removeItem(t))}catch{}window.location.reload()}const Is="cbsgo_player_name_v2",na="cbsgo_player_avatar_v2";function hr(){try{return localStorage.getItem(Is)||""}catch{return""}}function pd(e){const t=String(e||"").trim().slice(0,24);try{t?localStorage.setItem(Is,t):localStorage.removeItem(Is)}catch{}return t}function Eo(){try{return localStorage.getItem(na)||""}catch{return""}}function gd(e){const t=String(e||"");try{localStorage.setItem(na,t)}catch{}return t}function yd(){try{localStorage.removeItem(na)}catch{}}let qt=null,Gn=null,Hn=null,oo=null,uo=null,Sn=null,fn=null,Ar=0,nr=!1,zn=!0,vn=null;const Nn=new Map;let Pn=!0,fo={temp:null,iconEmoji:"⛅",condition:"clear",isNight:!1,lastUpdated:0};const md="48a387bba00043ac4ba5823371abc9d2",yo=80,bd=6,wd=80,xd=220,vd=6e4,Sd=5*6e4,_d=300,Ed=.35,qi=["walk_sun_1","walk_rain_1","walk_city_1","cbs_heart_1"],kd=350,Bd=.35,Ad=120;let oi=0,Cr=0,Yo=null,Rs=!1,Lr=[];function rr(e){return document.getElementById(e)}function Mr(e){const t=rr("cbsgoMapHost");if(!t)return;let n=rr("cbsgoMapMsg");n||(n=document.createElement("div"),n.id="cbsgoMapMsg",n.style.position="absolute",n.style.left="12px",n.style.right="12px",n.style.bottom="16px",n.style.zIndex="9999",n.style.padding="10px 12px",n.style.borderRadius="14px",n.style.border="1px solid rgba(255,255,255,.14)",n.style.background="rgba(0,0,0,.40)",n.style.color="#fff",n.style.fontFamily="system-ui, sans-serif",n.style.fontSize="13px",n.style.backdropFilter="blur(10px)",t.appendChild(n)),n.textContent=e||""}function Cd(){const e=String(hr()||"").trim();return e?e[0].toUpperCase():"🙂"}function Ls(e){return String(e||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function Fr(e,t){const r=y=>y*Math.PI/180,i=r(t.lat-e.lat),o=r(t.lng-e.lng),s=r(e.lat),c=r(t.lat),f=Math.sin(i/2)**2+Math.cos(s)*Math.cos(c)*Math.sin(o/2)**2;return 2*6371e3*Math.asin(Math.sqrt(f))}function bl(e,t,n){const r=t+Math.random()*(n-t),i=Math.random()*2*Math.PI,o=r*Math.cos(i)/111111,s=r*Math.sin(i)/(111111*Math.cos(e.lat*Math.PI/180));return{lat:e.lat+o,lng:e.lng+s}}function Md(e,t){const n=y=>y*Math.PI/180,r=n(e.lat),i=n(t.lat),o=n(t.lng-e.lng),s=Math.sin(o)*Math.cos(i),c=Math.cos(r)*Math.sin(i)-Math.sin(r)*Math.cos(i)*Math.cos(o);let f=Math.atan2(s,c);return f=f*180/Math.PI,f=(f+360)%360,f}function Id(e,t,n){const i=t/6371e3,o=n*Math.PI/180,s=e[0]*Math.PI/180,c=e[1]*Math.PI/180,f=Math.sin(s),y=Math.cos(s),b=Math.sin(i),v=Math.cos(i),C=Math.asin(f*v+y*b*Math.cos(o)),S=c+Math.atan2(Math.sin(o)*b*y,v-f*Math.sin(C));return[C*180/Math.PI,S*180/Math.PI]}function Rd(){if(document.getElementById("cbsgoWeatherFxStyles"))return;const e=document.createElement("style");e.id="cbsgoWeatherFxStyles",e.textContent=`
