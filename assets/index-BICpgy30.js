@@ -1933,10 +1933,6 @@ Show private key?`))try{const F=Fr();v.textContent=F,b.style.display="block",y.s
         ">
           ${pl()}
         </div>
-
-        <div id="stepsMount" style="pointer-events:auto;">
-          ${renderStepsWidget()}
-        </div>
       </header>
 
      <!-- Floating knoppen rechtsonder: Profile + Bag + Wallet -->
