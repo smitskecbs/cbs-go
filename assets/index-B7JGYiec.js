@@ -402,6 +402,7 @@ DBT
       animation-name:cbsgoRainFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
+      will-change: transform, opacity;
     }
 
     .cbsgoSnowFlake {
@@ -416,6 +417,7 @@ DBT
       animation-name:cbsgoSnowFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
+      will-change: transform, opacity;
     }
   `,document.head.appendChild(e)}function wl(){const{temp:e,iconEmoji:t}=fo;return e==null?"⛅ …°":`${t} ${Math.round(e)}°`}function xl(){const e=document.getElementById("cbsgoWeatherFx");if(!e)return;Rd();const{condition:t,isNight:n}=fo;e.style.background=n?"radial-gradient(ellipse at top, rgba(0,0,0,0.45), rgba(0,0,0,0.85))":"transparent";let r="";if(t==="rain"||t==="storm"){const o=[];for(let s=0;s<96;s++){const c=Math.random()*100,f=Math.random()*16-8,y=Math.random()*2.5,b=2+Math.random()*1.5;o.push(`
         <div
@@ -423,7 +425,7 @@ DBT
           style="
             --x:${c}%;
             --xEnd:${c+f}%;
-            left:0;
+            left:${c}%;
             animation-delay:${y}s;
             animation-duration:${b}s;
           "
@@ -434,7 +436,7 @@ DBT
           style="
             --x:${c}%;
             --xEnd:${c+f}%;
-            left:0;
+            left:${c}%;
             animation-delay:${y}s;
             animation-duration:${b}s;
           "
@@ -541,16 +543,18 @@ Needed: ≤ ${yo}m`);return}uo.removeLayer(i),Yo=null,As({id:`puzzle-${Date.now(
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
 
-      <!-- Weer-effect laag (regen/sneeuw/nacht) -->
+      <!-- Weer-effect laag (regen/sneeuw/nacht)
+           Z-INDEX FIX: onder speler-markers (player pane zIndex=650),
+           maar boven tiles zodat je het ziet. -->
       <div id="cbsgoWeatherFx" style="
         position:absolute;
         inset:0;
-        z-index:2000;
+        z-index:620;
         pointer-events:none;
         overflow:hidden;
       "></div>
 
-      <!-- Weer-bolletje linksboven -->
+      <!-- Weer-bolletje linksboven (boven de FX) -->
       <div id="cbsgoWeather" style="
         position:absolute;
         top:16px;
