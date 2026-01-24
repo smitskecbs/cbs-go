@@ -1,23 +1,50 @@
 // src/app/playerSync.js
 // Synchroniseert jou met Supabase + haalt andere spelers op.
-// - Luistert naar 'cbsgo:playerPos' events (van steps.js / GPS)
-// - Schrijft je positie naar public.player_state
+//
+// - Luistert naar 'cbsgo:playerPos' events
+// - Schrijft je positie naar public.player_state (1 row per auth user_id)
 // - Haalt elke 10s andere spelers op en stuurt event 'cbsgo:onlinePlayers'
-// Layout en gameplay blijven met rust; dit is alleen netwerkcode.
 
 import { supabase } from './supabaseClient.js';
 import { getPublicKey } from './wallet.js';
 import { getPlayerName } from './leaderboard.js';
 
-const SEND_INTERVAL_MS = 15000;   // elke 15s je eigen positie wegschrijven
-const FETCH_INTERVAL_MS = 10000;  // elke 10s andere spelers ophalen
+const SEND_INTERVAL_MS = 15000; // elke 15s je eigen positie wegschrijven
+const FETCH_INTERVAL_MS = 10000; // elke 10s andere spelers ophalen
 const ONLINE_WINDOW_MS = 5 * 60 * 1000; // 5 minuten "online" window
 
-let lastPos = null;        // { lat, lng, heading, acc, t }
+let lastPos = null;
 let lastSentAt = 0;
 let lastFetchAt = 0;
 
-// We luisteren naar GPS events die steps.js al uitstuurt
+let cachedUserId = null;
+
+async function ensureUserId() {
+  if (cachedUserId) return cachedUserId;
+
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return null;
+    cachedUserId = data?.user?.id || null;
+    return cachedUserId;
+  } catch {
+    return null;
+  }
+}
+
+// refresh cache als auth verandert
+if (typeof window !== 'undefined' && !window.__cbsgo_auth_listener) {
+  window.__cbsgo_auth_listener = true;
+  try {
+    supabase.auth.onAuthStateChange((_event, session) => {
+      cachedUserId = session?.user?.id || null;
+    });
+  } catch {
+    // ignore
+  }
+}
+
+// ---- GPS events ----
 function handlePlayerPosEvent(ev) {
   const d = ev?.detail || {};
   if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
@@ -27,7 +54,7 @@ function handlePlayerPosEvent(ev) {
     lng: d.lng,
     heading: typeof d.heading === 'number' ? d.heading : null,
     acc: typeof d.acc === 'number' ? d.acc : null,
-    t: typeof d.t === 'number' ? d.t : Date.now()
+    t: typeof d.t === 'number' ? d.t : Date.now(),
   };
 }
 
@@ -37,62 +64,40 @@ if (typeof window !== 'undefined' && !window.__cbsgo_playerPos_listener) {
 }
 
 // ---------- eigen positie naar Supabase ----------
-
 async function pushMyState() {
-  const wallet_pk = getPublicKey();
-  if (!wallet_pk) return;          // nog geen lokale wallet
-  if (!lastPos) return;            // nog geen GPS
+  const user_id = await ensureUserId();
+  if (!user_id) return; // niet ingelogd (email login nog niet gedaan)
+
+  const wallet_pk = getPublicKey(); // voorlopig nog lokaal (later vervangen door echte)
+  if (!wallet_pk) return;
+
+  if (!lastPos) return;
 
   const now = Date.now();
-  if (now - lastSentAt < 5000) {
-    // max 1x per 5s om spam te voorkomen
-    return;
-  }
+  if (now - lastSentAt < 5000) return;
   lastSentAt = now;
 
   const nicknameRaw = getPlayerName() || '';
   const nickname = nicknameRaw.trim() || 'Anon';
 
   const payload = {
-    wallet_pk,
+    user_id, // ✅ belangrijk voor RLS + cross-device
+    wallet_pk, // voorlopig nog je lokale key
     nickname,
     lat: lastPos.lat,
     lng: lastPos.lng,
     heading: lastPos.heading,
-    last_seen: new Date().toISOString()
+    last_seen: new Date().toISOString(),
   };
 
   try {
-    // Kijk of er al een row is voor deze wallet
-    const { data: existing, error: selectError } = await supabase
+    // ✅ 1 row per user_id
+    const { error } = await supabase
       .from('player_state')
-      .select('id')
-      .eq('wallet_pk', wallet_pk)
-      .limit(1);
+      .upsert(payload, { onConflict: 'user_id' });
 
-    if (selectError) {
-      console.warn('CBS GO: player_state select failed', selectError);
-      return;
-    }
-
-    if (existing && existing.length > 0) {
-      const rowId = existing[0].id;
-      const { error: updateError } = await supabase
-        .from('player_state')
-        .update(payload)
-        .eq('id', rowId);
-
-      if (updateError) {
-        console.warn('CBS GO: player_state update failed', updateError);
-      }
-    } else {
-      const { error: insertError } = await supabase
-        .from('player_state')
-        .insert(payload);
-
-      if (insertError) {
-        console.warn('CBS GO: player_state insert failed', insertError);
-      }
+    if (error) {
+      console.warn('CBS GO: player_state upsert failed', error);
     }
   } catch (e) {
     console.warn('CBS GO: pushMyState error', e);
@@ -100,25 +105,23 @@ async function pushMyState() {
 }
 
 // ---------- andere spelers ophalen ----------
-
 async function fetchOnlinePlayers() {
+  const user_id = await ensureUserId();
+  if (!user_id) return;
+
   const wallet_pk = getPublicKey();
   if (!wallet_pk) return;
 
   const now = Date.now();
-  if (now - lastFetchAt < 3000) {
-    // max 1x per 3s
-    return;
-  }
+  if (now - lastFetchAt < 3000) return;
   lastFetchAt = now;
 
   const sinceIso = new Date(Date.now() - ONLINE_WINDOW_MS).toISOString();
 
   try {
-    // 1) Positie van alle "online" spelers ophalen
     const { data, error } = await supabase
       .from('player_state')
-      .select('wallet_pk, nickname, lat, lng, heading, last_seen')
+      .select('user_id, wallet_pk, nickname, lat, lng, heading, last_seen')
       .gt('last_seen', sinceIso);
 
     if (error) {
@@ -128,13 +131,13 @@ async function fetchOnlinePlayers() {
 
     const rows = Array.isArray(data) ? data : [];
 
-    // 2) Alle wallet_pk's verzamelen en bijbehorende profielen (avatar + nickname) ophalen
+    // profiles ophalen uit players table via wallet_pk (zoals jij al had)
     const walletPks = Array.from(
       new Set(
         rows
           .map((r) => r.wallet_pk)
-          .filter((v) => typeof v === 'string' && v.length > 0)
-      )
+          .filter((v) => typeof v === 'string' && v.length > 0),
+      ),
     );
 
     let profileByWallet = new Map();
@@ -148,32 +151,22 @@ async function fetchOnlinePlayers() {
       if (profileError) {
         console.warn('CBS GO: fetch player profiles failed', profileError);
       } else if (Array.isArray(profiles)) {
-        profileByWallet = new Map(
-          profiles.map((p) => [p.wallet_pk, p])
-        );
+        profileByWallet = new Map(profiles.map((p) => [p.wallet_pk, p]));
       }
     }
 
     const players = rows
       .map((row) => {
-        const rawLat = row.lat;
-        const rawLng = row.lng;
-
-        const lat = typeof rawLat === 'number' ? rawLat : parseFloat(rawLat);
-        const lng = typeof rawLng === 'number' ? rawLng : parseFloat(rawLng);
-
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          return null; // overslaan als het geen geldige nummers zijn
-        }
+        const lat = typeof row.lat === 'number' ? row.lat : parseFloat(row.lat);
+        const lng = typeof row.lng === 'number' ? row.lng : parseFloat(row.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
         const profile = profileByWallet.get(row.wallet_pk) || null;
-        const nickname =
-          (profile && profile.nickname) ||
-          row.nickname ||
-          'Anon';
+        const nickname = (profile && profile.nickname) || row.nickname || 'Anon';
         const avatar = profile && profile.avatar ? String(profile.avatar) : '';
 
         return {
+          user_id: row.user_id || '',
           wallet_pk: row.wallet_pk || '',
           nickname,
           avatar,
@@ -181,17 +174,14 @@ async function fetchOnlinePlayers() {
           lng,
           heading: typeof row.heading === 'number' ? row.heading : null,
           last_seen: row.last_seen,
-          isMe: row.wallet_pk === wallet_pk
+          isMe: row.user_id === user_id,
         };
       })
       .filter(Boolean);
 
-    // Event naar de map-layer
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
-        new CustomEvent('cbsgo:onlinePlayers', {
-          detail: { players }
-        })
+        new CustomEvent('cbsgo:onlinePlayers', { detail: { players } }),
       );
     }
   } catch (e) {
@@ -200,18 +190,15 @@ async function fetchOnlinePlayers() {
 }
 
 // ---------- loops starten ----------
-
 function startPlayerSyncLoops() {
   if (typeof window === 'undefined') return;
   if (window.__cbsgo_playerSync_started) return;
   window.__cbsgo_playerSync_started = true;
 
-  // Periodiek eigen positie wegschrijven
   setInterval(() => {
     pushMyState();
   }, SEND_INTERVAL_MS);
 
-  // Periodiek andere spelers ophalen
   setInterval(() => {
     fetchOnlinePlayers();
   }, FETCH_INTERVAL_MS);

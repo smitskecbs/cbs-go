@@ -1,6 +1,20 @@
 // src/main.js
+
+import { Buffer } from 'buffer';
+
+// Zorg dat Buffer ook in de browser bestaat voor libs die het verwachten
+if (typeof globalThis !== 'undefined' && !globalThis.Buffer) {
+  globalThis.Buffer = Buffer;
+}
+
 import './style.css';
 import { mountApp } from './ui/appShell.js';
+
+// ✅ Email+PIN vault bootstrap (backup/recover)
+import { bootstrapAuthWallet } from './app/bootstrapAuthWallet.js';
+if (typeof window !== 'undefined') {
+  window.bootstrapAuthWallet = bootstrapAuthWallet;
+}
 
 // --- Mobile-friendly error HUD (so we can debug black screens on GitHub Pages) ---
 function ensureHud() {
@@ -54,6 +68,7 @@ function boot() {
     }
 
     mountApp();
+
     // tiny success ping (hidden after 1s)
     const hud = ensureHud();
     hud.textContent = '✅ boot ok';

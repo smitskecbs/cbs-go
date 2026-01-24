@@ -16,13 +16,7 @@ function defaultInv() {
   return {
     tickets: 0,
     cbs: 0, // 🪙 CBS play money
-
-    // 🃏 Collectible cards
-    cards: {
-      // structure:
-      // "forest_explorer": 2,
-      // "chain_breaker": 1
-    }
+    cards: {},
   };
 }
 
@@ -32,7 +26,6 @@ export function loadInventory() {
 
   if (typeof inv.tickets !== 'number') inv.tickets = 0;
   if (typeof inv.cbs !== 'number') inv.cbs = 0;
-
   if (!inv.cards || typeof inv.cards !== 'object') inv.cards = {};
 
   return inv;
@@ -42,7 +35,7 @@ export function saveInventory(inv) {
   const safe = {
     tickets: Number(inv.tickets || 0),
     cbs: Number(inv.cbs || 0),
-    cards: inv.cards && typeof inv.cards === 'object' ? inv.cards : {}
+    cards: inv.cards && typeof inv.cards === 'object' ? inv.cards : {},
   };
 
   localStorage.setItem(KEY, JSON.stringify(safe));
@@ -56,55 +49,59 @@ export function getCbsCoins() {
   return Number(loadInventory().cbs || 0);
 }
 
+/**
+ * ✅ NIEUW: zet inventory hard (voor remote sync na email login)
+ * @param {{tickets:number, cbs:number, cards:object}} next
+ */
+export function setInventory(next = {}) {
+  const safe = {
+    tickets: Number(next.tickets || 0),
+    cbs: Number(next.cbs || 0),
+    cards: next.cards && typeof next.cards === 'object' ? next.cards : {},
+  };
+
+  saveInventory(safe);
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...safe } }),
+  );
+
+  return safe;
+}
+
 /* ---------- TICKETS / CBS ---------- */
 
-// 👉 addTickets ondersteunt nu ook aftrekken met een negatief getal
 export function addTickets(n = 1) {
   const delta = Number(n || 0);
-
-  // als geen geldig getal: niks doen
-  if (!Number.isFinite(delta) || delta === 0) {
-    return loadInventory();
-  }
+  if (!Number.isFinite(delta) || delta === 0) return loadInventory();
 
   const inv = loadInventory();
   const current = Number(inv.tickets || 0);
 
   let next = current + delta;
-  if (next < 0) next = 0; // nooit onder 0
+  if (next < 0) next = 0;
 
   inv.tickets = next;
   saveInventory(inv);
 
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
-  );
-
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   return inv;
 }
 
-// 👉 addCbsCoins ondersteunt nu ook aftrekken met een negatief getal
 export function addCbsCoins(n = 1) {
   const delta = Number(n || 0);
-
-  // als geen geldig getal: niks doen
-  if (!Number.isFinite(delta) || delta === 0) {
-    return loadInventory();
-  }
+  if (!Number.isFinite(delta) || delta === 0) return loadInventory();
 
   const inv = loadInventory();
   const current = Number(inv.cbs || 0);
 
   let next = current + delta;
-  if (next < 0) next = 0; // nooit onder 0
+  if (next < 0) next = 0;
 
   inv.cbs = next;
   saveInventory(inv);
 
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
-  );
-
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   return inv;
 }
 
@@ -122,15 +119,10 @@ export function addCard(cardId, qty = 1) {
 
   const inv = loadInventory();
   if (!inv.cards) inv.cards = {};
-
   inv.cards[id] = Number(inv.cards[id] || 0) + n;
 
   saveInventory(inv);
-
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
-  );
-
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   return inv;
 }
 
@@ -146,11 +138,7 @@ export function removeCard(cardId, qty = 1) {
   if (inv.cards[id] <= 0) delete inv.cards[id];
 
   saveInventory(inv);
-
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }),
-  );
-
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   return inv;
 }
 
@@ -161,7 +149,5 @@ export function resetInventory() {
   try {
     localStorage.removeItem(KEY);
   } catch {}
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:inventoryChanged', { detail: inv }),
-  );
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: inv }));
 }

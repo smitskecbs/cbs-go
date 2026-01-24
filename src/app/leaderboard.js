@@ -1,6 +1,6 @@
 // src/app/leaderboard.js
-// Local leaderboard in this browser.
-// FIX: uses XP/level from state.js (single source of truth)
+// Local profile storage (nickname + avatar) in this browser.
+// Uses XP/level from state.js (single source of truth)
 
 import { getXp, getLevel } from './state.js';
 
@@ -17,21 +17,27 @@ function readJSON(key, fallback) {
     return fallback;
   }
 }
+
 function writeJSON(key, v) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch {}
+  try {
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {}
 }
 
 export function getPlayerName() {
   try {
-    return localStorage.getItem(KEY_NAME) || 'Sovereign';
+    return localStorage.getItem(KEY_NAME) || '';
   } catch {
-    return 'Sovereign';
+    return '';
   }
 }
 
 export function setPlayerName(name) {
-  const n = String(name || '').trim().slice(0, 24) || 'Sovereign';
-  try { localStorage.setItem(KEY_NAME, n); } catch {}
+  const n = String(name || '').trim().slice(0, 24);
+  try {
+    if (n) localStorage.setItem(KEY_NAME, n);
+    else localStorage.removeItem(KEY_NAME);
+  } catch {}
   return n;
 }
 
@@ -45,12 +51,16 @@ export function getPlayerAvatar() {
 
 export function setPlayerAvatar(dataUrl) {
   const v = String(dataUrl || '');
-  try { localStorage.setItem(KEY_AVATAR, v); } catch {}
+  try {
+    localStorage.setItem(KEY_AVATAR, v);
+  } catch {}
   return v;
 }
 
 export function clearPlayerAvatar() {
-  try { localStorage.removeItem(KEY_AVATAR); } catch {}
+  try {
+    localStorage.removeItem(KEY_AVATAR);
+  } catch {}
 }
 
 export function getTopScores(limit = 10) {
@@ -63,13 +73,13 @@ export function submitMyScore() {
   const avatar = getPlayerAvatar();
 
   const xp = getXp();
-  const level = getLevel(xp);
+  const level = getLevel(); // ✅ getLevel() heeft geen params
 
   const list = readJSON(KEY, []);
   const arr = Array.isArray(list) ? list : [];
 
   // upsert by name (simple local demo)
-  const existing = arr.find(x => x.name === name);
+  const existing = arr.find((x) => x.name === name);
   if (existing) {
     existing.xp = xp;
     existing.level = level;

@@ -2,6 +2,6 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // GitHub Pages repo name = "cbs-go"
-  base: '/cbs-go/',
+  // Zorg dat Vite weet dat de site in /cbs-go/ draait
+  base: '/cbs-go/'
 });

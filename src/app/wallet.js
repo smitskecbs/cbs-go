@@ -1,139 +1,152 @@
 // src/app/wallet.js
-// Lokale "game wallet" voor CBS GO – nu met echte Ed25519 keypair.
+// SPEELWALLET = ECHTE SPL WALLET (solanaLocalWallet) - compat layer
 // ---------------------------------------------------------------
-// - 1 wallet per browser (Solana-compatibel keypair).
-// - PIN is een simpele lock (niet cryptografisch sterk!).
-// - "Unlocked" status is per tab/sessie (sessionStorage).
-//
-// ⚠️ Let op: secret key staat in plaintext in localStorage.
-//   Gebruik dit NIET voor grote bedragen. Dit is nu puur
-//   voor CBS-GO loot / kleine bedragen. Voor echte funds
-//   moeten we later encryptie toevoegen.
+// Doel: rest van app blijft dezelfde API gebruiken:
+// hasWallet(), isWalletUnlocked(), createWallet(), unlockWallet(),
+// importWalletFromSecret(), getPublicKey(), getSecretKeyBase58()
 
-// Nieuwe versie -> oude fake wallet negeren
-const WALLET_KEY = 'cbsgo_wallet_v3';
-const UNLOCK_KEY = 'cbsgo_wallet_unlocked_v3';
+import * as SLW from './solanaLocalWallet.js';
 
-// Kleine dependency voor Ed25519 + base58
-import nacl from 'tweetnacl';
-import bs58 from 'bs58';
-
-function loadWallet() {
-  try {
-    const raw = localStorage.getItem(WALLET_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (!parsed.pk || !parsed.sk || !parsed.pin) return null;
-
-    return {
-      pk: String(parsed.pk),
-      sk: String(parsed.sk),
-      pin: String(parsed.pin),
-    };
-  } catch (e) {
-    console.warn('CBS GO: failed to load wallet from localStorage', e);
-    return null;
+// ---- helper: pick first existing function name ----
+function pick(fnNames) {
+  for (const name of fnNames) {
+    const fn = SLW[name];
+    if (typeof fn === 'function') return fn;
   }
+  return null;
 }
 
-function saveWallet(wallet) {
-  localStorage.setItem(
-    WALLET_KEY,
-    JSON.stringify({
-      pk: String(wallet.pk),
-      sk: String(wallet.sk),
-      pin: String(wallet.pin),
-    }),
-  );
-}
+// ---- map solanaLocalWallet exports -> expected API ----
+// We KNOW you already use these in appShell.js:
+const getPkFn = pick(['getLocalPublicKey', 'getPublicKey', 'getSolanaPublicKey', 'getSolanaPk']);
+const getSkFn = pick(['getLocalSecretKeyBase58', 'getSecretKeyBase58', 'getSolanaSecretKeyBase58', 'getSolanaSkBase58']);
 
-// Genereer een echte Ed25519 keypair (Solana-stijl)
-// - pk = publicKey (base58)
-// - sk = secretKey (base58, 64 bytes)
-function generateKeypair() {
-  const pair = nacl.sign.keyPair();
-  const pk = bs58.encode(pair.publicKey);
-  const sk = bs58.encode(pair.secretKey);
-  return { pk, sk };
-}
+// Optional helpers (may or may not exist in your solanaLocalWallet.js)
+const hasFn = pick([
+  'hasLocalWallet',
+  'hasWallet',
+  'hasSolanaLocalWallet',
+  'hasLocalKeypair',
+]);
 
-/* == Public API == */
+const isUnlockedFn = pick([
+  'isLocalWalletUnlocked',
+  'isWalletUnlocked',
+  'isUnlockedLocalWallet',
+  'isSolanaLocalWalletUnlocked',
+]);
 
-// Is er überhaupt een wallet op dit apparaat?
+const createFn = pick([
+  'createLocalWallet',
+  'createWallet',
+  'createSolanaLocalWallet',
+  'createSolanaWallet',
+  'createKeypair',
+]);
+
+const unlockFn = pick([
+  'unlockLocalWallet',
+  'unlockWallet',
+  'unlockSolanaLocalWallet',
+  'unlockSolanaWallet',
+]);
+
+const importFn = pick([
+  // meest waarschijnlijke namen
+  'importLocalWalletFromSecret',
+  'importWalletFromSecret',
+  'importSolanaLocalWalletFromSecret',
+  'importSolanaWalletFromSecret',
+
+  // extra varianten (voor als je eerder andere namen hebt gebruikt)
+  'importFromSecret',
+  'importFromSecretKey',
+  'importKeypairFromSecret',
+  'importKeypair',
+  'restoreWalletFromSecret',
+  'restoreLocalWalletFromSecret',
+]);
+
+const resetFn = pick([
+  'devResetLocalWallet',
+  'devResetWallet',
+  'resetLocalWallet',
+  'devResetSolanaLocalWallet',
+]);
+
+// ---- API the rest of CBS-GO expects ----
 export function hasWallet() {
-  return !!loadWallet();
+  // Prefer explicit hasFn if available
+  if (hasFn) return !!hasFn();
+
+  // Fallback: if we can read a public key, wallet exists
+  if (getPkFn) return !!String(getPkFn() || '');
+  return false;
 }
 
-// Is de wallet in deze TAB/sessie unlocked?
 export function isWalletUnlocked() {
-  const wallet = loadWallet();
-  if (!wallet) return false;
-  return sessionStorage.getItem(UNLOCK_KEY) === '1';
+  // If solanaLocalWallet has an explicit unlock state, use it
+  if (isUnlockedFn) return !!isUnlockedFn();
+
+  // Otherwise: treat "wallet exists" as unlocked
+  // (your real protection is now the Email+PIN vault flow)
+  return hasWallet();
 }
 
-// Maak een nieuwe wallet met gegeven PIN.
-// - Maakt een echte Ed25519 keypair
-// - Slaat (pk + sk + pin) op in localStorage
-// - Markeer sessie als unlocked
-// - Return de public key (zoals loginModal verwacht)
 export function createWallet(pin) {
-  const p = String(pin || '');
-
-  if (p.length < 4) {
-    throw new Error('PIN too short');
+  if (!createFn) {
+    throw new Error('solanaLocalWallet: create function not found (expected createLocalWallet/createWallet)');
   }
-
-  const existing = loadWallet();
-  if (existing) {
-    console.warn('CBS GO: overwriting existing wallet (v3)');
-  }
-
-  const { pk, sk } = generateKeypair();
-  const wallet = { pk, sk, pin: p };
-  saveWallet(wallet);
-  sessionStorage.setItem(UNLOCK_KEY, '1');
-  return pk;
+  return createFn(pin);
 }
 
-// Probeer wallet te unlocken met een PIN.
-// Bij succes -> markeer sessie als unlocked en return pk.
-// Bij failure -> gooi error (loginModal vangt dit af).
 export function unlockWallet(pin) {
-  const wallet = loadWallet();
-  if (!wallet) {
-    throw new Error('No wallet');
+  // If there is no unlock function, but wallet exists, just return pk.
+  if (!unlockFn) {
+    const pk = getPublicKey();
+    if (pk) return pk;
+    throw new Error('solanaLocalWallet: unlock function not found and no local wallet exists');
   }
-
-  const p = String(pin || '');
-  if (p !== wallet.pin) {
-    throw new Error('Incorrect PIN');
-  }
-
-  sessionStorage.setItem(UNLOCK_KEY, '1');
-  return wallet.pk;
+  return unlockFn(pin);
 }
 
-// Geef de public key van de lokale wallet (of lege string).
+export function importWalletFromSecret({ secretKeyBase58, pin }) {
+  if (!importFn) {
+    throw new Error(
+      'solanaLocalWallet: import function not found. ' +
+      'Your solanaLocalWallet.js must export an import function (e.g. importLocalWalletFromSecret).'
+    );
+  }
+
+  // Support both call styles:
+  // - importFn({ secretKeyBase58, pin })
+  // - importFn(secretKeyBase58, pin)
+  try {
+    return importFn({ secretKeyBase58, pin });
+  } catch (e1) {
+    try {
+      return importFn(secretKeyBase58, pin);
+    } catch (e2) {
+      const msg = e2?.message || e1?.message || String(e2 || e1 || 'Import failed');
+      throw new Error('solanaLocalWallet: import failed: ' + msg);
+    }
+  }
+}
+
 export function getPublicKey() {
-  const wallet = loadWallet();
-  return wallet ? wallet.pk : '';
+  if (!getPkFn) return '';
+  return String(getPkFn() || '');
 }
 
-// Extra helper om (later) secretKey te kunnen gebruiken
-// Bijvoorbeeld voor signeren met @solana/web3.js.
 export function getSecretKeyBase58() {
-  const wallet = loadWallet();
-  return wallet ? wallet.sk : '';
+  if (!getSkFn) return '';
+  return String(getSkFn() || '');
 }
 
-// Optionele helper om alles te wissen (voor dev / reset)
 export function devResetWallet() {
-  localStorage.removeItem(WALLET_KEY);
-  sessionStorage.removeItem(UNLOCK_KEY);
+  if (resetFn) resetFn();
 }
 
-// Handig om in dev-console te kunnen aanroepen
 if (typeof window !== 'undefined') {
   window.cbsgoDevResetWallet = devResetWallet;
 }

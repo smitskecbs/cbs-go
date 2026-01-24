@@ -4,11 +4,16 @@
 // ✅ Richting-pijl bij speler (heading / looprichting) – rond de avatar
 // ✅ Kleine glow-radius rond speler = daadwerkelijke pickup-range
 // ✅ Cadeautjes + puzzels spawnen rond speler
-// ✅ Compass + Center knoppen rechtsonder
+// ✅ Compass knop linksboven (onder het weer)
 // ✅ Weather-bubble + regen/sneeuw + nacht-dimming
-// ✅ Online spelers (andere wallets) als oranje pf / bolletjes (met toggle + clustering)
+// ✅ Online spelers (andere wallets) als oranje pf / bolletjes (altijd aan)
 // ✅ Auto-follow op speler, tenzij je zelf sleept of over map scrolt
 // ✅ Speler(pf) altijd boven loot/puzzels/andere spelers dankzij panes
+//
+// FIXES IN DIT SCRIPT:
+// ✅ Regen/sneeuw over hele breedte (left:${x}% i.p.v. left:0)
+// ✅ WeatherFX ligt ONDER de speler-avatar (z-index < player pane z-index)
+// ✅ GPS OK balk onderin verwijderd (geen cbsgoMapMsg)
 
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
 import { openPuzzleModal } from './puzzleModal.js';
@@ -26,10 +31,10 @@ let worldViewMode = false;
 // 👣 auto-follow state (volg speler automatisch)
 let followPlayer = true;
 
-// 🔶 andere spelers
+// 🔶 andere spelers (altijd aan)
 let otherPlayersLayer = null;
 const otherPlayerMarkers = new Map();
-let otherPlayersVisible = true; // 👥 toggle aan/uit
+let otherPlayersVisible = true; // altijd aan (geen toggle)
 
 // 🌤️ Weer-state
 let weatherState = {
@@ -85,31 +90,7 @@ function ensureEl(id) {
   return document.getElementById(id);
 }
 
-function showMapMsg(text) {
-  const host = ensureEl('cbsgoMapHost');
-  if (!host) return;
-
-  let msg = ensureEl('cbsgoMapMsg');
-  if (!msg) {
-    msg = document.createElement('div');
-    msg.id = 'cbsgoMapMsg';
-    msg.style.position = 'absolute';
-    msg.style.left = '12px';
-    msg.style.right = '12px';
-    msg.style.bottom = '16px';
-    msg.style.zIndex = '9999';
-    msg.style.padding = '10px 12px';
-    msg.style.borderRadius = '14px';
-    msg.style.border = '1px solid rgba(255,255,255,.14)';
-    msg.style.background = 'rgba(0,0,0,.40)';
-    msg.style.color = '#fff';
-    msg.style.fontFamily = 'system-ui, sans-serif';
-    msg.style.fontSize = '13px';
-    msg.style.backdropFilter = 'blur(10px)';
-    host.appendChild(msg);
-  }
-  msg.textContent = text || '';
-}
+/* ---------- Helpers ---------- */
 
 function initialsFromName() {
   const n = String(getPlayerName() || '').trim();
@@ -230,6 +211,7 @@ function ensureWeatherFxStyles() {
       animation-name:cbsgoRainFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
+      will-change: transform, opacity;
     }
 
     .cbsgoSnowFlake {
@@ -244,6 +226,7 @@ function ensureWeatherFxStyles() {
       animation-name:cbsgoSnowFall;
       animation-timing-function:linear;
       animation-iteration-count:infinite;
+      will-change: transform, opacity;
     }
   `;
   document.head.appendChild(style);
@@ -270,7 +253,6 @@ function updateWeatherFx() {
   let html = '';
 
   if (condition === 'rain' || condition === 'storm') {
-    // 👇 meer druppels zodat het echt over het hele scherm regent
     const count = 96;
     const parts = [];
     for (let i = 0; i < count; i++) {
@@ -285,7 +267,7 @@ function updateWeatherFx() {
           style="
             --x:${x}%;
             --xEnd:${x + drift}%;
-            left:0;
+            left:${x}%;
             animation-delay:${delay}s;
             animation-duration:${dur}s;
           "
@@ -294,7 +276,6 @@ function updateWeatherFx() {
     }
     html = parts.join('');
   } else if (condition === 'snow') {
-    // 👇 meer sneeuwvlokken zodat het over het hele scherm dwarrelt
     const count = 80;
     const parts = [];
     for (let i = 0; i < count; i++) {
@@ -309,7 +290,7 @@ function updateWeatherFx() {
           style="
             --x:${x}%;
             --xEnd:${x + drift}%;
-            left:0;
+            left:${x}%;
             animation-delay:${delay}s;
             animation-duration:${dur}s;
           "
@@ -328,7 +309,6 @@ async function fetchWeatherForLatLng(lat, lng) {
   if (!OPEN_WEATHER_API_KEY) return;
 
   const now = Date.now();
-  // max 1x per 5 minuten het weer ophalen
   if (weatherState.lastUpdated && now - weatherState.lastUpdated < 5 * 60 * 1000) {
     return;
   }
@@ -343,16 +323,14 @@ async function fetchWeatherForLatLng(lat, lng) {
     const data = await res.json();
 
     const temp = data?.main?.temp;
-    const code = data?.weather?.[0]?.icon || '01d'; // bv. "01d" of "01n"
+    const code = data?.weather?.[0]?.icon || '01d';
     const main = String(data?.weather?.[0]?.main || '').toLowerCase();
 
-    // 🔹 eerste gok: op basis van OpenWeather icon (d/n)
     let isNight = code.endsWith('n');
 
     let iconEmoji = '⛅';
     let condition = 'clear';
 
-    // basis op icon-code
     if (code.startsWith('01')) {
       condition = 'clear';
     } else if (code.startsWith('02')) {
@@ -374,26 +352,20 @@ async function fetchWeatherForLatLng(lat, lng) {
       condition = 'mist';
     }
 
-    // extra check op MAIN tekst
     if (main.includes('rain')) condition = 'rain';
     if (main.includes('snow')) condition = 'snow';
     if (main.includes('thunder')) condition = 'storm';
 
-    // 🔹 daarna nog een nauwkeuriger nacht-check op basis van tijdzone
     try {
-      const dt = Number(data?.dt || 0);       // unix tijd in seconden
-      const tz = Number(data?.timezone || 0); // offset in seconden
+      const dt = Number(data?.dt || 0);
+      const tz = Number(data?.timezone || 0);
       if (dt && Number.isFinite(tz)) {
         const localTs = dt + tz;
         const hour = ((localTs / 3600) % 24 + 24) % 24;
-        // nacht = voor 7:00 of na 19:00
         isNight = hour < 7 || hour >= 19;
       }
-    } catch {
-      // laat isNight zoals hij was
-    }
+    } catch {}
 
-    // 🔹 emoji definitief kiezen, nu we weten of het nacht is
     if (condition === 'clear') {
       iconEmoji = isNight ? '🌙' : '☀️';
     } else if (condition === 'clouds') {
@@ -467,7 +439,6 @@ function buildArrowIcon(L, headingDeg) {
       justify-content:center;
       font-size:18px;
       filter:drop-shadow(0 2px 3px rgba(0,0,0,.8));
-      /* Eerst een beetje naar boven duwen, dan roteren -> pijltje draait rond de avatar */
       transform: rotate(${headingDeg}deg) translateY(-26px);
       transform-origin:center center;
     ">
@@ -485,7 +456,6 @@ function buildArrowIcon(L, headingDeg) {
 
 // 🔶 Online speler-icon (andere mensen / clusters)
 function buildOtherPlayerIcon(L, label, avatar, isCluster) {
-  // Voor clusters altijd een bolletje, nooit avatar
   if (!isCluster && avatar) {
     const safeAvatar = esc(avatar);
     const html = `
@@ -506,9 +476,9 @@ function buildOtherPlayerIcon(L, label, avatar, isCluster) {
   const html = `
     <div style="
       width:30px;height:30px;border-radius:999px;
-      border:2px solid rgba(251,191,36,0.95); /* amber rand */
+      border:2px solid rgba(251,191,36,0.95);
       box-shadow:0 8px 18px rgba(0,0,0,.55);
-      background:rgba(245,158,11,0.90);      /* amber */
+      background:rgba(245,158,11,0.90);
       display:flex;align-items:center;justify-content:center;
       font-weight:900;font-size:14px;color:#111;
     ">${esc(txt)}</div>
@@ -516,7 +486,7 @@ function buildOtherPlayerIcon(L, label, avatar, isCluster) {
   return L.divIcon({ html, className: '', iconSize: [30, 30], iconAnchor: [15, 15] });
 }
 
-// 🎁 Mystery gift-icon (cadeautje met vraagteken)
+// 🎁 Mystery gift-icon
 function buildLootIcon(L) {
   const html = `
     <div style="
@@ -567,15 +537,14 @@ function buildPuzzleIcon(L) {
   return L.divIcon({ html, className: '', iconSize: [46, 46], iconAnchor: [23, 23] });
 }
 
-/* ---------- Loot (MYSTERY GIFTS) ---------- */
+/* ---------- Loot ---------- */
 
-// Soorten mystery loot (intern) -> alleen reward-combinatie, icon blijft altijd hetzelfde
 function rollLootKind() {
   const r = Math.random();
-  if (r < 0.60) return 'small';     // 60%: kleine reward
-  if (r < 0.90) return 'medium';    // 30%: normale reward
-  if (r < 0.98) return 'large';     // 8%: grote reward
-  return 'jackpot';                 // 2%: alles-in-één klapper
+  if (r < 0.60) return 'small';
+  if (r < 0.90) return 'medium';
+  if (r < 0.98) return 'large';
+  return 'jackpot';
 }
 
 function pickRandomCardId() {
@@ -587,35 +556,28 @@ function pickRandomCardId() {
 function computeLootReward(kind) {
   const k = kind || 'small';
 
-  // Alle gifts kunnen XP / tickets / CBS hebben.
   let xp;
   let tickets;
   let cbs;
 
   if (k === 'jackpot') {
-    xp = 30 + Math.floor(Math.random() * 31);      // 30–60 XP
-    tickets = 2 + Math.floor(Math.random() * 2);   // 2–3 tickets
-    cbs = 20 + Math.floor(Math.random() * 31);     // 20–50 CBS
+    xp = 30 + Math.floor(Math.random() * 31);
+    tickets = 2 + Math.floor(Math.random() * 2);
+    cbs = 20 + Math.floor(Math.random() * 31);
   } else if (k === 'large') {
-    xp = 20 + Math.floor(Math.random() * 21);      // 20–40 XP
-    tickets = 1 + Math.floor(Math.random() * 2);   // 1–2 tickets
-    cbs = 10 + Math.floor(Math.random() * 16);     // 10–25 CBS
+    xp = 20 + Math.floor(Math.random() * 21);
+    tickets = 1 + Math.floor(Math.random() * 2);
+    cbs = 10 + Math.floor(Math.random() * 16);
   } else if (k === 'medium') {
-    xp = 10 + Math.floor(Math.random() * 16);      // 10–25 XP
-    tickets = Math.random() < 0.7 ? 1 : 0;         // meestal 1 ticket
-    cbs = Math.random() < 0.5
-      ? (5 + Math.floor(Math.random() * 11))       // 5–15 CBS
-      : 0;
+    xp = 10 + Math.floor(Math.random() * 16);
+    tickets = Math.random() < 0.7 ? 1 : 0;
+    cbs = Math.random() < 0.5 ? (5 + Math.floor(Math.random() * 11)) : 0;
   } else {
-    // small
-    xp = 5 + Math.floor(Math.random() * 11);       // 5–15 XP
-    tickets = Math.random() < 0.25 ? 1 : 0;        // soms 1 ticket
-    cbs = Math.random() < 0.25
-      ? (3 + Math.floor(Math.random() * 8))        // 3–10 CBS
-      : 0;
+    xp = 5 + Math.floor(Math.random() * 11);
+    tickets = Math.random() < 0.25 ? 1 : 0;
+    cbs = Math.random() < 0.25 ? (3 + Math.floor(Math.random() * 8)) : 0;
   }
 
-  // 🎴 Kaart-drop (los van xp/tickets/cbs)
   let cardId = null;
   let cardCount = 0;
   if (Math.random() < CARD_DROP_CHANCE) {
@@ -644,27 +606,13 @@ function spawnLootAround(center) {
   const kind = rollLootKind();
   const reward = computeLootReward(kind);
 
-  const pos = randomNearbyLatLng(
-    center,
-    LOOT_SPAWN_MIN_DISTANCE_M,
-    LOOT_SPAWN_MAX_DISTANCE_M
-  );
+  const pos = randomNearbyLatLng(center, LOOT_SPAWN_MIN_DISTANCE_M, LOOT_SPAWN_MAX_DISTANCE_M);
   const icon = buildLootIcon(L);
 
-  const marker = L.marker([pos.lat, pos.lng], {
-    icon,
-    pane: 'cbsgo-loot-pane'
-  });
-
+  const marker = L.marker([pos.lat, pos.lng], { icon, pane: 'cbsgo-loot-pane' });
   const createdAt = now;
 
-  const item = {
-    marker,
-    createdAt,
-    lat: pos.lat,
-    lng: pos.lng,
-    reward
-  };
+  const item = { marker, createdAt, lat: pos.lat, lng: pos.lng, reward };
   lootItems.push(item);
 
   marker.on('click', () => {
@@ -686,7 +634,6 @@ function spawnLootAround(center) {
       return;
     }
 
-    // Cadeautje is geopend -> weg uit de map + uit lootItems
     lootLayer.removeLayer(marker);
     lootItems = lootItems.filter(li => li.marker !== marker);
 
@@ -696,12 +643,9 @@ function spawnLootAround(center) {
     if (xp) parts.push(`+${xp} XP`);
     if (tickets) parts.push(`+${tickets} ticket${tickets === 1 ? '' : 's'}`);
     if (cbs) parts.push(`+${cbs} CBS`);
-    if (cardId && cardCount > 0) {
-      parts.push(`+${cardCount} card${cardCount === 1 ? '' : 's'}`);
-    }
+    if (cardId && cardCount > 0) parts.push(`+${cardCount} card${cardCount === 1 ? '' : 's'}`);
 
     const text = parts.length ? parts.join(' · ') : 'Nothing? That\'s weird…';
-
     alert(`You opened a mystery gift!\n\n${text}`);
 
     const payload = {
@@ -715,16 +659,13 @@ function spawnLootAround(center) {
 
     try {
       window.dispatchEvent(new CustomEvent('cbsgo:lootReward', { detail: payload }));
-    } catch {
-      // ignore
-    }
+    } catch {}
   });
 
   marker.addTo(lootLayer);
   lastLootSpawnAt = now;
 }
 
-// Loot despawn: ouder dan X minuten of te ver weg van speler
 function cleanupLoot(center) {
   if (!LOOT_ENABLED || !map || !lootLayer || !center) return;
 
@@ -756,7 +697,6 @@ function cleanupLoot(center) {
     return true;
   });
 
-  // Als alles weg is, mag er snel weer nieuwe loot respawnen rond je nieuwe plek
   if (removedCount > 0 && lootLayer.getLayers().length === 0) {
     lastLootSpawnAt = 0;
   }
@@ -766,23 +706,16 @@ function cleanupLoot(center) {
 
 function maybeSpawnPuzzle(center) {
   if (!PUZZLES_ENABLED || !map || !nodesLayer || !center) return;
-
-  // één puzzel tegelijk
   if (activePuzzleMarker) return;
 
   const L = window.L;
   if (!L) return;
 
-  // 🔹 Eerste puzzel: sneller en zonder random kans
   if (!firstPuzzleSpawned) {
-    if (puzzleMeters < FIRST_PUZZLE_MIN_METERS) {
-      return;
-    }
-    // genoeg gelopen voor eerste puzzel -> spawn gegarandeerd
+    if (puzzleMeters < FIRST_PUZZLE_MIN_METERS) return;
     puzzleMeters = 0;
     firstPuzzleSpawned = true;
   } else {
-    // 🔹 Volgende puzzels: gebruik oude config (350m + 35% kans)
     if (puzzleMeters < PUZZLE_SPAWN_CHUNK_M) return;
     if (Math.random() > PUZZLE_SPAWN_CHANCE) return;
     puzzleMeters = 0;
@@ -854,13 +787,12 @@ function setUserMarker(latlng) {
 
   if (!userMarker) {
     userMarker = L.marker(latlng, { icon, pane: 'cbsgo-player-pane' }).addTo(map);
-    map.setView(latlng, 19);   // eerste keer dicht erop
+    map.setView(latlng, 19);
   } else {
     userMarker.setIcon(icon);
     userMarker.setLatLng(latlng);
   }
 
-  // Richting-pijl
   if (!userArrow) {
     userArrow = L.marker(latlng, {
       icon: buildArrowIcon(L, lastHeadingDeg),
@@ -872,23 +804,16 @@ function setUserMarker(latlng) {
     userArrow.setLatLng(latlng);
   }
 
-  // Profiel + pijl altijd boven alles
   if (userMarker && userMarker.bringToFront) userMarker.bringToFront();
   if (userArrow && userArrow.bringToFront) userArrow.bringToFront();
 
-  // Glow-range
   updatePlayerRange(latlng);
 
-  // Auto-follow: kaart volgt je. In plaats van exact op jou,
-  // kijken we een stukje VÓÓR je in je looprichting.
   if (followPlayer && !worldViewMode && map) {
     try {
       const zoom = map.getZoom() || 19;
-
-      // standaard: centreer op speler
       let targetCenter = latlng;
 
-      // Als we een heading hebben, 40m vooruit projecteren
       if (Number.isFinite(lastHeadingDeg)) {
         targetCenter = projectAhead(latlng, 40, lastHeadingDeg);
       }
@@ -902,13 +827,11 @@ function setUserMarker(latlng) {
       if (!Number.isFinite(distToCenter) || distToCenter > 20) {
         map.setView(targetCenter, zoom);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 }
 
-/* ---------- Online players (oranje bolletjes / avatars) ---------- */
+/* ---------- Online players ---------- */
 
 function ensureOtherPlayersLayer() {
   const L = window.L;
@@ -916,31 +839,24 @@ function ensureOtherPlayersLayer() {
 
   if (!otherPlayersLayer) {
     otherPlayersLayer = L.layerGroup();
-    if (otherPlayersVisible) {
-      otherPlayersLayer.addTo(map);
-    }
+    if (otherPlayersVisible) otherPlayersLayer.addTo(map);
   } else {
-    if (otherPlayersVisible && !map.hasLayer(otherPlayersLayer)) {
-      otherPlayersLayer.addTo(map);
-    }
-    if (!otherPlayersVisible && map.hasLayer(otherPlayersLayer)) {
-      map.removeLayer(otherPlayersLayer);
-    }
+    if (otherPlayersVisible && !map.hasLayer(otherPlayersLayer)) otherPlayersLayer.addTo(map);
+    if (!otherPlayersVisible && map.hasLayer(otherPlayersLayer)) map.removeLayer(otherPlayersLayer);
   }
   return otherPlayersLayer;
 }
 
-// Simpele clustering zodat bolletjes niet op elkaar liggen als je uitzoomt
 function clusterOnlinePlayers(players) {
   if (!Array.isArray(players) || !map) return [];
 
   const zoom = map.getZoom() || 3;
   let factor;
 
-  if (zoom >= 15) factor = 100;      // ~0.01°
-  else if (zoom >= 10) factor = 50;  // ~0.02°
-  else if (zoom >= 6) factor = 25;   // ~0.04°
-  else factor = 10;                  // ~0.1° (wereld-view)
+  if (zoom >= 15) factor = 100;
+  else if (zoom >= 10) factor = 50;
+  else if (zoom >= 6) factor = 25;
+  else factor = 10;
 
   const cells = new Map();
 
@@ -1026,9 +942,7 @@ function renderOnlinePlayers(players) {
 
     let marker = otherPlayerMarkers.get(id);
     if (!marker) {
-      const label = c.isCluster && c.count > 1
-        ? String(c.count)
-        : (c.nickname || 'Anon');
+      const label = c.isCluster && c.count > 1 ? String(c.count) : (c.nickname || 'Anon');
 
       const icon = buildOtherPlayerIcon(L, label, c.avatar, c.isCluster);
       marker = L.marker(latlng, { icon, pane: 'cbsgo-others-pane' });
@@ -1038,7 +952,6 @@ function renderOnlinePlayers(players) {
         : `${c.nickname || 'CBS-GO explorer'}`;
 
       marker.bindPopup(popupText);
-
       marker.addTo(layer);
       otherPlayerMarkers.set(id, marker);
     } else {
@@ -1063,11 +976,11 @@ export function renderMapView() {
     <div id="cbsgoMapHost" style="position:relative; width:100%; height:100%;">
       <div id="cbsgoMap" style="position:absolute; inset:0;"></div>
 
-      <!-- Weer-effect laag (regen/sneeuw/nacht) -->
+      <!-- Weer-effect laag: onder markers (player pane = 650) -->
       <div id="cbsgoWeatherFx" style="
         position:absolute;
         inset:0;
-        z-index:2000;
+        z-index:620;
         pointer-events:none;
         overflow:hidden;
       "></div>
@@ -1093,28 +1006,16 @@ export function renderMapView() {
         <span id="cbsgoWeatherLabel">${weatherLabel}</span>
       </div>
 
-      <!-- Kompas + centreer-player + online-toggle RECHTSONDER -->
+      <!-- 🧭 Kompas linksboven onder het weer -->
       <div id="cbsgoMapControls" style="
         position:absolute;
-        right:16px;
-        bottom:148px;
+        left:12px;
+        top:58px;
         z-index:3000;
         display:flex;
-        flex-direction:row;
+        flex-direction:column;
         gap:10px;
       ">
-        <button id="cbsgoOnlineToggleBtn" type="button" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          color:#fff;
-          font-size:22px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-        ">👥</button>
         <button id="cbsgoCompassBtn" type="button" style="
           width:52px;height:52px;
           border-radius:999px;
@@ -1127,18 +1028,6 @@ export function renderMapView() {
           align-items:center;
           justify-content:center;
         ">🧭</button>
-        <button id="cbsgoCenterBtn" type="button" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          color:#fff;
-          font-size:22px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-        ">🎯</button>
       </div>
     </div>
   `;
@@ -1146,10 +1035,9 @@ export function renderMapView() {
 
 function destroyMapIfAny() {
   try {
-    if (map) {
-      map.remove();
-    }
+    if (map) map.remove();
   } catch {}
+
   map = null;
   userMarker = null;
   userArrow = null;
@@ -1217,13 +1105,12 @@ function initLeaflet() {
   nodesLayer = L.layerGroup().addTo(map);
   lootLayer = L.layerGroup().addTo(map);
 
+  // ✅ online spelers laag meteen aan (altijd zichtbaar)
+  ensureOtherPlayersLayer();
+
   // 🧲 Als je de kaart met de hand sleept/zoomt -> auto-follow uit
-  map.on('dragstart', () => {
-    followPlayer = false;
-  });
-  map.on('zoomstart', () => {
-    followPlayer = false;
-  });
+  map.on('dragstart', () => { followPlayer = false; });
+  map.on('zoomstart', () => { followPlayer = false; });
 
   return true;
 }
@@ -1235,7 +1122,7 @@ function startGps() {
 
   navigator.geolocation.watchPosition(
     (pos) => {
-      const { latitude, longitude, accuracy, heading } = pos.coords;
+      const { latitude, longitude, heading } = pos.coords;
       const center = { lat: latitude, lng: longitude };
 
       const prev = lastUserLatLng
@@ -1261,11 +1148,9 @@ function startGps() {
           puzzleMeters += distMoved;
         }
 
-        // 👣 Je hebt een stuk gelopen terwijl follow UIT stond:
-        // -> automatisch weer aanzetten en terug naar speler
         if (
           Number.isFinite(distMoved) &&
-          distMoved > 20 &&     // drempel ±20m
+          distMoved > 20 &&
           !followPlayer &&
           !worldViewMode &&
           map
@@ -1281,11 +1166,9 @@ function startGps() {
       cleanupLoot(center);
 
       fetchWeatherForLatLng(latitude, longitude);
-
-      showMapMsg(`GPS OK • accuracy ~${Math.round(accuracy)}m`);
     },
     (err) => {
-      showMapMsg(`GPS error: ${err?.message || err?.code || 'unknown'}`);
+      console.warn('GPS error:', err?.message || err?.code || 'unknown');
     },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
   );
@@ -1306,81 +1189,31 @@ export function bindMapView() {
     }
 
     if (!window.L) {
-      showMapMsg('Loading map engine…');
       if (tries < maxTries) return setTimeout(tick, 100);
-      showMapMsg('Map engine failed (Leaflet not found). Refresh.');
+      console.warn('Map engine failed (Leaflet not found).');
       return;
     }
 
     const ok = initLeaflet();
-    if (!ok) {
-      showMapMsg('Could not init map. Refresh.');
-      return;
-    }
+    if (!ok) return;
 
-    const centerBtn = ensureEl('cbsgoCenterBtn');
-    if (centerBtn) {
-      centerBtn.onclick = () => {
-        if (map && lastUserLatLng) {
-          // 🎯 Handmatig centreren = follow weer aan
-          followPlayer = true;
-          worldViewMode = false;
-          map.setView(lastUserLatLng, 19);
-        }
-      };
-    }
-
+    // 🧭 Kompas: world view toggle (zoals eerder)
     const compassBtn = ensureEl('cbsgoCompassBtn');
     if (compassBtn) {
       compassBtn.onclick = () => {
         if (!map) return;
         worldViewMode = !worldViewMode;
         if (worldViewMode) {
-          // wereld-view: geen follow
           followPlayer = false;
           map.setView([51.687, 4.87], 3);
         } else if (lastUserLatLng) {
-          // terug naar speler: follow weer aan
           followPlayer = true;
           map.setView(lastUserLatLng, 16);
         }
       };
     }
 
-    const onlineToggleBtn = ensureEl('cbsgoOnlineToggleBtn');
-    if (onlineToggleBtn) {
-      const refreshBtnStyle = () => {
-        if (otherPlayersVisible) {
-          onlineToggleBtn.style.borderColor = 'rgba(251,191,36,0.95)';
-          onlineToggleBtn.style.boxShadow = '0 0 12px rgba(251,191,36,0.7)';
-        } else {
-          onlineToggleBtn.style.borderColor = 'rgba(255,255,255,0.18)';
-          onlineToggleBtn.style.boxShadow = 'none';
-        }
-      };
-      refreshBtnStyle();
-
-      onlineToggleBtn.onclick = () => {
-        otherPlayersVisible = !otherPlayersVisible;
-        const layer = ensureOtherPlayersLayer();
-        if (layer && map) {
-          if (otherPlayersVisible) {
-            if (!map.hasLayer(layer)) layer.addTo(map);
-          } else if (map.hasLayer(layer)) {
-            map.removeLayer(layer);
-          }
-        }
-        refreshBtnStyle();
-
-        if (!otherPlayersVisible && otherPlayersLayer) {
-          for (const [id, marker] of otherPlayerMarkers.entries()) {
-            otherPlayersLayer.removeLayer(marker);
-          }
-          otherPlayerMarkers.clear();
-        }
-      };
-    }
-
+    // Online players listener (altijd aan)
     if (!window.__cbsgo_onlinePlayers_listener) {
       window.__cbsgo_onlinePlayers_listener = true;
       window.addEventListener('cbsgo:onlinePlayers', (ev) => {
@@ -1390,7 +1223,6 @@ export function bindMapView() {
     }
 
     updateWeatherFx();
-    showMapMsg('Loading GPS…');
     startGps();
   };
 

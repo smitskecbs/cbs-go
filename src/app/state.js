@@ -19,7 +19,7 @@ function defaultState() {
   return {
     xp: 0,
     completed: {}, // { [nodeId]: timestamp }
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   };
 }
 
@@ -35,11 +35,8 @@ function save(s) {
 
 /* ---------- XP / LEVEL ---------- */
 
-// Simple curve: each level needs more XP.
-// You can tweak later without breaking callers.
 function xpNeededForLevel(level) {
   const L = Math.max(1, Number(level || 1));
-  // Level 1->2: 100, 2->3: 140, 3->4: 180, ...
   return 100 + (L - 1) * 40;
 }
 
@@ -62,7 +59,6 @@ export function getLevel() {
   return lvl;
 }
 
-// ✅ Needed by xpBar.js build
 export function getXpIntoLevel() {
   const xp = getXp();
   let lvl = 1;
@@ -75,7 +71,7 @@ export function getXpIntoLevel() {
     lvl += 1;
     if (lvl > 999) break;
   }
-  return remaining; // xp progress inside current level
+  return remaining;
 }
 
 export function getXpNeededThisLevel() {
@@ -86,40 +82,69 @@ export function addXp(amount) {
   const a = Number(amount || 0);
   if (!Number.isFinite(a) || a <= 0) return load();
 
-  // 🔹 Level vóór de update
   const beforeLevel = getLevel();
 
   const s = load();
   s.xp = Number(s.xp || 0) + a;
   save(s);
 
-  // 🔹 Level ná de update
   const afterLevel = getLevel();
 
-  // XP event (zoals je al had)
   window.dispatchEvent(
     new CustomEvent('cbsgo:xpChanged', {
-      detail: { xp: s.xp, level: afterLevel }
-    })
+      detail: { xp: s.xp, level: afterLevel },
+    }),
   );
 
-  // 🔔 Nieuw: los level-up event als je level gestegen is
   if (afterLevel > beforeLevel) {
     window.dispatchEvent(
       new CustomEvent('cbsgo:levelUp', {
-        detail: {
-          from: beforeLevel,
-          to: afterLevel,
-          xp: s.xp
-        }
-      })
+        detail: { from: beforeLevel, to: afterLevel, xp: s.xp },
+      }),
     );
 
-    // (optioneel, als je ooit nog iets met cbsgo:levelChanged wilt)
     window.dispatchEvent(
       new CustomEvent('cbsgo:levelChanged', {
-        detail: { level: afterLevel, xp: s.xp }
-      })
+        detail: { level: afterLevel, xp: s.xp },
+      }),
+    );
+  }
+
+  return s;
+}
+
+/**
+ * ✅ NIEUW: zet XP hard (voor remote sync na email login)
+ * @param {number} totalXp
+ */
+export function setXp(totalXp) {
+  const x = Number(totalXp || 0);
+  const safeXp = Number.isFinite(x) && x >= 0 ? x : 0;
+
+  const beforeLevel = getLevel();
+
+  const s = load();
+  s.xp = safeXp;
+  save(s);
+
+  const afterLevel = getLevel();
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:xpChanged', {
+      detail: { xp: s.xp, level: afterLevel },
+    }),
+  );
+
+  if (afterLevel > beforeLevel) {
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:levelUp', {
+        detail: { from: beforeLevel, to: afterLevel, xp: s.xp },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:levelChanged', {
+        detail: { level: afterLevel, xp: s.xp },
+      }),
     );
   }
 
@@ -135,7 +160,6 @@ export function isNodeCompleted(nodeId) {
   return !!(s.completed && s.completed[id]);
 }
 
-// ✅ Needed by puzzleModal.js build
 export function completeNode(nodeId) {
   const id = String(nodeId || '');
   if (!id) return;
@@ -145,20 +169,14 @@ export function completeNode(nodeId) {
   s.completed[id] = Date.now();
   save(s);
 
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:nodeCompleted', { detail: { id } })
-  );
+  window.dispatchEvent(new CustomEvent('cbsgo:nodeCompleted', { detail: { id } }));
 }
 
-// Optional helper (handig later)
 export function getCompletedMap() {
   return load().completed || {};
 }
 
-// Used by your dev reset button
 export function hardResetState() {
   localStorage.removeItem(KEY);
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, level: 1 } })
-  );
+  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: 0, level: 1 } }));
 }
