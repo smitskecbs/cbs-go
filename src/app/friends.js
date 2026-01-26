@@ -1,32 +1,34 @@
 // src/app/friends.js
 // Friends via Supabase (AUTH USER ID based) ✅
-// ------------------------------------------------------------
+//
 // Doel:
-// - Friends blijven bestaan als wallet verandert (new wallet).
+// - Friends blijven bestaan als wallet verandert.
 // - Identity = supabase auth user_id (email login).
-// - UI kan nog steeds wallet address tonen + copy (uit players tabel).
+// - UI toont nickname/avatar + een kopieerbare wallet.
+//   Bronnen:
+//   1) players (op user_id)  -> nickname/avatar/solana_pk/wallet_pk
+//   2) player_state (op user_id) -> nickname/wallet_pk (fallback)
+//   3) players (op wallet_pk) -> avatar/nickname (fallback)
 //
 // DB schema verwacht:
 //   TABLE friends_uid (id uuid, a_user uuid, b_user uuid, status text, created_at timestamptz)
-//   TABLE players (wallet_pk text, nickname text, avatar text, user_id uuid, ...)
-// (players.user_id wordt al gezet in onlinePlayers.js)
+//   TABLE players (user_id uuid, wallet_pk text, solana_pk text, nickname text, avatar text, ...)
+//   TABLE player_state (user_id uuid UNIQUE, wallet_pk text, nickname text, ...)
 
 import { supabase } from './supabaseClient.js';
 
 const FRIENDS_TABLE = 'friends_uid';
 const PLAYERS_TABLE = 'players';
+const PLAYER_STATE_TABLE = 'player_state';
 
 function logError(ctx, err) {
   console.warn(`CBS GO friends(uid): ${ctx} failed`, err);
 }
 
 async function ensureSupabaseSessionLoaded() {
-  // Triggert het laden van session uit localStorage (handig op desktop/Edge)
   try {
     await supabase.auth.getSession();
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 function isUuidLike(s) {
@@ -35,14 +37,11 @@ function isUuidLike(s) {
 }
 
 function isWalletLike(s) {
-  // Solana base58 is vaak 32-44 chars. We houden het simpel.
   const v = String(s || '').trim();
   return v.length >= 28 && v.length <= 60;
 }
 
 function normalizeFriendCode(input) {
-  // We gebruiken: CBS-<FULL-UUID>
-  // Voor later kunnen we hier ook andere formats ondersteunen.
   const v = String(input || '').trim();
   if (!v) return '';
   if (v.toUpperCase().startsWith('CBS-')) return v.slice(4).trim();
@@ -62,24 +61,23 @@ async function requireAuthUserId() {
 
 /**
  * Resolve input -> target user_id
- * Input kan zijn:
- * - Friend Code: "CBS-<uuid>" of "<uuid>"
- * - Wallet address: we zoeken user_id via players.wallet_pk
+ * Input:
+ * - Friend Code "CBS-<uuid>" of "<uuid>"
+ * - Wallet address: lookup players.user_id via wallet_pk of solana_pk
  */
 async function resolveTargetUserId(inputRaw) {
   const raw = String(inputRaw || '').trim();
   if (!raw) throw new Error('Enter a Friend Code (CBS-...) or a wallet address.');
 
-  // 1) Friend code / uuid direct
   const maybeUuid = normalizeFriendCode(raw);
   if (isUuidLike(maybeUuid)) return maybeUuid;
 
-  // 2) Wallet -> lookup user_id via players
   if (isWalletLike(raw)) {
+    // Probeer match op wallet_pk of solana_pk
     const { data, error } = await supabase
       .from(PLAYERS_TABLE)
       .select('user_id')
-      .eq('wallet_pk', raw)
+      .or(`wallet_pk.eq.${raw},solana_pk.eq.${raw}`)
       .maybeSingle();
 
     if (error) {
@@ -93,7 +91,6 @@ async function resolveTargetUserId(inputRaw) {
         'That wallet is not linked to an email account yet.\nAsk your friend to login with email first, then share their Friend Code.',
       );
     }
-
     return uid;
   }
 
@@ -101,22 +98,186 @@ async function resolveTargetUserId(inputRaw) {
 }
 
 // ------------------------------------------------------------
-// PUBLIC API (zelfde exports als je appShell verwacht)
+// ENRICH HELPERS
 // ------------------------------------------------------------
 
+function pickFirstNonEmpty(...vals) {
+  for (const v of vals) {
+    if (v === undefined || v === null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function normalizeNick(v) {
+  const s = String(v || '').trim();
+  return s || null;
+}
+
 /**
- * sendFriendRequest(input)
- * input: Friend Code (CBS-<uuid>) OF wallet address
+ * Enrich friend entries with:
+ * - otherWallet
+ * - nickname
+ * - avatar
+ *
+ * Priority:
+ * 1) players by user_id (best: avatar + nickname + solana_pk/wallet_pk)
+ * 2) player_state by user_id (fallback: nickname + wallet_pk)
+ * 3) players by wallet_pk (fallback: avatar + nickname)
  */
+async function enrichFriends(list) {
+  const arr = Array.isArray(list) ? list : [];
+  if (!arr.length) return arr;
+
+  const otherUserIds = Array.from(
+    new Set(arr.map((x) => x.otherUserId).filter(Boolean).map(String)),
+  );
+
+  // --- 1) players by user_id ---
+  let playersByUid = new Map();
+  if (otherUserIds.length) {
+    const { data: players, error: pErr } = await supabase
+      .from(PLAYERS_TABLE)
+      .select('user_id, wallet_pk, solana_pk, nickname, avatar')
+      .in('user_id', otherUserIds);
+
+    if (pErr) {
+      logError('enrich:players_by_user_id', pErr);
+    } else if (Array.isArray(players)) {
+      playersByUid = new Map(
+        players
+          .map((p) => {
+            const uid = p?.user_id ? String(p.user_id) : '';
+            if (!uid) return null;
+
+            const solPk = p.solana_pk ? String(p.solana_pk) : '';
+            const walletPk = p.wallet_pk ? String(p.wallet_pk) : '';
+            const bestWallet = solPk || walletPk;
+
+            return [
+              uid,
+              {
+                wallet: bestWallet,
+                nickname: normalizeNick(p.nickname),
+                avatar: p.avatar ? String(p.avatar) : '',
+              },
+            ];
+          })
+          .filter(Boolean),
+      );
+    }
+  }
+
+  // --- 2) player_state by user_id (fallback) ---
+  let stateByUid = new Map();
+  if (otherUserIds.length) {
+    const { data: states, error: sErr } = await supabase
+      .from(PLAYER_STATE_TABLE)
+      .select('user_id, wallet_pk, nickname, last_seen')
+      .in('user_id', otherUserIds);
+
+    if (sErr) {
+      logError('enrich:player_state_by_user_id', sErr);
+    } else if (Array.isArray(states)) {
+      stateByUid = new Map(
+        states
+          .map((s) => {
+            const uid = s?.user_id ? String(s.user_id) : '';
+            if (!uid) return null;
+
+            return [
+              uid,
+              {
+                wallet: s.wallet_pk ? String(s.wallet_pk) : '',
+                nickname: normalizeNick(s.nickname),
+              },
+            ];
+          })
+          .filter(Boolean),
+      );
+    }
+  }
+
+  // Merge 1+2 into friends, collect wallets we discovered
+  const discoveredWallets = new Set();
+
+  for (const fr of arr) {
+    const uid = String(fr.otherUserId || '');
+    const p = uid ? playersByUid.get(uid) : null;
+    const st = uid ? stateByUid.get(uid) : null;
+
+    const bestWallet = pickFirstNonEmpty(fr.otherWallet, p?.wallet, st?.wallet);
+    const bestNick = normalizeNick(p?.nickname || fr.nickname || st?.nickname || '');
+
+    fr.otherWallet = bestWallet || '';
+    fr.nickname = bestNick;
+    fr.avatar = pickFirstNonEmpty(fr.avatar, p?.avatar, ''); // avatar liefst uit players
+
+    if (fr.otherWallet) discoveredWallets.add(fr.otherWallet);
+  }
+
+  // --- 3) players by wallet_pk (avatar fallback) ---
+  // Alleen doen voor friends die nog geen avatar hebben.
+  const needAvatarWallets = Array.from(
+    new Set(
+      arr
+        .filter((fr) => fr.otherWallet && !String(fr.avatar || '').trim())
+        .map((fr) => String(fr.otherWallet).trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (needAvatarWallets.length) {
+    const { data: profs, error: wErr } = await supabase
+      .from(PLAYERS_TABLE)
+      .select('wallet_pk, solana_pk, nickname, avatar')
+      .or(
+        // we zoeken match op wallet_pk OF solana_pk
+        needAvatarWallets
+          .map((w) => `wallet_pk.eq.${w},solana_pk.eq.${w}`)
+          .join(','),
+      );
+
+    if (wErr) {
+      logError('enrich:players_by_wallet', wErr);
+    } else if (Array.isArray(profs)) {
+      const byWallet = new Map();
+      for (const p of profs) {
+        const w1 = p?.wallet_pk ? String(p.wallet_pk) : '';
+        const w2 = p?.solana_pk ? String(p.solana_pk) : '';
+        const nick = normalizeNick(p?.nickname);
+        const av = p?.avatar ? String(p.avatar) : '';
+        if (w1) byWallet.set(w1, { nick, av });
+        if (w2) byWallet.set(w2, { nick, av });
+      }
+
+      for (const fr of arr) {
+        if (!fr.otherWallet) continue;
+        if (String(fr.avatar || '').trim()) continue;
+
+        const info = byWallet.get(String(fr.otherWallet).trim());
+        if (!info) continue;
+
+        if (!fr.nickname) fr.nickname = info.nick;
+        if (!String(fr.avatar || '').trim()) fr.avatar = info.av || '';
+      }
+    }
+  }
+
+  return arr;
+}
+
+// ------------------------------------------------------------
+// PUBLIC API
+// ------------------------------------------------------------
+
 export async function sendFriendRequest(otherInput) {
   const meUid = await requireAuthUserId();
   const otherUid = await resolveTargetUserId(otherInput);
 
-  if (otherUid === meUid) {
-    throw new Error('You cannot add yourself as a friend.');
-  }
+  if (otherUid === meUid) throw new Error('You cannot add yourself as a friend.');
 
-  // Check bestaande relatie in beide richtingen
   const { data: existing, error: exErr } = await supabase
     .from(FRIENDS_TABLE)
     .select('id,a_user,b_user,status')
@@ -130,13 +291,10 @@ export async function sendFriendRequest(otherInput) {
 
   if (existing && existing.length) {
     const st = existing[0]?.status || '';
-    if (st === 'accepted') {
-      throw new Error('You are already friends.');
-    }
+    if (st === 'accepted') throw new Error('You are already friends.');
     throw new Error('A friend request already exists between you and this user.');
   }
 
-  // Insert (a_user = sender, b_user = receiver)
   const { error } = await supabase.from(FRIENDS_TABLE).insert({
     a_user: meUid,
     b_user: otherUid,
@@ -163,7 +321,6 @@ export async function acceptFriendRequest(friendId) {
   const id = String(friendId || '').trim();
   if (!id) throw new Error('Invalid friend request id.');
 
-  // Alleen receiver (b_user) mag accepteren door policy
   const { data, error } = await supabase
     .from(FRIENDS_TABLE)
     .update({ status: 'accepted' })
@@ -182,7 +339,6 @@ export async function acceptFriendRequest(friendId) {
   }
 
   if (!data) throw new Error('Friend request not found or not meant for this account.');
-
   return { ok: true, friend: data };
 }
 
@@ -190,17 +346,13 @@ export async function acceptFriendRequest(friendId) {
  * loadFriendsOverview()
  * returns:
  *  {
- *    incoming: [{id, otherUserId, nickname, avatar, otherWallet, status, created_at}],
+ *    incoming: [{id, otherUserId, friendCode, nickname, avatar, otherWallet, status, created_at}],
  *    accepted: [{...}]
  *  }
- *
- * NOTE: otherWallet komt uit players.wallet_pk (kan veranderen bij new wallet),
- * maar vriendenrelatie blijft door user_id.
  */
 export async function loadFriendsOverview() {
   await ensureSupabaseSessionLoaded();
 
-  // Als user nog niet ingelogd is: leeg terug
   let meUid = '';
   try {
     meUid = await requireAuthUserId();
@@ -224,8 +376,8 @@ export async function loadFriendsOverview() {
   }
 
   const rows = Array.isArray(data) ? data : [];
-  const incoming = [];
-  const accepted = [];
+  let incoming = [];
+  let accepted = [];
 
   for (const fr of rows) {
     const isIncoming = fr.b_user === meUid && fr.status === 'pending';
@@ -239,66 +391,29 @@ export async function loadFriendsOverview() {
       status: fr.status,
       created_at: fr.created_at,
       otherUserId,
+      friendCode: otherUserId ? `CBS-${otherUserId}` : '',
       nickname: null,
       avatar: '',
-      otherWallet: '', // uit players
+      otherWallet: '', // ✅ wallet address for copy/gifts
     };
 
     if (isIncoming) incoming.push(base);
     if (isAccepted) accepted.push(base);
   }
 
-  // Enrich via players (nickname, avatar, wallet_pk) op user_id
-  const allUserIds = Array.from(new Set([...incoming, ...accepted].map((x) => x.otherUserId).filter(Boolean)));
-
-  if (allUserIds.length) {
-    const { data: players, error: pErr } = await supabase
-      .from(PLAYERS_TABLE)
-      .select('user_id, wallet_pk, nickname, avatar')
-      .in('user_id', allUserIds);
-
-    if (!pErr && Array.isArray(players)) {
-      const byUid = new Map();
-      for (const p of players) {
-        if (!p.user_id) continue;
-        byUid.set(String(p.user_id), {
-          wallet_pk: p.wallet_pk || '',
-          nickname: p.nickname || null,
-          avatar: p.avatar || '',
-        });
-      }
-
-      const enrich = (arr) => {
-        arr.forEach((fr) => {
-          const info = byUid.get(fr.otherUserId);
-          if (!info) return;
-          fr.nickname = info.nickname || null;
-          fr.avatar = info.avatar || '';
-          fr.otherWallet = info.wallet_pk || '';
-        });
-      };
-
-      enrich(incoming);
-      enrich(accepted);
-    } else if (pErr) {
-      logError('loadFriendsOverview:players', pErr);
-      // Fallback: geen nickname/wallet, UI kan nog steeds friend code tonen
-    }
-  }
+  // ✅ ENRICH (players + player_state + wallet lookup)
+  incoming = await enrichFriends(incoming);
+  accepted = await enrichFriends(accepted);
 
   return { incoming, accepted };
 }
-
-// ------------------------------------------------------------
-// Extra helpers (handig voor UI later)
-// ------------------------------------------------------------
 
 export async function getMyFriendCode() {
   const uid = await requireAuthUserId();
   return `CBS-${uid}`;
 }
 
-// Debug helpers in console
+// Debug helpers
 if (typeof window !== 'undefined') {
   window.cbsgoGetFriendCode = async () => {
     try {

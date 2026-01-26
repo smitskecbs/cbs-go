@@ -1,6 +1,6 @@
-// ==========================
-// src/ui/appShell.js (DEEL 1/3)
-// ==========================
+
+// src/ui/appShell.js 
+
 // Fullscreen map shell met overlays.
 //
 // Layout afspraken :
@@ -20,7 +20,6 @@ import { openPuzzleModal } from './puzzleModal.js';
 
 import { renderXpBar } from './xpBar.js';
 // import { renderStepsWidget, bindStepsWidget } from './stepsWidget.js'; // UI uit
-
 
 import { tryAutoStart } from '../app/steps.js';
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
@@ -60,7 +59,6 @@ import {
   acceptFriendRequest,
   getMyFriendCode,
 } from '../app/friends.js';
-
 
 // ✅ scherm wakker houden tijdens spelen
 import { enableWakeLock, bindWakeLockVisibilityHandler } from '../app/wakeLock.js';
@@ -266,9 +264,7 @@ function syncInventoryCardsFromBag() {
   inv.cards = { ...(counts || {}) };
   saveInventory(inv);
 }
-// ==========================
-// src/ui/appShell.js (DEEL 2/3)
-// ==========================
+
 
 // zelfde IDs als in cardsPanel.js, met korte labels voor dropdown
 const BAG_CARD_DEFS = [
@@ -432,7 +428,7 @@ function renderProfile() {
         </div>
       </div>
 
-        <!-- Friends blok -->
+      <!-- Friends blok -->
       <div style="
         margin-top:18px;
         padding-top:12px;
@@ -540,7 +536,6 @@ function renderProfile() {
           <div id="friendsAcceptedList" style="font-size:11px; opacity:.9;"></div>
         </div>
       </div>
-
     </section>
   `;
 }
@@ -628,6 +623,7 @@ function bindProfileEvents() {
       }
     };
   }
+
   // ---------- Friends UI binding ----------
   const friendInput = document.querySelector('#friendWalletInput');
   const friendSendBtn = document.querySelector('#friendSendBtn');
@@ -701,12 +697,44 @@ function bindProfileEvents() {
     return `${s.slice(0, 5)}…${s.slice(-4)}`;
   };
 
-  const renderFriendRow = (fr, rightHtml = '') => {
-    const nick =
-      fr.nickname && fr.nickname.trim() ? fr.nickname.trim() : shortWallet(fr.otherWallet);
+  const friendCodeFromUid = (uid) => (uid ? `CBS-${uid}` : '');
 
-    const walletShort = shortWallet(fr.otherWallet);
-    const avatarHtml = avatarCircle(fr.avatar || '', 32);
+  const pick = (obj, keys, fallback = '') => {
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return fallback;
+  };
+
+  const renderFriendRow = (fr, rightHtml = '') => {
+    const otherWallet = String(
+      pick(fr, ['otherWallet', 'other_wallet', 'wallet_pk', 'wallet', 'friend_wallet'], '')
+    ).trim();
+
+    const nicknameRaw = String(
+      pick(fr, ['nickname', 'otherNickname', 'other_nickname', 'name', 'display_name'], '')
+    ).trim();
+
+    const avatarRaw = String(
+      pick(fr, ['avatar', 'otherAvatar', 'other_avatar', 'pf', 'photo'], '')
+    );
+
+    // ✅ fallback: show friend code if wallet missing
+    const uid = String(pick(fr, ['otherUserId', 'other_user_id', 'uid', 'user_id'], '')).trim();
+    const fallbackCode = friendCodeFromUid(uid);
+
+    const nick = nicknameRaw
+      ? nicknameRaw
+      : otherWallet
+        ? shortWallet(otherWallet)
+        : fallbackCode
+          ? 'Friend (email)'
+          : 'Friend';
+
+    const walletLine = otherWallet ? shortWallet(otherWallet) : (fallbackCode ? fallbackCode : '');
+
+    const avatarHtml = avatarCircle(avatarRaw || '', 32);
 
     return `
       <div style="
@@ -732,7 +760,7 @@ function bindProfileEvents() {
             ">
               ${esc(nick || 'Friend')}
             </div>
-            ${walletShort ? `<div style="font-size:11px;opacity:.7;">${esc(walletShort)}</div>` : ''}
+            ${walletLine ? `<div style="font-size:11px;opacity:.7;">${esc(walletLine)}</div>` : ''}
           </div>
         </div>
         <div style="flex-shrink:0;">
@@ -756,12 +784,15 @@ function bindProfileEvents() {
       } else {
         incomingListEl.innerHTML = data.incoming
           .map((fr) => {
+            const uid = fr.otherUserId || '';
+            const code = uid ? `CBS-${uid}` : '';
             const btnHtml = `
               <div style="display:flex;gap:6px;align-items:center;">
                 <button
                   type="button"
                   class="friendCopyBtn"
-                  data-wallet="${fr.otherWallet}"
+                  data-wallet="${esc(fr.otherWallet || '')}"
+                  data-code="${esc(code)}"
                   style="
                     padding:3px 7px;
                     border-radius:999px;
@@ -771,13 +802,11 @@ function bindProfileEvents() {
                     font-size:10px;
                     cursor:pointer;
                   "
-                >
-                  Copy
-                </button>
+                >Copy</button>
                 <button
                   type="button"
                   class="friendAcceptBtn"
-                  data-friend-id="${fr.id}"
+                  data-friend-id="${esc(fr.id)}"
                   style="
                     padding:4px 8px;
                     border-radius:999px;
@@ -787,9 +816,7 @@ function bindProfileEvents() {
                     font-size:11px;
                     cursor:pointer;
                   "
-                >
-                  Accept
-                </button>
+                >Accept</button>
               </div>
             `;
             return renderFriendRow(fr, btnHtml);
@@ -803,6 +830,8 @@ function bindProfileEvents() {
       } else {
         acceptedListEl.innerHTML = data.accepted
           .map((fr) => {
+            const uid = fr.otherUserId || '';
+            const code = uid ? `CBS-${uid}` : '';
             const btnHtml = `
               <div style="display:flex;gap:6px;align-items:center;">
                 <span style="
@@ -812,13 +841,12 @@ function bindProfileEvents() {
                   border:1px solid rgba(148,163,184,0.8);
                   font-size:10px;
                   opacity:.85;
-                ">
-                  ✔ Friend
-                </span>
+                ">✔ Friend</span>
                 <button
                   type="button"
                   class="friendCopyBtn"
-                  data-wallet="${fr.otherWallet}"
+                  data-wallet="${esc(fr.otherWallet || '')}"
+                  data-code="${esc(code)}"
                   style="
                     padding:3px 7px;
                     border-radius:999px;
@@ -828,9 +856,7 @@ function bindProfileEvents() {
                     font-size:10px;
                     cursor:pointer;
                   "
-                >
-                  Copy
-                </button>
+                >Copy</button>
               </div>
             `;
             return renderFriendRow(fr, btnHtml);
@@ -858,21 +884,24 @@ function bindProfileEvents() {
         });
       });
 
-      // Copy-knoppen
+      // Copy-knoppen (wallet als die er is, anders Friend Code)
       document.querySelectorAll('.friendCopyBtn').forEach((btn) => {
         btn.addEventListener('click', async () => {
-          const w = btn.getAttribute('data-wallet') || '';
-          if (!w) return;
+          const w = (btn.getAttribute('data-wallet') || '').trim();
+          const code = (btn.getAttribute('data-code') || '').trim();
+          const value = w || code;
+          if (!value) return;
+
           try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(w);
-              setFriendsMsg('✅ Friend wallet copied.');
+              await navigator.clipboard.writeText(value);
+              setFriendsMsg(w ? '✅ Friend wallet copied.' : '✅ Friend Code copied.');
             } else {
               setFriendsMsg('📋 Copy not supported in this browser.');
             }
           } catch (err) {
-            console.warn('CBS GO: copy friend wallet failed', err);
-            setFriendsMsg('⛔ Could not copy wallet address.');
+            console.warn('CBS GO: copy friend failed', err);
+            setFriendsMsg('⛔ Could not copy.');
           }
         });
       });
@@ -887,7 +916,7 @@ function bindProfileEvents() {
     friendSendBtn.addEventListener('click', async () => {
       const value = friendInput.value.trim();
       if (!value) {
-        setFriendsMsg('Enter a wallet address first.');
+        setFriendsMsg('Enter a Friend Code or wallet first.');
         return;
       }
       setFriendsMsg('Sending friend request…');
@@ -907,12 +936,7 @@ function bindProfileEvents() {
   }
 
   refreshFriends().catch(() => {});
-
-  
 }
-// ==========================
-// src/ui/appShell.js (DEEL 3/3)
-// ==========================
 
 // ---------- Bag ----------
 function renderBag() {
@@ -1007,7 +1031,7 @@ function renderBag() {
         </div>
       </div>
 
-      ${
+       ${
         solPk
           ? `
             <div style="
@@ -1073,15 +1097,14 @@ function renderBag() {
             </div>
           `
       }
-
-      <!-- My Cards blok in de Bag -->
-      <div style="
+        <div style="
         margin-top:16px;
         padding:10px 12px;
         border-radius:14px;
         border:1px solid rgba(148,163,184,.7);
         background:rgba(15,23,42,.9);
       ">
+
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <div>
             <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
@@ -1403,6 +1426,7 @@ function bindBagEvents() {
   pullIncomingGifts().catch(() => {});
 }
 
+
 // ---------- Solana Wallet pagina met Token Overview (UI v1) ----------
 function renderWalletPanel() {
   const localSolPk = getLocalPublicKeySafe();
@@ -1492,7 +1516,7 @@ function renderWalletPanel() {
         </div>
       </div>
 
-      <!-- Address card -->
+      <!-- Receive card -->
       <div style="${cardStyle}; border-color: rgba(56,189,248,.45);">
         ${titleRow('📥', 'Receive', 'Use this address to receive SOL or SPL tokens (CBS/BONK/USDC).')}
         <div style="
@@ -1507,7 +1531,7 @@ function renderWalletPanel() {
           font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         ">${esc(localSolPk)}</div>
 
-        <div id="walletSendMsg" style="margin-top:8px;font-size:11px;opacity:.82;">
+        <div id="walletReceiveMsg" style="margin-top:8px;font-size:11px;opacity:.82;">
           Tip: you can paste this into Phantom / Solflare when you want to view the wallet there later.
         </div>
       </div>
@@ -1606,6 +1630,7 @@ function renderWalletPanel() {
             ">Send</button>
           </div>
 
+          <!-- ✅ FIX: eigen message element voor SEND (niet dezelfde id als receive) -->
           <div id="walletSendMsg" style="font-size:11px;opacity:.82;">
             Select SOL or an SPL token to send on-chain. For "Other SPL (mint)" fill in mint + decimals.
           </div>
@@ -1714,7 +1739,6 @@ function renderWalletPanel() {
     </section>
   `;
 }
-
 
 function bindWalletEvents() {
   const copyAddressBtn = document.querySelector('#walletCopyAddressBtn');
@@ -2109,50 +2133,49 @@ export function renderAppShell() {
         </div>
       </header>
 
-     <!-- Floating knoppen rechtsonder: Profile + Bag + Wallet -->
-<div id="fabNav" style="
-  position:absolute;
-  right:16px;
-  bottom:80px;
-  z-index:5000;
-  display:flex;
-  flex-direction:row;
-  gap:10px;
-">
-  <button type="button" data-panel="profile" style="
-    width:52px;height:52px;
-    border-radius:999px;
-    border:1px solid rgba(255,255,255,.18);
-    background:rgba(10,12,18,.85);
-    backdrop-filter: blur(10px);
-    display:flex;align-items:center;justify-content:center;
-    font-size:22px;
-    color:#fff;
-  ">👤</button>
+      <!-- Floating knoppen rechtsonder: Profile + Bag + Wallet -->
+      <div id="fabNav" style="
+        position:absolute;
+        right:16px;
+        bottom:80px;
+        z-index:5000;
+        display:flex;
+        flex-direction:row;
+        gap:10px;
+      ">
+        <button type="button" data-panel="profile" style="
+          width:52px;height:52px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(10,12,18,.85);
+          backdrop-filter: blur(10px);
+          display:flex;align-items:center;justify-content:center;
+          font-size:22px;
+          color:#fff;
+        ">👤</button>
 
-  <button type="button" data-panel="bag" style="
-    width:52px;height:52px;
-    border-radius:999px;
-    border:1px solid rgba(255,255,255,.18);
-    background:rgba(10,12,18,.85);
-    backdrop-filter: blur(10px);
-    display:flex;align-items:center;justify-content:center;
-    font-size:22px;
-    color:#fff;
-  ">🎒</button>
+        <button type="button" data-panel="bag" style="
+          width:52px;height:52px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(10,12,18,.85);
+          backdrop-filter: blur(10px);
+          display:flex;align-items:center;justify-content:center;
+          font-size:22px;
+          color:#fff;
+        ">🎒</button>
 
-  <button type="button" data-panel="wallet" style="
-    width:52px;height:52px;
-    border-radius:999px;
-    border:1px solid rgba(56,189,248,.55);
-    background:rgba(10,12,18,.85);
-    backdrop-filter: blur(10px);
-    display:flex;align-items:center;justify-content:center;
-    font-size:22px;
-    color:#e0f2fe;
-  ">👛</button>
-</div>
-
+        <button type="button" data-panel="wallet" style="
+          width:52px;height:52px;
+          border-radius:999px;
+          border:1px solid rgba(56,189,248,.55);
+          background:rgba(10,12,18,.85);
+          backdrop-filter: blur(10px);
+          display:flex;align-items:center;justify-content:center;
+          font-size:22px;
+          color:#e0f2fe;
+        ">👛</button>
+      </div>
 
       <!-- Panel-root -->
       <div id="panelRoot">
@@ -2387,7 +2410,7 @@ function bootstrapApp() {
   bindMapView();
 
   tryAutoStart();
- 
+
   if (!window.__cbsgo_xp_rerender_listener) {
     window.__cbsgo_xp_rerender_listener = true;
     const rerenderXp = () => {
@@ -2539,4 +2562,3 @@ export function mountApp() {
 
   window.addEventListener('cbsgo:loginDone', onLoginDone);
 }
-

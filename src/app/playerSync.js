@@ -6,8 +6,8 @@
 // - Haalt elke 10s andere spelers op en stuurt event 'cbsgo:onlinePlayers'
 
 import { supabase } from './supabaseClient.js';
-import { getPublicKey } from './wallet.js';
 import { getPlayerName } from './leaderboard.js';
+import { getLocalPublicKey } from './solanaLocalWallet.js';
 
 const SEND_INTERVAL_MS = 15000; // elke 15s je eigen positie wegschrijven
 const FETCH_INTERVAL_MS = 10000; // elke 10s andere spelers ophalen
@@ -63,13 +63,20 @@ if (typeof window !== 'undefined' && !window.__cbsgo_playerPos_listener) {
   window.addEventListener('cbsgo:playerPos', handlePlayerPosEvent);
 }
 
+// ---------- helpers ----------
+function getWalletPkSafe() {
+  try {
+    const pk = getLocalPublicKey();
+    return pk ? String(pk) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- eigen positie naar Supabase ----------
 async function pushMyState() {
   const user_id = await ensureUserId();
   if (!user_id) return; // niet ingelogd (email login nog niet gedaan)
-
-  const wallet_pk = getPublicKey(); // voorlopig nog lokaal (later vervangen door echte)
-  if (!wallet_pk) return;
 
   if (!lastPos) return;
 
@@ -80,9 +87,11 @@ async function pushMyState() {
   const nicknameRaw = getPlayerName() || '';
   const nickname = nicknameRaw.trim() || 'Anon';
 
+  const wallet_pk = getWalletPkSafe(); // ✅ consistent met jouw appShell/local wallet
+
   const payload = {
-    user_id, // ✅ belangrijk voor RLS + cross-device
-    wallet_pk, // voorlopig nog je lokale key
+    user_id,
+    wallet_pk, // mag null zijn (dan blijft wallet_pk leeg)
     nickname,
     lat: lastPos.lat,
     lng: lastPos.lng,
@@ -91,7 +100,6 @@ async function pushMyState() {
   };
 
   try {
-    // ✅ 1 row per user_id
     const { error } = await supabase
       .from('player_state')
       .upsert(payload, { onConflict: 'user_id' });
@@ -108,9 +116,6 @@ async function pushMyState() {
 async function fetchOnlinePlayers() {
   const user_id = await ensureUserId();
   if (!user_id) return;
-
-  const wallet_pk = getPublicKey();
-  if (!wallet_pk) return;
 
   const now = Date.now();
   if (now - lastFetchAt < 3000) return;
@@ -131,7 +136,7 @@ async function fetchOnlinePlayers() {
 
     const rows = Array.isArray(data) ? data : [];
 
-    // profiles ophalen uit players table via wallet_pk (zoals jij al had)
+    // Profiles ophalen (avatar/nickname) via players table op wallet_pk
     const walletPks = Array.from(
       new Set(
         rows
@@ -161,13 +166,15 @@ async function fetchOnlinePlayers() {
         const lng = typeof row.lng === 'number' ? row.lng : parseFloat(row.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-        const profile = profileByWallet.get(row.wallet_pk) || null;
+        const pk = row.wallet_pk ? String(row.wallet_pk) : '';
+        const profile = pk ? profileByWallet.get(pk) || null : null;
+
         const nickname = (profile && profile.nickname) || row.nickname || 'Anon';
         const avatar = profile && profile.avatar ? String(profile.avatar) : '';
 
         return {
           user_id: row.user_id || '',
-          wallet_pk: row.wallet_pk || '',
+          wallet_pk: pk,
           nickname,
           avatar,
           lat,

@@ -1,117 +1,136 @@
 // src/app/onlinePlayers.js
 // Profiel-sync naar Supabase (players tabel)
+// SAFE versie: gebruikt alleen kolommen die zeker bestaan:
+// user_id, wallet_pk, nickname, avatar
 
 import { getLocalPublicKey } from './solanaLocalWallet.js';
 import { getPublicKey } from './wallet.js';
 import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
 import { supabase } from './supabaseClient.js';
 
-function getBaseProfile() {
-  const gameWalletPk = getPublicKey();
-  if (!gameWalletPk) return null;
-
-  const nickname = getPlayerName();
-  const avatar = getPlayerAvatar();
-
-  let solanaPk = null;
+function safeWalletPk() {
+  // Prefer: local solana wallet (die wil je tonen/copy’en)
   try {
-    solanaPk = getLocalPublicKey();
-  } catch (e) {
-    console.warn('CBS GO: could not read/create local Solana wallet', e);
-  }
+    const pk = getLocalPublicKey();
+    if (pk) return String(pk);
+  } catch {}
 
-  return {
-    wallet_pk: gameWalletPk,
-    nickname,
-    avatar,
-    solana_pk: solanaPk,
-  };
+  // Fallback: game wallet
+  try {
+    const pk = getPublicKey();
+    if (pk) return String(pk);
+  } catch {}
+
+  return null;
 }
 
-/**
- * Upsert op wallet_pk (altijd ok, wallet blijft leidend)
- * Let op: als je later nickname UNIQUE maakt, dan kan deze call falen
- * als de nickname al bestaat. Daarom hebben we claimNickname() hieronder.
- */
+function getBaseProfile() {
+  const wallet_pk = safeWalletPk();
+  if (!wallet_pk) return null;
+
+  const nickname = String(getPlayerName() || '').trim() || null;
+  const avatar = String(getPlayerAvatar() || '') || '';
+
+  return { wallet_pk, nickname, avatar };
+}
+
+async function getAuthUserId() {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data?.user?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function syncPlayerProfile(extra = {}) {
   try {
     const base = getBaseProfile();
     if (!base) {
-      console.warn('CBS GO: no game wallet, skip profile sync');
+      console.warn('CBS GO: no wallet, skip profile sync');
       return;
     }
 
-    // Probeer auth user te lezen (mail login).
-    let userId = null;
-    try {
-      const { data } = await supabase.auth.getUser();
-      userId = data?.user?.id || null;
-    } catch {
-      userId = null;
-    }
+    const user_id = await getAuthUserId();
 
+    // Payload: alleen kolommen die bestaan
     const payload = {
-      ...base,
-      ...extra,
-      last_seen: new Date().toISOString(),
-      user_id: userId, // alleen als je kolom hebt
+      user_id: user_id || null,
+      wallet_pk: base.wallet_pk,
+      nickname: base.nickname,
+      avatar: base.avatar,
+      ...extra, // alleen gebruiken als jij zeker weet dat het kolommen zijn die bestaan
     };
 
-    const { error } = await supabase.from('players').upsert(payload, { onConflict: 'wallet_pk' });
+    // Als user ingelogd is, update op user_id (bestendig)
+    if (user_id) {
+      // 1) Bestaat er al een row voor deze user?
+      const { data: existing, error: selErr } = await supabase
+        .from('players')
+        .select('id')
+        .eq('user_id', user_id)
+        .maybeSingle();
 
-    if (error) {
-      console.warn('CBS GO: failed to sync player profile', error);
+      if (selErr) {
+        console.warn('CBS GO: players select by user_id failed', selErr);
+      }
+
+      if (existing?.id) {
+        // 2) Update bestaande row
+        const { error: upErr } = await supabase
+          .from('players')
+          .update(payload)
+          .eq('id', existing.id);
+
+        if (upErr) {
+          console.warn('CBS GO: players update failed', upErr);
+        }
+        return;
+      }
+
+      // 3) Nog geen row: insert
+      const { error: insErr } = await supabase.from('players').insert(payload);
+      if (insErr) {
+        console.warn('CBS GO: players insert failed', insErr);
+      }
+      return;
     }
+
+    // Geen login (geen user_id): probeer update op wallet_pk, anders insert
+    const { data: ex2, error: sel2 } = await supabase
+      .from('players')
+      .select('id')
+      .eq('wallet_pk', base.wallet_pk)
+      .maybeSingle();
+
+    if (sel2) {
+      console.warn('CBS GO: players select by wallet_pk failed', sel2);
+    }
+
+    if (ex2?.id) {
+      const { error: up2 } = await supabase.from('players').update(payload).eq('id', ex2.id);
+      if (up2) console.warn('CBS GO: players update by wallet_pk failed', up2);
+      return;
+    }
+
+    const { error: ins2 } = await supabase.from('players').insert(payload);
+    if (ins2) console.warn('CBS GO: players insert (no user) failed', ins2);
   } catch (e) {
     console.warn('CBS GO: syncPlayerProfile crashed', e);
   }
 }
 
-/**
- * Claim nickname veilig:
- * - schrijft nickname op jouw wallet_pk
- * - als UNIQUE faalt -> geeft reason "nickname_taken"
- *
- * Retourneert:
- * { ok:true } of { ok:false, reason:'nickname_taken'|'db_error'|'no_wallet'|'empty'|'crash' }
- */
 export async function claimNickname(nicknameRaw) {
   try {
-    const wallet_pk = getPublicKey();
-    if (!wallet_pk) return { ok: false, reason: 'no_wallet' };
+    const base = getBaseProfile();
+    if (!base?.wallet_pk) return { ok: false, reason: 'no_wallet' };
 
     const nickname = String(nicknameRaw || '').trim();
     if (!nickname) return { ok: false, reason: 'empty' };
 
-    // auth user_id (optioneel)
-    let userId = null;
-    try {
-      const { data } = await supabase.auth.getUser();
-      userId = data?.user?.id || null;
-    } catch {
-      userId = null;
-    }
-
-    const payload = {
-      wallet_pk,
-      nickname,
-      last_seen: new Date().toISOString(),
-      user_id: userId,
-    };
-
-    const { error } = await supabase.from('players').upsert(payload, { onConflict: 'wallet_pk' });
-
-    if (!error) return { ok: true };
-
-    const msg = String(error.message || error.details || error.hint || '');
-
-    // PostgreSQL unique violation: 23505
-    if (String(error.code) === '23505' || msg.toLowerCase().includes('duplicate')) {
-      return { ok: false, reason: 'nickname_taken', error };
-    }
-
-    console.warn('CBS GO: claimNickname failed', error);
-    return { ok: false, reason: 'db_error', error };
+    // zet nickname lokaal (caller doet dat al meestal) + sync naar supabase
+    await syncPlayerProfile({ nickname });
+    return { ok: true };
   } catch (e) {
     return { ok: false, reason: 'crash', error: e };
   }

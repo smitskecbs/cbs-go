@@ -49,3 +49,7 @@ if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('cbsgo:supabaseReady'));
   });
 }
+// Debug: allow console testing on production pages
+if (typeof window !== 'undefined') {
+  window.cbsgoSupabase = supabase;
+}
