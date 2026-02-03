@@ -1593,7 +1593,7 @@ Ask your friend to login with email first, then share their Friend Code.`);retur
       ">
         <div>
           <div style="font-size:16px;font-weight:900;letter-spacing:.2px;">
-            👛 Wallet
+            💰 Wallet
           </div>
           <div style="font-size:11px;opacity:.78;max-width:520px;line-height:1.35;">
             Your CBS-GO wallet is stored locally, and backed up encrypted via your Email + PIN (vault).
