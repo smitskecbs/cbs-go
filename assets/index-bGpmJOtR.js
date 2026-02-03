@@ -1942,7 +1942,7 @@ Show private key?`))try{const U=Fr();v.textContent=U,b.style.display="block",g.s
           display:flex;align-items:center;justify-content:center;
           font-size:22px;
           color:#e0f2fe;
-        ">👛</button>
+        ">💰</button>
       </div>
 
       <!-- Panel-root -->
