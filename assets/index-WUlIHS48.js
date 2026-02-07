@@ -396,7 +396,7 @@ DBT
             animation-duration:${b}s;
           "
         ></div>
-      `)}r=o.join("")}else r="";e.innerHTML=r}async function Dd(e,t){const n=Date.now();if(lo){const r=ur({lat:lo[0],lng:lo[1]},{lat:e,lng:t});Number.isFinite(r)&&r>1500&&(Ir.lastUpdated=0)}if(!(Ir.lastUpdated&&n-Ir.lastUpdated<300*1e3))try{try{yo?.abort?.()}catch{}yo=new AbortController;const r=`https://api.openweathermap.org/data/2.5/weather?lat=${e}&lon=${t}&appid=${Cd}&units=metric`,i=await fetch(r,{signal:yo.signal});if(!i.ok)throw new Error("HTTP "+i.status);const o=await i.json(),s=o?.main?.temp,c=o?.weather?.[0]?.icon||"01d",f=String(o?.weather?.[0]?.main||"").toLowerCase();let g=c.endsWith("n"),b="⛅",v="clear";c.startsWith("03")||c.startsWith("04")?(b="☁️",v="clouds"):c.startsWith("09")||c.startsWith("10")?(b="🌧️",v="rain"):c.startsWith("11")?(b="⛈️",v="storm"):c.startsWith("13")?(b="❄️",v="snow"):c.startsWith("50")&&(b="🌫️",v="mist"),f.includes("rain")&&(v="rain"),f.includes("snow")&&(v="snow"),f.includes("thunder")&&(v="storm");try{const C=Number(o?.dt||0),S=Number(o?.timezone||0);if(C&&Number.isFinite(S)){const k=((C+S)/3600%24+24)%24;g=k<7||k>=19}}catch{}v==="clear"?b=g?"🌙":"☀️":v==="clouds"?b="☁️":v==="rain"?b="🌧️":v==="storm"?b="⛈️":v==="snow"?b="❄️":v==="mist"&&(b="🌫️"),Ir={temp:s,iconEmoji:b,condition:v,isNight:g,lastUpdated:n},lo=[e,t],fa(),Bl()}catch(r){if(r?.name==="AbortError")return;console.warn("Weather fetch failed",r)}}function Wd(e,t){const r=Math.round(e/.002)*.002,i=Math.round(t/.002)*.002;return`${r.toFixed(3)}_${i.toFixed(3)}`}async function Kd(e,t){const n=Date.now(),r=Wd(e,t);if(!(r===Os&&Ar.place)&&!(Ar.lastUpdated&&n-Ar.lastUpdated<30*1e3))try{try{go?.abort?.()}catch{}go=new AbortController;const i=`https://nominatim.openstreetmap.org/reverse?lat=${e}&lon=${t}&format=json&addressdetails=1&zoom=14`,o=await fetch(i,{signal:go.signal,headers:{Accept:"application/json"}});if(!o.ok)throw new Error("Reverse geocode HTTP "+o.status);const c=(await o.json())?.address||{},f=c.city||c.town||c.village||c.municipality||c.county||null;Ar={place:f?String(f):null,lastUpdated:n},Os=r,fa()}catch(i){if(i?.name==="AbortError")return;console.warn("Place lookup failed",i),Ar.lastUpdated=n}}function Ga(){const e=rr("cbsgoShareLocBtn");e&&(e.textContent=nr?"📍":"🙈",e.title=nr?"Share location: ON":"Share location: OFF")}function mo(){const e=rr("cbsgoRecenterBtn");e&&(e.textContent="🎯",e.title=Zn?"Following you (tap to recenter)":"Tap to recenter & follow")}function jd(e){const t=Zr();if(t){const i=`
+      `)}r=o.join("")}else r="";e.innerHTML=r}async function Dd(e,t){const n=Date.now();if(lo){const r=ur({lat:lo[0],lng:lo[1]},{lat:e,lng:t});Number.isFinite(r)&&r>1500&&(Ir.lastUpdated=0)}if(!(Ir.lastUpdated&&n-Ir.lastUpdated<300*1e3))try{try{yo?.abort?.()}catch{}yo=new AbortController;const r=`https://api.openweathermap.org/data/2.5/weather?lat=${e}&lon=${t}&appid=${Cd}&units=metric`,i=await fetch(r,{signal:yo.signal});if(!i.ok)throw new Error("HTTP "+i.status);const o=await i.json(),s=o?.main?.temp,c=o?.weather?.[0]?.icon||"01d",f=String(o?.weather?.[0]?.main||"").toLowerCase();let g=c.endsWith("n"),b="⛅",v="clear";c.startsWith("03")||c.startsWith("04")?(b="☁️",v="clouds"):c.startsWith("09")||c.startsWith("10")?(b="🌧️",v="rain"):c.startsWith("11")?(b="⛈️",v="storm"):c.startsWith("13")?(b="❄️",v="snow"):c.startsWith("50")&&(b="🌫️",v="mist"),f.includes("rain")&&(v="rain"),f.includes("snow")&&(v="snow"),f.includes("thunder")&&(v="storm");try{const C=Number(o?.dt||0),S=Number(o?.timezone||0);if(C&&Number.isFinite(S)){const k=((C+S)/3600%24+24)%24;g=k<7||k>=19}}catch{}v==="clear"?b=g?"🌙":"☀️":v==="clouds"?b="☁️":v==="rain"?b="🌧️":v==="storm"?b="⛈️":v==="snow"?b="❄️":v==="mist"&&(b="🌫️"),Ir={temp:s,iconEmoji:b,condition:v,isNight:g,lastUpdated:n},lo=[e,t],fa(),Bl()}catch(r){if(r?.name==="AbortError")return;console.warn("Weather fetch failed",r)}}function Wd(e,t){const r=Math.round(e/.002)*.002,i=Math.round(t/.002)*.002;return`${r.toFixed(3)}_${i.toFixed(3)}`}async function Kd(e,t){const n=Date.now(),r=Wd(e,t);if(!(r===Os&&Ar.place)&&!(Ar.lastUpdated&&n-Ar.lastUpdated<30*1e3))try{try{go?.abort?.()}catch{}go=new AbortController;const i=`https://nominatim.openstreetmap.org/reverse?lat=${e}&lon=${t}&format=json&addressdetails=1&zoom=14`,o=await fetch(i,{signal:go.signal,headers:{Accept:"application/json"}});if(!o.ok)throw new Error("Reverse geocode HTTP "+o.status);const c=(await o.json())?.address||{},f=c.city||c.town||c.village||c.municipality||c.county||null;Ar={place:f?String(f):null,lastUpdated:n},Os=r,fa()}catch(i){if(i?.name==="AbortError")return;console.warn("Place lookup failed",i),Ar.lastUpdated=n}}function Ga(){const e=rr("cbsgoShareLocBtn");e&&(e.textContent=nr?"📍":"🙈",e.title=nr?"Share location: ON":"Share location: OFF")}function mo(){const e=rr("cbsgoRecenterBtn");e&&(e.textContent=Zn?"🎯":"🧊",e.title=Zn?"Following you":"Manual map (tap to follow)")}function jd(e){const t=Zr();if(t){const i=`
       <div style="
         width:42px;height:42px;border-radius:999px;
         border:2px solid rgba(255,255,255,.95);
@@ -537,7 +537,6 @@ Needed: ≤ ${So}m`);return}po.removeLayer(i),ni=null,Ns({id:`puzzle-${Date.now(
         flex-direction:column;
         gap:10px;
       ">
-        <!-- 🧭 WorldView toggle -->
         <button id="cbsgoCompassBtn" type="button" style="
           width:52px;height:52px;
           border-radius:999px;
@@ -551,7 +550,6 @@ Needed: ≤ ${So}m`);return}po.removeLayer(i),ni=null,Ns({id:`puzzle-${Date.now(
           justify-content:center;
         ">🧭</button>
 
-        <!-- 🎯 Recenter / Follow -->
         <button id="cbsgoRecenterBtn" type="button" style="
           width:52px;height:52px;
           border-radius:999px;
@@ -565,7 +563,6 @@ Needed: ≤ ${So}m`);return}po.removeLayer(i),ni=null,Ns({id:`puzzle-${Date.now(
           justify-content:center;
         ">🎯</button>
 
-        <!-- 🙈 Share location toggle -->
         <button id="cbsgoShareLocBtn" type="button" style="
           width:52px;height:52px;
           border-radius:999px;
