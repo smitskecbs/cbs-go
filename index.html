@@ -9,7 +9,7 @@
     <title>CBS GO</title>
 
     <!-- PWA manifest + theme -->
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#000000" />
 
     <style>
@@ -29,11 +29,13 @@
         height: 100vh;
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-DDO3QNXC.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Bnq6sgQm.css">
+    <script type="module" crossorigin src="/cbs-go/assets/index-BI7ULAH9.js"></script>
+    <link rel="modulepreload" crossorigin href="/cbs-go/assets/maplibre-CYe-x7Nh.js">
+    <link rel="stylesheet" crossorigin href="/cbs-go/assets/index-Bnq6sgQm.css">
   </head>
 
   <body>
-    <div id="app"></div>
+    <div id="app"></div>
+    <!-- Vite dev gebruikt /src/main.js, maar op GitHub Pages moet dit RELATIEF zijn -->
   </body>
 </html>
