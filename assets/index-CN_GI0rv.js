@@ -349,10 +349,11 @@ DBT
     
 
     /* ✅ Marker root must never be transformed */
-    .cbsgo-marker-root{
-      position: relative;
-      transform: none !important;
-    }
+   .cbsgo-marker-root{
+  position: relative;
+  /* GEEN transform override! MapLibre gebruikt transform om markers te plaatsen */
+}
+
 
     #cbsgoMapHost::after{
       content:"";
