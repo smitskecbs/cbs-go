@@ -347,12 +347,12 @@ DBT
     #cbsgoMap { position:absolute; inset:0; }
 
     /* ✅ HARD FIX: prevents markers sticking at top-left/compass */
-    .maplibregl-marker{
-      position:absolute !important;
-      top:0 !important;
-      left:0 !important;
-      will-change:transform;
-    }
+   .maplibregl-marker{
+  position:absolute;
+  will-change:transform;
+}
+
+    
 
     /* ✅ Marker root must never be transformed */
     .cbsgo-marker-root{
