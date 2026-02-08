@@ -1,14 +1,13 @@
 // src/main.js
 
-import { Buffer } from 'buffer';
-
-// Zorg dat Buffer ook in de browser bestaat voor libs die het verwachten
-if (typeof globalThis !== 'undefined' && !globalThis.Buffer) {
-  globalThis.Buffer = Buffer;
-}
+// ✅ Buffer polyfill (moet bovenaan staan!)
+import './bufferPolyfill.js';
 
 import './style.css';
 import { mountApp } from './ui/appShell.js';
+
+// ✅ MapLibre CSS
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 // ✅ Email+PIN vault bootstrap (backup/recover)
 import { bootstrapAuthWallet } from './app/bootstrapAuthWallet.js';
@@ -60,7 +59,6 @@ window.addEventListener('unhandledrejection', (e) => {
 // --- Mount app safely ---
 function boot() {
   try {
-    // quick sanity
     const app = document.getElementById('app');
     if (!app) {
       showHud('❌ #app not found in index.html');
@@ -87,18 +85,68 @@ if (document.readyState === 'loading') {
   boot();
 }
 
-// --- PWA: Service worker registreren ---
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    const swPath = `${import.meta.env.BASE_URL}sw.js`;
+/* -------------------- PWA / SERVICE WORKER (ANTI STALE BUILDS) -------------------- */
+/*
+  Probleem op GitHub Pages + PWA:
+  - oude service worker blijft soms oude JS/CSS cachen
+  - gevolg: MapLibre marker updates “breken” → gifts plakken linksboven / kompas
+  Oplossing:
+  - updateViaCache:'none'
+  - reg.update() forceren
+  - als nieuwe SW klaar staat -> direct reload
+  - optioneel: querystring bust bij register (extra veilig)
+*/
 
-    navigator.serviceWorker
-      .register(swPath)
-      .then((reg) => {
-        console.log('[CBS GO] Service worker registered:', reg.scope);
-      })
-      .catch((err) => {
-        console.error('[CBS GO] Service worker registration failed:', err);
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+
+  try {
+    const base = import.meta.env.BASE_URL || '/';
+    // Extra cache-bust voor sw.js zelf (GitHub Pages kan agressief cachen)
+    const swPath = `${base}sw.js?v=${Date.now()}`;
+
+    const reg = await navigator.serviceWorker.register(swPath, {
+      updateViaCache: 'none', // ✅ pak sw.js nooit uit HTTP cache
+    });
+
+    // ✅ force check for updates
+    try {
+      await reg.update();
+    } catch {}
+
+    // ✅ Als er al een waiting SW is (nieuw), activeer en reload
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      try {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } catch {}
+      // kleine delay zodat hij kan activeren
+      setTimeout(() => window.location.reload(), 150);
+      return;
+    }
+
+    // ✅ luister naar updates
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+
+      nw.addEventListener('statechange', () => {
+        // installed + er was al een controller => dit is een update
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          // probeer skipWaiting (alleen als jouw sw.js het accepteert)
+          try {
+            nw.postMessage({ type: 'SKIP_WAITING' });
+          } catch {}
+          setTimeout(() => window.location.reload(), 150);
+        }
       });
-  });
+    });
+
+    console.log('[CBS GO] Service worker registered:', reg.scope);
+  } catch (err) {
+    console.error('[CBS GO] Service worker registration failed:', err);
+  }
 }
+
+window.addEventListener('load', () => {
+  registerServiceWorker();
+});

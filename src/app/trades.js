@@ -1,17 +1,82 @@
 // src/app/trades.js
 // Off-chain gifts via Supabase: tickets + CBS + (optionele) cards.
+// ✅ FIX: na send/claim ook meteen remote game_profiles updaten,
+// zodat device B niet je oude bag terugzet.
 
 import { supabase } from './supabaseClient.js';
 import { getPublicKey } from './wallet.js';
 import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
+
 import {
   addTickets,
   addCbsCoins,
   getTickets,
   getCbsCoins,
+  loadInventory,
 } from './inventory.js';
 
+import { loadRemoteProfile, saveRemoteProfile } from './remoteProfile.js';
+
 const TABLE = 'cbsgo_trades'; // tabelnaam in Supabase
+
+// ----------------- Remote sync helpers -----------------
+let _remoteSyncTimer = null;
+
+async function persistBagToRemote() {
+  // alleen als je email-login hebt (anders returnt remoteProfile null)
+  const wallet_pk = getPublicKey();
+  if (!wallet_pk) return;
+
+  const nickname = (getPlayerName() || '').trim() || 'Anon';
+  const avatar = getPlayerAvatar() || null;
+
+  const inv = loadInventory(); // {tickets,cbs,cards}
+
+  // Merge met bestaande remote row zodat xp/level niet per ongeluk null wordt
+  const existing = (await loadRemoteProfile()) || {};
+
+  const merged = {
+    wallet_pk,
+    nickname,
+    avatar,
+
+    // behoud remote xp/level als die bestaan
+    xp: existing.xp ?? null,
+    level: existing.level ?? null,
+
+    // ✅ de echte bag-stand
+    tickets: Number(inv.tickets || 0),
+    cbs_play: Number(inv.cbs || 0),
+    cards_json: inv.cards && typeof inv.cards === 'object' ? inv.cards : {},
+
+    // friends_json laten we met rust (anders overschrijven we die per ongeluk)
+    friends_json:
+      existing.friends_json && typeof existing.friends_json === 'object'
+        ? existing.friends_json
+        : {},
+  };
+
+  const saved = await saveRemoteProfile(merged);
+  if (!saved) {
+    console.warn('CBS GO: persistBagToRemote failed (not logged in or blocked)');
+  } else {
+    console.log('CBS GO: bag persisted to remote', {
+      tickets: merged.tickets,
+      cbs_play: merged.cbs_play,
+      cards: Object.keys(merged.cards_json || {}).length,
+    });
+  }
+}
+
+// Debounce: als je meerdere changes snel achter elkaar hebt
+function schedulePersistBagToRemote() {
+  if (_remoteSyncTimer) clearTimeout(_remoteSyncTimer);
+  _remoteSyncTimer = setTimeout(() => {
+    persistBagToRemote().catch((e) =>
+      console.warn('CBS GO: persistBagToRemote crash', e),
+    );
+  }, 600);
+}
 
 /**
  * Stuur een gift naar een andere CBS-GO wallet.
@@ -77,25 +142,21 @@ export async function sendGiftToWallet(toWallet, payload) {
       beforeCbs,
     });
 
-    if (tickets > 0) {
-      addTickets(-tickets);
-    }
-    if (cbs > 0) {
-      addCbsCoins(-cbs);
-    }
+    if (tickets > 0) addTickets(-tickets);
+    if (cbs > 0) addCbsCoins(-cbs);
 
     const afterTickets = getTickets();
     const afterCbs = getCbsCoins();
-    console.log('CBS GO: bag after deduct', {
-      afterTickets,
-      afterCbs,
-    });
+    console.log('CBS GO: bag after deduct', { afterTickets, afterCbs });
 
-    // UI laten rerenderen (Bag + eventuele andere listeners)
+    // UI laten rerenderen
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged'));
       window.dispatchEvent(new CustomEvent('cbsgo:bagChanged'));
     }
+
+    // ✅ FIX: schrijf nieuwe bag-stand ook naar remote profiel
+    schedulePersistBagToRemote();
   } catch (e) {
     console.warn('CBS GO: failed to update local bag after trade', e);
   }
@@ -110,18 +171,13 @@ let isPulling = false; // simpele lock om parallelle pulls te voorkomen
  *   (appShell.js doet daar kaarten + popup mee).
  *
  * Idempotent gemaakt:
- * - Voor elke row proberen we eerst `claimed = true` te zetten
- *   met `.eq('claimed', false)`.
+ * - Voor elke row proberen we eerst `claimed = true` te zetten met `.eq('claimed', false)`.
  * - Alleen als die update echt iets verandert, geven we de reward.
- *   -> geen dubbele tickets/CBS als pullIncomingGifts meerdere keren draait.
  */
 export async function pullIncomingGifts() {
   const myWallet = getPublicKey();
   if (!myWallet) return;
-  if (isPulling) {
-    // Al bezig; voorkom parallelle runs
-    return;
-  }
+  if (isPulling) return;
 
   isPulling = true;
   try {
@@ -140,11 +196,11 @@ export async function pullIncomingGifts() {
 
     if (!data || !data.length) return;
 
+    let changedBag = false;
+
     for (const row of data) {
       const rowId = row.id;
 
-      // 🔒 Eerst proberen deze trade "te claimen" op de server.
-      // Alleen als claimed nog false is, krijgen we een row terug.
       const { data: updatedRows, error: updError } = await supabase
         .from(TABLE)
         .update({ claimed: true })
@@ -157,23 +213,22 @@ export async function pullIncomingGifts() {
         continue;
       }
 
-      // Als er geen rows terugkomen, was hij al claimed door een andere call.
-      if (!updatedRows || !updatedRows.length) {
-        // Al verwerkt; geen rewards meer toekennen.
-        continue;
-      }
+      if (!updatedRows || !updatedRows.length) continue;
 
-      // 👉 Vanaf hier weten we zeker dat wij de "eerste" zijn die deze gift pakken.
       const tickets = Number(row.tickets || 0);
       const cbs = Number(row.cbs || 0);
       const cardId = row.card_id || null;
       const cardQty = Number(row.card_qty || 0);
 
-      // Inventory updaten (tickets + CBS)
-      if (tickets) addTickets(tickets);
-      if (cbs) addCbsCoins(cbs);
+      if (tickets) {
+        addTickets(tickets);
+        changedBag = true;
+      }
+      if (cbs) {
+        addCbsCoins(cbs);
+        changedBag = true;
+      }
 
-      // Frontend event -> appShell.js doet de rest (kaarten + popup)
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('cbsgo:friendGiftReceived', {
@@ -191,11 +246,13 @@ export async function pullIncomingGifts() {
       }
     }
 
-    // Inventaris kan veranderd zijn: laat Bag zichzelf rerenderen
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged'));
       window.dispatchEvent(new CustomEvent('cbsgo:bagChanged'));
     }
+
+    // ✅ FIX: als bag veranderde door claims → meteen remote opslaan
+    if (changedBag) schedulePersistBagToRemote();
   } finally {
     isPulling = false;
   }

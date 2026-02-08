@@ -10,55 +10,27 @@ import * as SLW from './solanaLocalWallet.js';
 // ---- helper: pick first existing function name ----
 function pick(fnNames) {
   for (const name of fnNames) {
-    const fn = SLW[name];
+    const fn = SLW?.[name];
     if (typeof fn === 'function') return fn;
   }
   return null;
 }
 
 // ---- map solanaLocalWallet exports -> expected API ----
-// We KNOW you already use these in appShell.js:
 const getPkFn = pick(['getLocalPublicKey', 'getPublicKey', 'getSolanaPublicKey', 'getSolanaPk']);
 const getSkFn = pick(['getLocalSecretKeyBase58', 'getSecretKeyBase58', 'getSolanaSecretKeyBase58', 'getSolanaSkBase58']);
 
-// Optional helpers (may or may not exist in your solanaLocalWallet.js)
-const hasFn = pick([
-  'hasLocalWallet',
-  'hasWallet',
-  'hasSolanaLocalWallet',
-  'hasLocalKeypair',
-]);
+const hasFn = pick(['hasLocalWallet', 'hasWallet', 'hasSolanaLocalWallet', 'hasLocalKeypair']);
+const isUnlockedFn = pick(['isLocalWalletUnlocked', 'isWalletUnlocked', 'isUnlockedLocalWallet', 'isSolanaLocalWalletUnlocked']);
 
-const isUnlockedFn = pick([
-  'isLocalWalletUnlocked',
-  'isWalletUnlocked',
-  'isUnlockedLocalWallet',
-  'isSolanaLocalWalletUnlocked',
-]);
-
-const createFn = pick([
-  'createLocalWallet',
-  'createWallet',
-  'createSolanaLocalWallet',
-  'createSolanaWallet',
-  'createKeypair',
-]);
-
-const unlockFn = pick([
-  'unlockLocalWallet',
-  'unlockWallet',
-  'unlockSolanaLocalWallet',
-  'unlockSolanaWallet',
-]);
+const createFn = pick(['createLocalWallet', 'createWallet', 'createSolanaLocalWallet', 'createSolanaWallet', 'createKeypair']);
+const unlockFn = pick(['unlockLocalWallet', 'unlockWallet', 'unlockSolanaLocalWallet', 'unlockSolanaWallet']);
 
 const importFn = pick([
-  // meest waarschijnlijke namen
   'importLocalWalletFromSecret',
   'importWalletFromSecret',
   'importSolanaLocalWalletFromSecret',
   'importSolanaWalletFromSecret',
-
-  // extra varianten (voor als je eerder andere namen hebt gebruikt)
   'importFromSecret',
   'importFromSecretKey',
   'importKeypairFromSecret',
@@ -67,29 +39,17 @@ const importFn = pick([
   'restoreLocalWalletFromSecret',
 ]);
 
-const resetFn = pick([
-  'devResetLocalWallet',
-  'devResetWallet',
-  'resetLocalWallet',
-  'devResetSolanaLocalWallet',
-]);
+const resetFn = pick(['devResetLocalWallet', 'devResetWallet', 'resetLocalWallet', 'devResetSolanaLocalWallet']);
 
 // ---- API the rest of CBS-GO expects ----
 export function hasWallet() {
-  // Prefer explicit hasFn if available
   if (hasFn) return !!hasFn();
-
-  // Fallback: if we can read a public key, wallet exists
-  if (getPkFn) return !!String(getPkFn() || '');
-  return false;
+  return !!getPublicKey();
 }
 
 export function isWalletUnlocked() {
-  // If solanaLocalWallet has an explicit unlock state, use it
   if (isUnlockedFn) return !!isUnlockedFn();
-
-  // Otherwise: treat "wallet exists" as unlocked
-  // (your real protection is now the Email+PIN vault flow)
+  // In jouw flow is “wallet bestaat” praktisch “unlocked” (PIN/vault is de echte gate)
   return hasWallet();
 }
 
@@ -101,7 +61,6 @@ export function createWallet(pin) {
 }
 
 export function unlockWallet(pin) {
-  // If there is no unlock function, but wallet exists, just return pk.
   if (!unlockFn) {
     const pk = getPublicKey();
     if (pk) return pk;
@@ -118,9 +77,6 @@ export function importWalletFromSecret({ secretKeyBase58, pin }) {
     );
   }
 
-  // Support both call styles:
-  // - importFn({ secretKeyBase58, pin })
-  // - importFn(secretKeyBase58, pin)
   try {
     return importFn({ secretKeyBase58, pin });
   } catch (e1) {
@@ -134,17 +90,31 @@ export function importWalletFromSecret({ secretKeyBase58, pin }) {
 }
 
 export function getPublicKey() {
-  if (!getPkFn) return '';
-  return String(getPkFn() || '');
+  try {
+    if (!getPkFn) return '';
+    const v = getPkFn();
+    return v ? String(v) : '';
+  } catch {
+    return '';
+  }
 }
 
 export function getSecretKeyBase58() {
-  if (!getSkFn) return '';
-  return String(getSkFn() || '');
+  try {
+    if (!getSkFn) return '';
+    const v = getSkFn();
+    return v ? String(v) : '';
+  } catch {
+    return '';
+  }
 }
 
 export function devResetWallet() {
-  if (resetFn) resetFn();
+  try {
+    if (resetFn) resetFn();
+  } catch (e) {
+    console.warn('cbsgo: devResetWallet failed', e);
+  }
 }
 
 if (typeof window !== 'undefined') {

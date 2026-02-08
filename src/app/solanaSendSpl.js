@@ -14,26 +14,37 @@ import {
 import {
   getAssociatedTokenAddress,
   createAssociatedTokenAccountInstruction,
-  createTransferInstruction,
+  createTransferCheckedInstruction,
   getAccount,
 } from '@solana/spl-token';
 
 import bs58 from 'bs58';
 import { getLocalSecretKeyBase58 } from './solanaLocalWallet.js';
 
-// Zelfde RPC als je SOL-send helper
-const RPC =
-  import.meta.env.VITE_SOLANA_RPC_URL ||
-  clusterApiUrl('mainnet-beta');
+const RPC = import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl('mainnet-beta');
+
+function toRawAmountBigInt(amountTokens, decimals) {
+  // accepteert number of string; zet veilig om naar raw BigInt
+  const s = String(amountTokens ?? '').trim().replace(',', '.');
+  if (!s) throw new Error('Amount missing');
+
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error('Invalid amount format');
+
+  const [intPart, fracPartRaw = ''] = s.split('.');
+  const fracPart = fracPartRaw.slice(0, decimals).padEnd(decimals, '0'); // truncate + pad
+  const combined = `${intPart}${fracPart}`.replace(/^0+/, '') || '0';
+
+  return BigInt(combined);
+}
 
 /**
- * Stuur een SPL-token (bijv. CBS) vanaf je lokale wallet.
+ * Stuur een SPL-token vanaf je lokale wallet.
  *
  * @param {Object} params
- * @param {string} params.mintAddress - mint van de token (CBS / BONK / etc)
- * @param {string} params.toAddress   - ontvangende WALLET (niet ATA)
- * @param {number} params.amountTokens - bedrag in "gewone" tokens (bijv. 10 CBS)
- * @param {number} params.decimals     - aantal decimals (CBS = 9)
+ * @param {string} params.mintAddress
+ * @param {string} params.toAddress
+ * @param {number|string} params.amountTokens
+ * @param {number} params.decimals
  */
 export async function sendSplFromLocalWallet({
   mintAddress,
@@ -41,58 +52,54 @@ export async function sendSplFromLocalWallet({
   amountTokens,
   decimals,
 }) {
-  if (!mintAddress) {
-    throw new Error('Missing mint address');
-  }
-  if (!toAddress) {
-    throw new Error('Missing destination wallet');
-  }
-  if (!Number.isFinite(amountTokens) || amountTokens <= 0) {
-    throw new Error('Amount must be greater than 0');
-  }
+  if (!mintAddress) throw new Error('Missing mint address');
+  if (!toAddress) throw new Error('Missing destination wallet');
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 15) {
     throw new Error('Invalid decimals value');
   }
 
+  const rawAmount = toRawAmountBigInt(amountTokens, decimals);
+  if (rawAmount <= 0n) throw new Error('Amount must be greater than 0');
+
   const connection = new Connection(RPC, 'confirmed');
 
-  // lokale private key uit je web2-wallet (Ed25519)
-  const secretKeyBytes = bs58.decode(getLocalSecretKeyBase58());
+  const sk58 = getLocalSecretKeyBase58();
+  if (!sk58) throw new Error('No local private key available');
+
+  const secretKeyBytes = bs58.decode(sk58);
   const payer = Keypair.fromSecretKey(secretKeyBytes);
 
   const mint = new PublicKey(mintAddress);
   const toWallet = new PublicKey(toAddress);
 
-  // Associated Token Accounts (ATA)
   const fromAta = await getAssociatedTokenAddress(mint, payer.publicKey);
   const toAta = await getAssociatedTokenAddress(mint, toWallet);
 
   const instructions = [];
 
-  // Maak de ATA voor de ontvanger aan als die nog niet bestaat
+  // Ensure recipient ATA exists
   try {
     await getAccount(connection, toAta);
   } catch {
     instructions.push(
       createAssociatedTokenAccountInstruction(
         payer.publicKey, // payer
-        toAta,           // ATA die we aanmaken
-        toWallet,        // eigenaar
+        toAta,           // ATA
+        toWallet,        // owner
         mint,            // mint
       ),
     );
   }
 
-  // Mens-bedrag → raw units (BigInt)
-  const multiplier = 10 ** decimals;
-  const rawAmount = BigInt(Math.round(amountTokens * multiplier));
-
+  // ✅ Checked transfer (decimals verified)
   instructions.push(
-    createTransferInstruction(
-      fromAta,         // bron-ATA
-      toAta,           // doel-ATA
-      payer.publicKey, // owner
+    createTransferCheckedInstruction(
+      fromAta,
+      mint,
+      toAta,
+      payer.publicKey,
       rawAmount,
+      decimals,
     ),
   );
 
@@ -102,16 +109,14 @@ export async function sendSplFromLocalWallet({
   const { blockhash } = await connection.getLatestBlockhash('finalized');
   tx.recentBlockhash = blockhash;
 
-  const signature = await sendAndConfirmTransaction(
-    connection,
-    tx,
-    [payer],
-    { commitment: 'confirmed' },
-  );
+  const signature = await sendAndConfirmTransaction(connection, tx, [payer], {
+    commitment: 'confirmed',
+  });
 
   return {
     signature,
-    amountTokens,
+    amountTokens: String(amountTokens),
+    rawAmount: rawAmount.toString(),
     mint: mintAddress,
   };
 }

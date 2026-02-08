@@ -9,7 +9,7 @@
 // - Rechtsonder: 2 ronde knoppen op de kaart (Profile & Bag), naast elkaar, net boven GPS-tekst.
 // - Geen extra weather-dot linksonder (jouw eigen weer bovenin blijft leidend).
 // - Geen leaderboard / competitie-focus.
-
+import '../bufferPolyfill.js';
 import { supabase } from '../app/supabaseClient.js';
 import { applyRemoteProfileToLocal } from '../app/applyRemoteProfile.js';
 
@@ -33,7 +33,8 @@ import {
 } from '../app/leaderboard.js'; // alleen voor lokale profile-storage
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
-import * as mapView from './mapView.js';
+import * as mapView from './mapView.maplibre.js';
+
 
 // ✅ Inventory: namespace import voorkomt build errors als loadInventory/export mismatch
 import * as inventory from '../app/inventory.js';
@@ -47,7 +48,8 @@ import { openLoginModal } from './loginModal.js';
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
 
 // ✅ Supabase remote game profile (backup naar game_profiles)
-import { saveRemoteProfile } from '../app/remoteProfile.js';
+import { saveRemoteProfile, loadRemoteProfile } from '../app/remoteProfile.js';
+
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
 import '../app/playerSync.js';
@@ -84,26 +86,13 @@ import '../app/bootstrapAuthWallet.js';
 import { getLocalPublicKey, getLocalSecretKeyBase58 } from '../app/solanaLocalWallet.js';
 import { createWallet } from '../app/wallet.js';
 
-// ----------------- safe wrappers (inventory) -----------------
-const getTickets =
-  typeof inventory.getTickets === 'function'
-    ? inventory.getTickets
-    : () => Number(inventory?.state?.tickets || 0);
+// ----------------- inventory (source of truth) -----------------
+const getTickets = () => Number(inventory.getTickets?.() || 0);
+const getCbsCoins = () => Number(inventory.getCbsCoins?.() || 0);
 
-const getCbsCoins =
-  typeof inventory.getCbsCoins === 'function'
-    ? inventory.getCbsCoins
-    : () => Number(inventory?.state?.cbs || 0);
+const loadInventory = () => inventory.loadInventory?.() || { tickets: 0, cbs: 0, cards: {} };
+const saveInventory = (inv) => inventory.saveInventory?.(inv);
 
-const loadInventory =
-  typeof inventory.loadInventory === 'function'
-    ? inventory.loadInventory
-    : () => ({ tickets: getTickets(), cbs: getCbsCoins(), cards: {} });
-
-const saveInventory =
-  typeof inventory.saveInventory === 'function'
-    ? inventory.saveInventory
-    : (_inv) => {};
 
 // ----------------- safe wrappers (mapView) -----------------
 const renderMapView =
@@ -206,6 +195,38 @@ function avatarCircle(dataUrl, size = 30) {
       font-size:16px;
     ">${txt}</div>
   `;
+}
+function getShareLocation() {
+  try {
+    return (localStorage.getItem('cbsgo_shareLocation') ?? '1') === '1';
+  } catch {
+    return true;
+  }
+}
+
+function setShareLocation(v) {
+  try {
+    localStorage.setItem('cbsgo_shareLocation', v ? '1' : '0');
+  } catch {}
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:shareLocation', {
+        detail: { shareLocation: !!v },
+      })
+    );
+  } catch {}
+}
+
+function updateShareLocProfileButton() {
+  const btn = document.querySelector('#profileShareLocBtn');
+  if (!btn) return;
+
+  const on = getShareLocation();
+  btn.textContent = on ? '📍 Location: ON' : '🙈 Location: Hidden';
+  btn.title = on
+    ? 'Other players can see your live location'
+    : 'Other players cannot see your location';
 }
 
 // ---------- CBS token info (SPL) ----------
@@ -420,7 +441,8 @@ function renderProfile() {
             <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Photo</div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <input id="profileAvatar" type="file" accept="image/*" />
-              <button class="btn secondary" id="profileRemoveAvatar" type="button">Remove photo</button>
+              <button class="btn secondary" id="profileShareLocBtn" type="button">📍 Location: ON</button>
+
             </div>
           </div>
 
@@ -543,7 +565,7 @@ function renderProfile() {
 function bindProfileEvents() {
   const nameInput = document.querySelector('#profileName');
   const fileInput = document.querySelector('#profileAvatar');
-  const removeBtn = document.querySelector('#profileRemoveAvatar');
+  const shareLocBtn = document.querySelector('#profileShareLocBtn');
 
   let saveTimer = null;
 
@@ -553,48 +575,67 @@ function bindProfileEvents() {
   };
 
   if (nameInput) setMsg(nameInput.value ? `✅ Profile loaded: ${nameInput.value}` : '');
-
-  const saveNameNow = () => {
-    if (!nameInput) return;
-    const n = setPlayerName(nameInput.value);
-    setMsg(`✅ Name saved: ${n}`);
-    try {
-      syncPlayerProfile();
-      syncRemoteProfileSafe('name-change');
-    } catch (e) {
-      console.warn('CBS GO: failed to sync profile after name change', e);
-    }
-  };
-
+  // -------- Nickname save (unchanged) --------
   if (nameInput) {
     nameInput.addEventListener('input', () => {
-      setMsg('Saving…');
-      if (saveTimer) clearTimeout(saveTimer);
-      saveTimer = setTimeout(saveNameNow, 300);
-    });
-
-    nameInput.addEventListener('blur', () => {
-      if (saveTimer) clearTimeout(saveTimer);
-      saveNameNow();
+      try { clearTimeout(saveTimer); } catch {}
+      saveTimer = setTimeout(() => {
+        try {
+          setPlayerName(nameInput.value.trim());
+          syncPlayerProfile();
+          setMsg('✅ Nickname saved');
+        } catch (e) {
+          console.warn('Profile name save failed', e);
+          setMsg('⚠️ Failed to save nickname');
+        }
+      }, 450);
     });
   }
 
-  if (fileInput) {
-    fileInput.addEventListener('change', () => {
-      const f = fileInput.files && fileInput.files[0];
-      if (!f) return;
+ // --- Name save ---
+const saveNameNow = () => {
+  if (!nameInput) return;
+  const n = setPlayerName(nameInput.value);
+  setMsg(`✅ Name saved: ${n}`);
+  try {
+    syncPlayerProfile();
+    syncRemoteProfileSafe('name-change');
+  } catch (e) {
+    console.warn('CBS GO: failed to sync profile after name change', e);
+  }
+};
 
-      if (f.size > 1_500_000) {
-        setMsg('⛔ Image too large. Please choose a smaller photo (max ~1.5MB).');
-        fileInput.value = '';
-        return;
-      }
+if (nameInput) {
+  nameInput.addEventListener('input', () => {
+    setMsg('Saving…');
+    try { if (saveTimer) clearTimeout(saveTimer); } catch {}
+    saveTimer = setTimeout(saveNameNow, 300);
+  });
 
-      setMsg('Uploading photo…');
-      const reader = new FileReader();
-      reader.onload = () => {
+  nameInput.addEventListener('blur', () => {
+    try { if (saveTimer) clearTimeout(saveTimer); } catch {}
+    saveNameNow();
+  });
+}
+
+// --- Avatar upload (1x, met size-check) ---
+if (fileInput) {
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+
+    if (f.size > 1_500_000) {
+      setMsg('⛔ Image too large. Please choose a smaller photo (max ~1.5MB).');
+      fileInput.value = '';
+      return;
+    }
+
+    setMsg('Uploading photo…');
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
         setPlayerAvatar(String(reader.result || ''));
-        setMsg('✅ Photo saved');
+        setMsg('✅ Photo updated');
         updatePanel();
 
         try {
@@ -603,26 +644,27 @@ function bindProfileEvents() {
         } catch (e) {
           console.warn('CBS GO: failed to sync profile after avatar change', e);
         }
-      };
-      reader.onerror = () => setMsg('⛔ Failed to read image.');
-      reader.readAsDataURL(f);
-    });
-  }
-
-  if (removeBtn) {
-    removeBtn.onclick = () => {
-      clearPlayerAvatar();
-      setMsg('✅ Photo removed');
-      updatePanel();
-
-      try {
-        syncPlayerProfile();
-        syncRemoteProfileSafe('avatar-remove');
       } catch (e) {
-        console.warn('CBS GO: failed to sync profile after avatar removal', e);
+        console.warn('Avatar update failed', e);
+        setMsg('⚠️ Failed to update photo');
       }
     };
-  }
+    reader.onerror = () => setMsg('⛔ Failed to read image.');
+    reader.readAsDataURL(f);
+  });
+}
+
+// --- Location sharing toggle (replaces remove photo) ---
+try { updateShareLocProfileButton(); } catch {}
+
+if (shareLocBtn) {
+  shareLocBtn.onclick = () => {
+    const next = !getShareLocation();
+    setShareLocation(next);
+    try { updateShareLocProfileButton(); } catch {}
+    setMsg(next ? '📍 Location sharing enabled' : '🙈 Location sharing disabled');
+  };
+}
 
   // ---------- Friends UI binding ----------
   const friendInput = document.querySelector('#friendWalletInput');
@@ -1396,6 +1438,9 @@ function bindBagEvents() {
         }
 
         setGiftMsg('✅ Gift sent.');
+// ✅ Force remote to match the new bag state (after deduct)
+syncRemoteProfileSafe('gift-sent', true).catch(() => {});
+
         if (giftTicketsInput) giftTicketsInput.value = '';
         if (giftCbsInput) giftCbsInput.value = '';
         if (giftCardQtyInput) giftCardQtyInput.value = '';
@@ -1504,7 +1549,7 @@ function renderWalletPanel() {
       ">
         <div>
           <div style="font-size:16px;font-weight:900;letter-spacing:.2px;">
-            👛 Wallet
+            💰 Wallet
           </div>
           <div style="font-size:11px;opacity:.78;max-width:520px;line-height:1.35;">
             Your CBS-GO wallet is stored locally, and backed up encrypted via your Email + PIN (vault).
@@ -2057,10 +2102,48 @@ function bindWalletEvents() {
     };
   }
 }
+const REMOTE_SYNC_KEY = 'cbsgo_remote_synced_at_v1';
+
+// local timestamp wanneer we voor het laatst remote hebben toegepast
+function markRemoteApplied() {
+  try {
+    localStorage.setItem(REMOTE_SYNC_KEY, String(Date.now()));
+  } catch {}
+}
+
+function getRemoteAppliedStamp() {
+  try {
+    return Number(localStorage.getItem(REMOTE_SYNC_KEY) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+// simpele lock zodat we niet tegelijk syncen
+let __remoteSyncBusy = false;
 
 // ---------- Remote profile sync ----------
-async function syncRemoteProfileSafe(source = 'unknown') {
+async function syncRemoteProfileSafe(source = 'unknown', force = false) {
+  if (__remoteSyncBusy) return;
+  __remoteSyncBusy = true;
+
   try {
+    // 1) Eerst remote lezen (deze is leidend na login)
+    const remote = await loadRemoteProfile().catch(() => null);
+    const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
+
+    // 2) Als remote nieuwer is dan onze "remote applied" stamp, dan NIET overschrijven
+    // (dit voorkomt dat device B met oude local values jouw remote reset)
+    const appliedStamp = getRemoteAppliedStamp();
+
+    if (!force && remoteUpdatedAt && remoteUpdatedAt > appliedStamp) {
+      // Remote is nieuwer dan wat wij lokaal als “remote toegepast” beschouwen.
+      // Skip om overwrites te voorkomen.
+      console.log('CBS-GO: skip remote sync (remote newer)', { source, remoteUpdatedAt, appliedStamp });
+      return;
+    }
+
+    // 3) Bouw payload vanuit local
     const wallet_pk = getLocalPublicKeySafe() || null;
 
     const nickname = getPlayerName() || null;
@@ -2080,9 +2163,15 @@ async function syncRemoteProfileSafe(source = 'unknown') {
     } catch {}
 
     const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
+
     await saveRemoteProfile(payload);
+
+    // 4) Markeer dat remote nu “door ons” bijgewerkt is
+    markRemoteApplied();
   } catch (e) {
     console.warn('CBS GO: syncRemoteProfileSafe failed from', source, e);
+  } finally {
+    __remoteSyncBusy = false;
   }
 }
 
@@ -2174,7 +2263,7 @@ export function renderAppShell() {
           display:flex;align-items:center;justify-content:center;
           font-size:22px;
           color:#e0f2fe;
-        ">👛</button>
+        ">💰</button>
       </div>
 
       <!-- Panel-root -->
@@ -2405,6 +2494,30 @@ function bootstrapApp() {
   } catch (e) {
     console.warn('CBS GO: failed to sync player profile / remote profile (ignored)', e);
   }
+  // ✅ Keep remote profile in sync with local inventory/bag changes (debounced)
+  if (!window.__cbsgo_remote_sync_listeners) {
+    window.__cbsgo_remote_sync_listeners = true;
+
+    let t = null;
+    const schedule = (source) => {
+      try {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => {
+          syncRemoteProfileSafe(source);
+        }, 500);
+      } catch (e) {
+        console.warn('CBS GO: schedule remote sync failed', e);
+      }
+    };
+
+    // When tickets/CBS change (send/receive gifts)
+    window.addEventListener('cbsgo:inventoryChanged', () => schedule('inventoryChanged'));
+    // When cards change (you already dispatch bagChanged after card send)
+    window.addEventListener('cbsgo:bagChanged', () => schedule('bagChanged'));
+
+    // Optional extra safety: after receiving gifts popup event
+    window.addEventListener('cbsgo:friendGiftReceived', () => schedule('friendGiftReceived'));
+  }
 
   bindUi();
   bindMapView();
@@ -2555,6 +2668,8 @@ export function mountApp() {
     } catch (e) {
       console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
     }
+// ✅ remote is now applied -> prevent other device overwriting it with old local
+markRemoteApplied();
 
     // 4) start game
     bootstrapApp();

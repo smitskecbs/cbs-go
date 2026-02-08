@@ -3,9 +3,8 @@
 // zodat dezelfde email op elk device exact hetzelfde profiel gebruikt.
 //
 // FIX (BELANGRIJK):
-// - XP/Level rollback voorkomen: merge local vs remote -> hoogste wint.
-// - Tickets/CBS idem: hoogste wint.
-// - Cards: merge per kaart -> hoogste count wint.
+// - XP rollback voorkomen: merge local vs remote -> hoogste wint.
+// - Tickets/CBS/Cards: REMOTE is leidend, zodat gifts (verlaging) blijven bestaan.
 // - Nickname/avatar: remote blijft leidend (consistent voor vrienden).
 
 import { loadRemoteProfile } from './remoteProfile.js';
@@ -40,11 +39,6 @@ function saveStateXp(xp) {
   localStorage.setItem(STATE_KEY, JSON.stringify(s));
 }
 
-function loadLocalInventory() {
-  const raw = localStorage.getItem(INV_KEY);
-  return safeJsonParse(raw, { tickets: 0, cbs: 0, cards: {} });
-}
-
 function saveInventory(tickets, cbs, cardsObj) {
   const inv = {
     tickets: Number(tickets || 0),
@@ -55,23 +49,6 @@ function saveInventory(tickets, cbs, cardsObj) {
 
   // UI update
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
-}
-
-function loadCardsV1Counts() {
-  const raw = localStorage.getItem(CARDS_KEY);
-  const data = safeJsonParse(raw, {});
-  if (data && typeof data.counts === 'object' && data.counts !== null) return { ...data.counts };
-  // fallback oude vorm
-  if (Array.isArray(data.cards)) {
-    const counts = {};
-    data.cards.forEach((c) => {
-      if (!c || !c.id) return;
-      const n = Number(c.count || 0);
-      if (Number.isFinite(n) && n > 0) counts[c.id] = n;
-    });
-    return counts;
-  }
-  return {};
 }
 
 function saveCardsV1FromCardsObj(cardsObj) {
@@ -95,23 +72,6 @@ function setLocalNicknameAvatar(nickname, avatar) {
   } catch {}
 }
 
-function mergeCardsMax(localCards, remoteCards) {
-  const out = { ...(localCards || {}) };
-  const r = remoteCards || {};
-  Object.keys(r).forEach((id) => {
-    const lv = Number(out[id] || 0);
-    const rv = Number(r[id] || 0);
-    const next = Math.max(lv, rv);
-    if (next > 0) out[id] = next;
-  });
-  // ook: alles <=0 eruit
-  Object.keys(out).forEach((id) => {
-    const v = Number(out[id] || 0);
-    if (!Number.isFinite(v) || v <= 0) delete out[id];
-  });
-  return out;
-}
-
 export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   const remote = await loadRemoteProfile();
   if (!remote) return { applied: false, reason: 'no-remote-row' };
@@ -130,25 +90,19 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   // Alleen uitvoeren als preferRemote=true (zoals jij gebruikt in appShell)
   if (!preferRemote) return { applied: false, reason: 'preferRemote=false' };
 
-  // --- MERGE: hoogste wint ---
+  // ✅ XP: max om rollback te voorkomen
   const localState = loadLocalState();
-  const localInv = loadLocalInventory();
-  const localCardsV1 = loadCardsV1Counts();
-
   const localXp = Number(localState.xp || 0);
   const mergedXp = Math.max(localXp, remoteXp);
 
-  const localTickets = Number(localInv.tickets || 0);
-  const mergedTickets = Math.max(localTickets, remoteTickets);
+  // ✅ Inventory: REMOTE is leidend (anders komen gifts terug!)
+  const mergedTickets = Number(remoteTickets || 0);
+  const mergedCbs = Number(remoteCbs || 0);
 
-  const localCbs = Number(localInv.cbs || 0);
-  const mergedCbs = Math.max(localCbs, remoteCbs);
-
-  // cards: combineer inventory.cards + cards_v1 + remote -> max per id
-  const localInvCards =
-    localInv.cards && typeof localInv.cards === 'object' ? localInv.cards : {};
-  const localAllCards = mergeCardsMax(localCardsV1, localInvCards);
-  const mergedCards = mergeCardsMax(localAllCards, remoteCards);
+  const mergedCards =
+    remoteCards && typeof remoteCards === 'object'
+      ? { ...remoteCards }
+      : {};
 
   // schrijf terug naar local
   saveStateXp(mergedXp);
@@ -168,7 +122,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
 
   return {
     applied: true,
-    source: 'merge-max',
+    source: 'remote-authoritative-inventory',
     merged: {
       xp: mergedXp,
       tickets: mergedTickets,

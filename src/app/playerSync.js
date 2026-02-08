@@ -4,6 +4,7 @@
 // - Luistert naar 'cbsgo:playerPos' events
 // - Schrijft je positie naar public.player_state (1 row per auth user_id)
 // - Haalt elke 10s andere spelers op en stuurt event 'cbsgo:onlinePlayers'
+// - ✅ Privacy: shareLocation OFF => lat/lng/heading = null (wel online via last_seen)
 
 import { supabase } from './supabaseClient.js';
 import { getPlayerName } from './leaderboard.js';
@@ -18,6 +19,9 @@ let lastSentAt = 0;
 let lastFetchAt = 0;
 
 let cachedUserId = null;
+
+// 🙈 Share-location state (default ON)
+let shareLocation = (localStorage.getItem('cbsgo_shareLocation') ?? '1') === '1';
 
 async function ensureUserId() {
   if (cachedUserId) return cachedUserId;
@@ -39,15 +43,19 @@ if (typeof window !== 'undefined' && !window.__cbsgo_auth_listener) {
     supabase.auth.onAuthStateChange((_event, session) => {
       cachedUserId = session?.user?.id || null;
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 // ---- GPS events ----
 function handlePlayerPosEvent(ev) {
   const d = ev?.detail || {};
   if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+
+  // shareLocation kan meeliften vanuit mapView
+  if (typeof d.shareLocation === 'boolean') {
+    shareLocation = d.shareLocation;
+    localStorage.setItem('cbsgo_shareLocation', shareLocation ? '1' : '0');
+  }
 
   lastPos = {
     lat: d.lat,
@@ -63,6 +71,19 @@ if (typeof window !== 'undefined' && !window.__cbsgo_playerPos_listener) {
   window.addEventListener('cbsgo:playerPos', handlePlayerPosEvent);
 }
 
+// ---- Share toggle event (🙈/📍 knop) ----
+function handleShareToggle(ev) {
+  const v = ev?.detail?.shareLocation;
+  if (typeof v !== 'boolean') return;
+  shareLocation = v;
+  localStorage.setItem('cbsgo_shareLocation', shareLocation ? '1' : '0');
+}
+
+if (typeof window !== 'undefined' && !window.__cbsgo_shareLocation_listener) {
+  window.__cbsgo_shareLocation_listener = true;
+  window.addEventListener('cbsgo:shareLocation', handleShareToggle);
+}
+
 // ---------- helpers ----------
 function getWalletPkSafe() {
   try {
@@ -76,7 +97,7 @@ function getWalletPkSafe() {
 // ---------- eigen positie naar Supabase ----------
 async function pushMyState() {
   const user_id = await ensureUserId();
-  if (!user_id) return; // niet ingelogd (email login nog niet gedaan)
+  if (!user_id) return; // niet ingelogd
 
   if (!lastPos) return;
 
@@ -87,15 +108,20 @@ async function pushMyState() {
   const nicknameRaw = getPlayerName() || '';
   const nickname = nicknameRaw.trim() || 'Anon';
 
-  const wallet_pk = getWalletPkSafe(); // ✅ consistent met jouw appShell/local wallet
+  const wallet_pk = getWalletPkSafe();
+
+  // ✅ Privacy: als share OFF => coords null, wel last_seen updaten
+  const lat = shareLocation ? lastPos.lat : null;
+  const lng = shareLocation ? lastPos.lng : null;
+  const heading = shareLocation ? lastPos.heading : null;
 
   const payload = {
     user_id,
-    wallet_pk, // mag null zijn (dan blijft wallet_pk leeg)
+    wallet_pk, // mag null zijn
     nickname,
-    lat: lastPos.lat,
-    lng: lastPos.lng,
-    heading: lastPos.heading,
+    lat,
+    lng,
+    heading,
     last_seen: new Date().toISOString(),
   };
 
@@ -136,7 +162,7 @@ async function fetchOnlinePlayers() {
 
     const rows = Array.isArray(data) ? data : [];
 
-    // Profiles ophalen (avatar/nickname) via players table op wallet_pk
+    // Profiles ophalen via players table op wallet_pk
     const walletPks = Array.from(
       new Set(
         rows
@@ -164,6 +190,8 @@ async function fetchOnlinePlayers() {
       .map((row) => {
         const lat = typeof row.lat === 'number' ? row.lat : parseFloat(row.lat);
         const lng = typeof row.lng === 'number' ? row.lng : parseFloat(row.lng);
+
+        // ✅ hidden players (lat/lng null) vallen hier automatisch weg
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
         const pk = row.wallet_pk ? String(row.wallet_pk) : '';

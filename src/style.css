@@ -1,7 +1,14 @@
+/* src/style.css — CBS GO */
+
+/* ---------- Base reset ---------- */
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html, body {
+  height: 100%;
 }
 
 body {
@@ -10,6 +17,7 @@ body {
   color: #f5f5f5;
 }
 
+/* ---------- Layout ---------- */
 .app-shell {
   min-height: 100vh;
   display: flex;
@@ -20,6 +28,17 @@ body {
   padding: 16px;
   background: #111827;
   border-bottom: 1px solid #1f2937;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.topbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .topbar h1 {
@@ -31,20 +50,15 @@ body {
   opacity: 0.7;
 }
 
+.topbar-right {
+  min-width: 220px;
+}
+
 .main {
   flex: 1;
   padding: 24px;
 }
 
-button {
-  margin-top: 24px;
-  padding: 12px 16px;
-  font-size: 16px;
-  background: #facc15;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-}
 .nodes {
   margin-top: 32px;
 }
@@ -91,23 +105,8 @@ button {
   background: #059669;
   color: #fff;
 }
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
 
-.topbar-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.topbar-right {
-  min-width: 220px;
-}
-
+/* ---------- XP bar ---------- */
 .xpbar {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.10);
@@ -136,6 +135,20 @@ button {
   background: #facc15;
   width: 0%;
 }
+
+/* ---------- Buttons ---------- */
+/* ✅ BELANGRIJK: GEEN globale button styling meer (dit brak je map knop) */
+.main > button {
+  margin-top: 24px;
+  padding: 12px 16px;
+  font-size: 16px;
+  background: #facc15;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ---------- Modal ---------- */
 .modal-backdrop{
   position: fixed;
   inset: 0;
@@ -159,6 +172,24 @@ button {
 .modal h2{
   margin: 0 0 6px 0;
   font-size: 18px;
+}
+
+.modal-header{
+  display:flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items:flex-start;
+}
+
+.modal-sub{
+  margin: 0;
+  opacity: 0.85;
+  font-size: 12px;
+}
+
+.modal-desc{
+  margin-top: 10px;
+  opacity: 0.9;
 }
 
 .puzzle-question{
@@ -189,24 +220,8 @@ button {
   min-height: 18px;
   opacity: 0.95;
 }
-.modal-header{
-  display:flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items:flex-start;
-}
 
-.modal-sub{
-  margin: 0;
-  opacity: 0.85;
-  font-size: 12px;
-}
-
-.modal-desc{
-  margin-top: 10px;
-  opacity: 0.9;
-}
-
+/* ---------- Icon buttons ---------- */
 .icon-btn{
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.06);
@@ -215,20 +230,12 @@ button {
   padding: 8px 10px;
   cursor: pointer;
 }
+
 .icon-btn:hover{
   background: rgba(255,255,255,0.10);
 }
-.puzzle-key{
-  margin-top: 10px;
-  font-size: 12px;
-  opacity: 0.75;
-}
-.puzzle-key code{
-  background: rgba(255,255,255,0.08);
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.10);
-}
+
+/* ---------- Roles ---------- */
 .roles{
   margin-top: 12px;
   padding: 12px;
@@ -299,12 +306,30 @@ button {
   font-size: 12px;
   opacity: 0.8;
 }
+
 .role-actions{
   display:flex;
   gap: 10px;
   margin: 10px 0 6px 0;
   flex-wrap: wrap;
 }
+
 .frag{
   letter-spacing: 2px;
+}
+
+/* ---------- MapLibre hard fixes ---------- */
+/* ✅ HARD FIX: voorkomt “markers plakken linksboven / bij kompas” */
+.maplibregl-marker{
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  will-change: transform;
+}
+
+
+.cbsgo-pin-inner{
+  position:relative;
+  width:44px;
+  height:58px;
 }
