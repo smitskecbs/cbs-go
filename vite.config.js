@@ -13,6 +13,12 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "favicon.ico", "robots.txt", "apple-touch-icon.png"],
+
+      // ✅ FIX: allow bigger bundles in precache during our test
+      workbox: {
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, // 6MB
+      },
+
       manifest: {
         name: "CBS GO",
         short_name: "CBS GO",
@@ -34,8 +40,7 @@ export default defineConfig({
   },
 
   build: {
-    // ✅ TEST: zet minify uit om te verifiëren dat "Ne is not defined" door minify komt
-    // Als dit het oplost, zetten we daarna terser aan met veilige settings.
+    // ✅ TEST: turn off minify to see if "Ne is not defined" disappears
     minify: false,
 
     target: "es2019",
