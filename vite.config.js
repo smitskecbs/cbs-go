@@ -23,9 +23,9 @@ export default defineConfig({
         theme_color: "#000000",
         icons: [
           { src: "/cbs-go/pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/cbs-go/pwa-512.png", sizes: "512x512", type: "image/png" }
-        ]
-      }
+          { src: "/cbs-go/pwa-512.png", sizes: "512x512", type: "image/png" },
+        ],
+      },
     }),
   ],
 
@@ -34,6 +34,10 @@ export default defineConfig({
   },
 
   build: {
+    // ✅ TEST: zet minify uit om te verifiëren dat "Ne is not defined" door minify komt
+    // Als dit het oplost, zetten we daarna terser aan met veilige settings.
+    minify: false,
+
     target: "es2019",
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
