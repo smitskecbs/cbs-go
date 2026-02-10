@@ -514,7 +514,8 @@ DBT
         <span id="cbsgoWeatherLabel">${esc$2(getWeatherLabel())}</span>
       </div>
 
-      <div id="cbsgoMapControls" style="position:absolute;right:12px;bottom:16px;z-index:3500;display:flex;flex-direction:column;gap:10px;">
+     <div id="cbsgoMapControls" style="position:absolute;left:12px;top:64px;z-index:3500;display:flex;flex-direction:column;gap:10px;">
+
 
         <button id="cbsgoWorldBtn" class="cbsgo-pill" type="button" aria-label="World / Player toggle"
           style="width:52px;height:52px;font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
@@ -548,7 +549,7 @@ DBT
         position:absolute;
         inset:0;
         background: radial-gradient(circle at center, #02030a, #000);
-        z-index:5000;
+        z-index:3400;
         display:none;
         align-items:center;
         justify-content:center;
