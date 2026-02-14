@@ -573,6 +573,14 @@ DBT
   box-shadow: 0 18px 44px rgba(0,0,0,0.6);
   margin-bottom: 14px;
 "></canvas>
+<button id="cbsgoCalNorth" class="cbsgo-pill" type="button" style="
+  margin-top:10px;
+  padding:10px 12px;
+  font-size:13px;
+  cursor:pointer;
+">
+  🧭 Calibrate North
+</button>
 
         <div id="cbsgoSkyContent" style="display:none;"></div>
 
