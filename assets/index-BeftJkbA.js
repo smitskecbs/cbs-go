@@ -572,15 +572,15 @@ DBT
 
  ">
         <div style="font-size:28px;margin-bottom:12px;">🌌 Sky View</div>
- <canvas id="cbsgoSkyCanvas" width="320" height="320" style="
-  width:min(86vw, 320px);
-  height:min(86vw, 320px);
-  border-radius:999px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.14);
-  box-shadow: 0 18px 44px rgba(0,0,0,0.6);
-  margin-bottom: 14px;
+<canvas id="cbsgoSkyCanvas" style="
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  background: #000;
+  touch-action: none;
 "></canvas>
+
 <button id="cbsgoCalNorth" class="cbsgo-pill" type="button" style="
   margin-top:10px;
   padding:10px 12px;
