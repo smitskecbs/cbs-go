@@ -552,25 +552,15 @@ DBT
         pointer-events:none;
       "></div>
 
-      <!-- ✅ SKY OVERLAY (inside MapHost) -->
-      <div id="cbsgoSkyOverlay" style="
-        position:absolute;
-        inset:0;
-        background: radial-gradient(circle at center, #02030a, #000);
-        z-index:3400;
-        display:none;
-        align-items:center;
-        justify-content:center;
-        flex-direction:column;
-        color:white;
-        font-family:system-ui;
-        padding: 18px;
-        box-sizing: border-box;
-        text-align: center;
-        padding-top: calc(18px + env(safe-area-inset-top));
-        padding-bottom: calc(18px + env(safe-area-inset-bottom));
+    <!-- ✅ SKY OVERLAY (inside MapHost) -->
+<div id="cbsgoSkyOverlay" style="
+  position:absolute;
+  inset:0;
+  background:#000;
+  z-index:3400;
+  display:none;
+">
 
- ">
         <div style="font-size:28px;margin-bottom:12px;">🌌 Sky View</div>
 <canvas id="cbsgoSkyCanvas" style="
   position:absolute;
