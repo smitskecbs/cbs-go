@@ -601,8 +601,8 @@ DBT
 <button id="cbsgoSkyBackToMap" type="button" style="
   position:fixed;
   top:16px;
-  left:50%;
-  transform:translateX(-50%);
+  left:12px;
+  transform:none;
   z-index:99999;
   padding:10px 16px;
   border-radius:999px;
@@ -615,6 +615,7 @@ DBT
 ">
   🗺 Back to Map
 </button>
+
 
         <canvas id="cbsgoSkyCanvas" style="
           position:absolute;
