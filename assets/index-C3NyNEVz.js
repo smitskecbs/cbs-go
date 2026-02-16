@@ -624,25 +624,26 @@ DBT
           🌍
         </button>
 
-        <div id="cbsgoSkyContent" style="
-          position:absolute;
-          left:12px;
-          right:12px;
-          bottom:12px;
-          z-index:6;
-          display:none;
-          color:#fff;
-          font-family:system-ui;
-          font-size:14px;
-          line-height:1.35;
-          background:rgba(10,12,18,0.55);
-          border:1px solid rgba(255,255,255,0.14);
-          border-radius:14px;
-          padding:10px 12px;
-          backdrop-filter: blur(10px);
-          max-width:520px;
-          margin:0 auto;
-        "></div>
+      <div id="cbsgoSkyBackdrop" style="
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.72);
+  z-index:99998;
+  display:none;
+"></div>
+
+<div id="cbsgoSkyContent" style="
+  position:fixed;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  width:min(92vw, 520px);
+  max-height:min(72vh, 560px);
+  overflow:auto;
+  z-index:99999;
+  display:none;
+"></div>
+
       </div>
     </div>
   `}function bindMapView$1(){let o=0;const t=120,u=()=>{if(o++,!ensureEl("cbsgoMap")){if(o<t)return setTimeout(u,100);console.warn("Map container not found.");return}if(!initMapLibre())return;ensurePhoneOrientationListener();const n=ensureEl("cbsgoWorldBtn"),d=ensureEl("cbsgoSkyBtn"),b=ensureEl("cbsgoSkyWorldBtn");if(worldBtnEl=n,d&&(d.onclick=()=>{const g=ensureEl("cbsgoSkyOverlay");if(!g)return;if(g.style.display==="block"){closeSkyOverlay(),showToast("Back to map 🗺️",900);return}openSkyOverlay(),showToast("Sky view 🌌",900)}),b&&(b.onclick=()=>{closeSkyOverlay(),setWorldMode({animate:!0}),showToast("World 🌍",900)}),n&&(n.onclick=()=>{inWorldMode?setPlayerMode({animate:!1,snap:!0}):setWorldMode({animate:!0})}),!window.__cbsgo_sky_resize_bound){window.__cbsgo_sky_resize_bound=!0;const g=()=>{if(skyState.cache){resizeSkyCanvasToCSS();try{drawSkyRadar(skyState.cache.objs,skyState.cache.pos,skyState.cache.constellations)}catch{}}};window.addEventListener("resize",g,{passive:!0}),window.addEventListener("orientationchange",()=>{setTimeout(g,120)},{passive:!0})}startGps()};u()}typeof window<"u"&&(window.initMapLibre=initMapLibre);const STORAGE_KEY="cbsgo_cards_v1";function safeParse$1(o,t){try{const u=JSON.parse(o);return u&&typeof u=="object"?u:t}catch{return t}}function getAllCardsDefinition(){return[{id:"walk_sun_1",set:"Walking",name:"Sunny Walk",emoji:"🚶‍♂️☀️",rarity:"common"},{id:"walk_rain_1",set:"Walking",name:"Rainy Walk",emoji:"🚶‍♂️🌧️",rarity:"common"},{id:"walk_night_1",set:"Walking",name:"Night Walk",emoji:"🚶‍♀️🌙",rarity:"uncommon"},{id:"walk_city_1",set:"Walking",name:"City Steps",emoji:"🚶‍♂️🏙️",rarity:"uncommon"},{id:"walk_nature_1",set:"Walking",name:"Forest Trail",emoji:"🚶‍♀️🌲",rarity:"rare"},{id:"walk_beach_1",set:"Walking",name:"Beach Walk",emoji:"🚶‍♂️🏖️",rarity:"rare"},{id:"cbs_heart_1",set:"CBS",name:"CBS Heart",emoji:"💛🪙",rarity:"rare"},{id:"cbs_chain_1",set:"CBS",name:"Break the Chain",emoji:"⛓️✨",rarity:"epic"},{id:"cbs_fire_1",set:"CBS",name:"Builder Flame",emoji:"🔥🛠️",rarity:"epic"},{id:"cbs_go_1",set:"CBS",name:"CBS-GO Explorer",emoji:"🗺️🪙",rarity:"legendary"},{id:"walk_morning_1",set:"Walking",name:"Morning Steps",emoji:"🌅🚶‍♂️",rarity:"common"},{id:"walk_evening_1",set:"Walking",name:"Evening Glow",emoji:"🌇🚶‍♀️",rarity:"common"},{id:"walk_park_1",set:"Walking",name:"Park Loop",emoji:"🌳🚶‍♂️",rarity:"uncommon"},{id:"walk_bridge_1",set:"Walking",name:"River Bridge",emoji:"🌉🚶‍♀️",rarity:"uncommon"},{id:"cbs_star_1",set:"CBS",name:"Community Star",emoji:"⭐🪙",rarity:"rare"},{id:"cbs_glow_1",set:"CBS",name:"Glow Ticket",emoji:"🎟️✨",rarity:"rare"},{id:"cbs_team_1",set:"CBS",name:"Builder Squad",emoji:"🧑‍💻🧑‍💻",rarity:"epic"},{id:"cbs_legend_1",set:"CBS",name:"CBS Legend",emoji:"👑🪙",rarity:"legendary"},{id:"walk_placeholder_1",set:"Walking",name:"Mystery Walk I",emoji:"🚶‍♂️❓",rarity:"common"},{id:"walk_placeholder_2",set:"Walking",name:"Mystery Walk II",emoji:"🚶‍♀️❓",rarity:"common"},{id:"cbs_placeholder_1",set:"CBS",name:"Mystery CBS I",emoji:"🪙❓",rarity:"rare"},{id:"cbs_placeholder_2",set:"CBS",name:"Mystery CBS II",emoji:"🪙❓",rarity:"rare"}]}function loadCardCounts(){const o=localStorage.getItem(STORAGE_KEY),t=safeParse$1(o,{});let u={};return t&&typeof t.counts=="object"&&t.counts!==null?u={...t.counts}:Array.isArray(t.cards)&&t.cards.forEach(s=>{if(!s||!s.id)return;const h=Number(s.count||0);Number.isFinite(h)&&h>0&&(u[s.id]=h)}),u}function esc$1(o){return String(o||"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;")}function rarityColor(o){return o==="legendary"?"rgba(251,191,36,.95)":o==="epic"?"rgba(147,51,234,.9)":o==="rare"?"rgba(56,189,248,.9)":"rgba(148,163,184,.9)"}function getCollectedStats(){const o=getAllCardsDefinition(),t=loadCardCounts();let u=0;return o.forEach(s=>{t[s.id]>0&&(u+=1)}),{collected:u,total:o.length}}function renderCardsGrid(){const o=getAllCardsDefinition(),t=loadCardCounts();return o.length?`
