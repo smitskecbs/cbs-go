@@ -594,7 +594,8 @@ DBT
         position:absolute;
         inset:0;
         background:#000;
-        z-index:3400;
+        z-index:99990;
+
         display:none;
       ">
         <canvas id="cbsgoSkyCanvas" style="
