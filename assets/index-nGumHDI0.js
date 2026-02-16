@@ -629,7 +629,7 @@ DBT
           left:12px;
           right:12px;
           bottom:12px;
-          z-index:2;
+          z-index:6;
           display:none;
           color:#fff;
           font-family:system-ui;
