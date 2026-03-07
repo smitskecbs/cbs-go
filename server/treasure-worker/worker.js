@@ -23,21 +23,27 @@ dotenv.config()
 // --------------------
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const keypairPath = path.resolve(__dirname, process.env.TREASURE_KEYPAIR_PATH || '')
+let secretRaw = ''
 
-// --------------------
-// Load keypair safely
-// --------------------
-if (!keypairPath || !fs.existsSync(keypairPath)) {
-  console.error('❌ Treasure keypair not found:', keypairPath || '(missing TREASURE_KEYPAIR_PATH)')
-  process.exit(1)
+if (process.env.TREASURE_KEYPAIR_JSON) {
+  secretRaw = process.env.TREASURE_KEYPAIR_JSON
+} else {
+  const keypairPath = path.resolve(__dirname, process.env.TREASURE_KEYPAIR_PATH || '')
+
+  // --------------------
+  // Load keypair safely from file (local fallback)
+  // --------------------
+  if (!keypairPath || !fs.existsSync(keypairPath)) {
+    console.error('❌ Treasure keypair not found: missing TREASURE_KEYPAIR_JSON and TREASURE_KEYPAIR_PATH')
+    process.exit(1)
+  }
+
+  secretRaw = fs.readFileSync(keypairPath, 'utf-8')
 }
 
-const secret = JSON.parse(fs.readFileSync(keypairPath, 'utf-8'))
+const secret = JSON.parse(secretRaw)
 const treasureWallet = Keypair.fromSecretKey(new Uint8Array(secret))
-console.log('✅ Treasure wallet loaded:', treasureWallet.publicKey.toBase58())
-
-// --------------------
+console.log('✅ Treasure wallet loaded:', treasureWallet.publicKey.toBase58())// --------------------
 // Config
 // --------------------
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com'
