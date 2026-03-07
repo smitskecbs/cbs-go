@@ -4,5 +4,7 @@ node_modules/
 dist/
 .vite/
 
-server/treasure-worker/*.json
 server/treasure-worker/keys/
+server/treasure-worker/*.json
+!server/treasure-worker/package.json
+!server/treasure-worker/package-lock.json
