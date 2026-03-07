@@ -87,8 +87,19 @@ if (typeof window !== 'undefined' && !window.__cbsgo_shareLocation_listener) {
 // ---------- helpers ----------
 function getWalletPkSafe() {
   try {
-    const pk = getLocalPublicKey();
-    return pk ? String(pk) : null;
+    // 1) direct import
+    const pk = typeof getLocalPublicKey === 'function' ? getLocalPublicKey() : null;
+    if (pk) return String(pk);
+
+    // 2) compat: appShell exposes window.getLocalPublicKey()
+    if (typeof window !== 'undefined' && typeof window.getLocalPublicKey === 'function') {
+      const pk2 = window.getLocalPublicKey();
+      if (pk2) return String(pk2);
+    }
+
+    // 3) legacy/global fallback
+    const v = globalThis?.cbsgoWalletPublicKey || null;
+    return v ? String(v) : null;
   } catch {
     return null;
   }
@@ -126,13 +137,8 @@ async function pushMyState() {
   };
 
   try {
-    const { error } = await supabase
-      .from('player_state')
-      .upsert(payload, { onConflict: 'user_id' });
-
-    if (error) {
-      console.warn('CBS GO: player_state upsert failed', error);
-    }
+    const { error } = await supabase.from('player_state').upsert(payload, { onConflict: 'user_id' });
+    if (error) console.warn('CBS GO: player_state upsert failed', error);
   } catch (e) {
     console.warn('CBS GO: pushMyState error', e);
   }
@@ -182,7 +188,11 @@ async function fetchOnlinePlayers() {
       if (profileError) {
         console.warn('CBS GO: fetch player profiles failed', profileError);
       } else if (Array.isArray(profiles)) {
-        profileByWallet = new Map(profiles.map((p) => [p.wallet_pk, p]));
+        profileByWallet = new Map(
+          profiles
+            .filter((p) => p && p.wallet_pk)
+            .map((p) => [String(p.wallet_pk), p]),
+        );
       }
     }
 
@@ -215,9 +225,7 @@ async function fetchOnlinePlayers() {
       .filter(Boolean);
 
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('cbsgo:onlinePlayers', { detail: { players } }),
-      );
+      window.dispatchEvent(new CustomEvent('cbsgo:onlinePlayers', { detail: { players } }));
     }
   } catch (e) {
     console.warn('CBS GO: fetchOnlinePlayers error', e);

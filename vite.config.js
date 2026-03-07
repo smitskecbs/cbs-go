@@ -12,12 +12,16 @@ export default defineConfig({
 
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "favicon.ico", "robots.txt", "apple-touch-icon.png"],
 
-      // ✅ FIX: allow bigger bundles in precache during our test
-      workbox: {
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024, // 6MB
-      },
+      // assets uit /public (relatief pad, NIET met /cbs-go/ ervoor)
+      includeAssets: [
+        "favicon.svg",
+        "favicon.ico",
+        "robots.txt",
+        "apple-touch-icon.png",
+        "icons/icon-192.png",
+        "icons/icon-512.png",
+      ],
 
       manifest: {
         name: "CBS GO",
@@ -28,9 +32,14 @@ export default defineConfig({
         background_color: "#05070b",
         theme_color: "#000000",
         icons: [
-          { src: "/cbs-go/pwa-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/cbs-go/pwa-512.png", sizes: "512x512", type: "image/png" },
+          { src: "/cbs-go/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/cbs-go/icons/icon-512.png", sizes: "512x512", type: "image/png" },
         ],
+      },
+
+      workbox: {
+        // allow >2MB files in precache (jij had 2.25MB bundle)
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
   ],
@@ -39,13 +48,15 @@ export default defineConfig({
     global: "globalThis",
   },
 
-  build: {
-    // ✅ TEST: turn off minify to see if "Ne is not defined" disappears
-    minify: false,
+  // FIX voor "__publicField is not defined" in production bundles
+  esbuild: {
+    target: "es2022",
+  },
 
-    target: "es2019",
+  build: {
+    target: "es2022",
     sourcemap: false,
-    chunkSizeWarningLimit: 1200,
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -57,5 +68,8 @@ export default defineConfig({
 
   optimizeDeps: {
     include: ["maplibre-gl"],
+    esbuildOptions: {
+      target: "es2022",
+    },
   },
 });

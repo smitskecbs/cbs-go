@@ -28,9 +28,51 @@ function shortWallet(pk) {
   return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
 
+// ✅ Normalize avatar input to a clean data:image/*;base64,... URL
+function normalizeImageDataUrl(input) {
+  if (typeof input !== 'string') return '';
+  let s = input.trim();
+  if (!s) return '';
+
+  // Sometimes saved as a quoted JSON string
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+
+  // If it contains multiple "data:image" segments, keep the last one
+  const last = s.lastIndexOf('data:image');
+  if (last > 0) s = s.slice(last);
+
+  // Already a data URL
+  if (s.startsWith('data:image')) {
+    const comma = s.indexOf(',');
+    if (comma === -1) return '';
+
+    const header = s.slice(0, comma);
+    let b64 = s.slice(comma + 1);
+
+    // Remove whitespace/newlines and any non-base64 characters
+    b64 = b64.replace(/\s+/g, '');
+    b64 = b64.replace(/[^A-Za-z0-9+/=]/g, '');
+
+    const mimeMatch = header.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64$/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+
+    if (!b64) return '';
+    return `data:${mime};base64,${b64}`;
+  }
+
+  // Otherwise assume it's raw base64
+  let b64 = s.replace(/\s+/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!b64) return '';
+  return `data:image/png;base64,${b64}`;
+}
+
 function avatarBubble(dataUrl, size = 32) {
-  const bg = dataUrl ? `background-image:url('${dataUrl}');` : '';
-  const txt = dataUrl ? '' : '👤';
+  const safeUrl = normalizeImageDataUrl(dataUrl);
+  const bg = safeUrl ? `background-image:url('${safeUrl}');` : '';
+  const txt = safeUrl ? '' : '👤';
+
   return `
     <div style="
       flex-shrink:0;
@@ -168,7 +210,6 @@ export async function bindFriendsPanelEvents() {
     if (!listsHost) return;
     try {
       const overview = await loadFriendsOverview();
-
       const { accepted, incoming, outgoing } = overview;
 
       let html = '';
@@ -207,7 +248,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<button class="friends-accept-btn" data-id="${f.id}" type="button" style="
+                      `<button class="friends-accept-btn" data-id="${esc(f.id)}" type="button" style="
                          padding:5px 10px;
                          border-radius:999px;
                          border:1px solid rgba(52,211,153,.9);
@@ -248,21 +289,23 @@ export async function bindFriendsPanelEvents() {
       listsHost.innerHTML = html;
 
       // Accept-buttons koppelen
-      document.querySelectorAll('.friends-accept-btn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const id = Number(btn.getAttribute('data-id'));
-          if (!id) return;
+      document.querySelectorAll('.friends-accept-btn').forEach((b) => {
+        b.addEventListener('click', async () => {
+          const idRaw = b.getAttribute('data-id');
+          const id = Number(idRaw);
+          if (!Number.isFinite(id) || id <= 0) return;
+
           try {
-            btn.disabled = true;
-            btn.textContent = '…';
+            b.disabled = true;
+            b.textContent = '…';
             await acceptFriendRequest(id);
             await refreshFriendsUI();
             setMsg('✅ Friend request accepted');
           } catch (e) {
             console.warn(e);
             setMsg(e?.message || 'Could not accept friend request.');
-            btn.disabled = false;
-            btn.textContent = 'Accept';
+            b.disabled = false;
+            b.textContent = 'Accept';
           }
         });
       });
@@ -277,7 +320,9 @@ export async function bindFriendsPanelEvents() {
 
   if (btn) {
     btn.addEventListener('click', async () => {
-      const value = input?.value || '';
+      const value = (input?.value || '').trim();
+      if (!value) return setMsg('Enter a wallet address first.');
+
       setMsg('Sending friend request…');
       try {
         await sendFriendRequest(value);

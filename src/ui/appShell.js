@@ -1,9 +1,8 @@
-
 // src/ui/appShell.js 
 
 // Fullscreen map shell met overlays.
+// Layout afspraken
 //
-// Layout afspraken :
 // - Map is fullscreen.
 // - Rechtsboven: alleen XP + stappen.
 // - Rechtsonder: 2 ronde knoppen op de kaart (Profile & Bag), naast elkaar, net boven GPS-tekst.
@@ -20,7 +19,7 @@ import { openPuzzleModal } from './puzzleModal.js';
 
 import { renderXpBar } from './xpBar.js';
 // import { renderStepsWidget, bindStepsWidget } from './stepsWidget.js'; // UI uit
-
+import { renderLeaderboardPanel, bindLeaderboardPanel } from './leaderboardPanel.js';
 import { tryAutoStart } from '../app/steps.js';
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
 
@@ -180,8 +179,51 @@ function esc(s) {
 }
 
 function avatarCircle(dataUrl, size = 30) {
-  const bg = dataUrl ? `background-image:url('${dataUrl}');` : '';
-  const txt = dataUrl ? '' : '👤';
+  // Hard normalize any avatar input into a clean data:image/*;base64,... url
+  function normalizeImageDataUrl(input) {
+    if (typeof input !== 'string') return '';
+    let s = input.trim();
+    if (!s) return '';
+
+    // Sometimes it gets saved as a JSON string including quotes
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      s = s.slice(1, -1).trim();
+    }
+
+    // If it already looks like a data URL, extract mime + base64 part
+    if (s.startsWith('data:image')) {
+      // keep only the last data:image occurrence if duplicated somewhere
+      const last = s.lastIndexOf('data:image');
+      if (last > 0) s = s.slice(last);
+
+      const comma = s.indexOf(',');
+      if (comma === -1) return '';
+
+      const header = s.slice(0, comma); // data:image/png;base64
+      let b64 = s.slice(comma + 1);
+
+      // Remove whitespace/newlines and any non-base64 characters
+      b64 = b64.replace(/\s+/g, '');
+      b64 = b64.replace(/[^A-Za-z0-9+/=]/g, '');
+
+      // Extract mime type if present
+      const mimeMatch = header.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64$/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+
+      if (!b64) return '';
+      return `data:${mime};base64,${b64}`;
+    }
+
+    // Otherwise assume it's raw base64 (maybe with whitespace)
+    let b64 = s.replace(/\s+/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+    if (!b64) return '';
+    return `data:image/png;base64,${b64}`;
+  }
+
+  const safeUrl = normalizeImageDataUrl(dataUrl);
+  const bg = safeUrl ? `background-image:url('${safeUrl}');` : '';
+  const txt = safeUrl ? '' : '👤';
+
   return `
     <div style="
       width:${size}px;height:${size}px;border-radius:999px;
@@ -196,6 +238,7 @@ function avatarCircle(dataUrl, size = 30) {
     ">${txt}</div>
   `;
 }
+
 function getShareLocation() {
   try {
     return (localStorage.getItem('cbsgo_shareLocation') ?? '1') === '1';
@@ -403,7 +446,7 @@ function panelWrap(title, innerHtml) {
 // ---------- Profile (zonder wallet blok) + Friends ----------
 function renderProfile() {
   const me = getPlayerName();
-  const myAvatar = getPlayerAvatar();
+  const myAvatar = String(getPlayerAvatar() || '').trim();
 
   return `
     <section style="
@@ -427,22 +470,33 @@ function renderProfile() {
 
         <div style="flex:1; min-width:220px;">
           <label for="profileName" style="font-size:12px; opacity:.8;">Nickname</label>
-          <input id="profileName" value="${esc(me)}" maxlength="24" style="
-            width:100%;
-            margin-top:4px;
-            padding:10px 10px;
-            border-radius:12px;
-            border:1px solid rgba(255,255,255,.14);
-            background:rgba(255,255,255,.06);
-            color:#fff;
-          " placeholder="Your nickname"/>
+          <input
+            id="profileName"
+            value="${esc(me)}"
+            maxlength="24"
+            style="
+              width:100%;
+              margin-top:4px;
+              padding:10px 10px;
+              border-radius:12px;
+              border:1px solid rgba(255,255,255,.14);
+              background:rgba(255,255,255,.06);
+              color:#fff;
+            "
+            placeholder="Your nickname"
+          />
 
           <div style="margin-top:12px;">
             <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Photo</div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <input id="profileAvatar" type="file" accept="image/*" />
-              <button class="btn secondary" id="profileShareLocBtn" type="button">📍 Location: ON</button>
-
+              <button
+                class="btn secondary"
+                id="profileShareLocBtn"
+                type="button"
+              >
+                📍 Location: ON
+              </button>
             </div>
           </div>
 
@@ -458,7 +512,8 @@ function renderProfile() {
       ">
         <h4 style="margin:0 0 6px 0; font-size:14px;">Friends</h4>
         <p style="margin:0 0 10px 0; font-size:11px; opacity:.75;">
-          Friends are linked to your <b>email account</b> (Supabase user). Your wallet can change later, but your friends stay.
+          Friends are linked to your <b>email account</b> (Supabase user).
+          Your wallet can change later, but your friends stay.
         </p>
 
         <!-- My Friend Code -->
@@ -473,40 +528,57 @@ function renderProfile() {
             Your Friend Code (share this)
           </div>
 
-          <div id="myFriendCodeValue" style="
-            font-size:11px;
-            opacity:.95;
-            padding:6px 8px;
-            border-radius:10px;
-            border:1px solid rgba(56,189,248,.45);
-            background:rgba(10,12,18,.85);
-            word-break:break-all;
-            font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-            margin-bottom:8px;
-          ">Loading…</div>
+          <div
+            id="myFriendCodeValue"
+            style="
+              font-size:11px;
+              opacity:.95;
+              padding:6px 8px;
+              border-radius:10px;
+              border:1px solid rgba(56,189,248,.45);
+              background:rgba(10,12,18,.85);
+              word-break:break-all;
+              font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+              margin-bottom:8px;
+            "
+          >
+            Loading…
+          </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button id="myFriendCodeCopyBtn" type="button" style="
-              padding:7px 11px;
-              border-radius:999px;
-              border:1px solid rgba(56,189,248,.9);
-              background:rgba(56,189,248,.18);
-              color:#e0f2fe;
-              font-size:12px;
-              font-weight:700;
-              cursor:pointer;
-            ">Copy Friend Code</button>
+            <button
+              id="myFriendCodeCopyBtn"
+              type="button"
+              style="
+                padding:7px 11px;
+                border-radius:999px;
+                border:1px solid rgba(56,189,248,.9);
+                background:rgba(56,189,248,.18);
+                color:#e0f2fe;
+                font-size:12px;
+                font-weight:700;
+                cursor:pointer;
+              "
+            >
+              Copy Friend Code
+            </button>
 
-            <button id="myFriendCodeRefreshBtn" type="button" style="
-              padding:7px 11px;
-              border-radius:999px;
-              border:1px solid rgba(255,255,255,.18);
-              background:rgba(255,255,255,.08);
-              color:#fff;
-              font-size:12px;
-              font-weight:600;
-              cursor:pointer;
-            ">Refresh</button>
+            <button
+              id="myFriendCodeRefreshBtn"
+              type="button"
+              style="
+                padding:7px 11px;
+                border-radius:999px;
+                border:1px solid rgba(255,255,255,.18);
+                background:rgba(255,255,255,.08);
+                color:#fff;
+                font-size:12px;
+                font-weight:600;
+                cursor:pointer;
+              "
+            >
+              Refresh
+            </button>
           </div>
 
           <div id="myFriendCodeMsg" style="margin-top:6px;font-size:11px;opacity:.85;"></div>
@@ -574,97 +646,91 @@ function bindProfileEvents() {
     if (msg) msg.textContent = t || '';
   };
 
-  if (nameInput) setMsg(nameInput.value ? `✅ Profile loaded: ${nameInput.value}` : '');
-  // -------- Nickname save (unchanged) --------
+  if (nameInput) {
+    setMsg(nameInput.value ? `✅ Profile loaded: ${nameInput.value}` : '');
+  }
+
+  // --- Name save ---
+  const saveNameNow = () => {
+    if (!nameInput) return;
+    const n = setPlayerName(nameInput.value);
+    setMsg(`✅ Name saved: ${n}`);
+    try {
+      syncPlayerProfile();
+      syncRemoteProfileSafe('name-change');
+    } catch (e) {
+      console.warn('CBS GO: failed to sync profile after name change', e);
+    }
+  };
+
   if (nameInput) {
     nameInput.addEventListener('input', () => {
-      try { clearTimeout(saveTimer); } catch {}
-      saveTimer = setTimeout(() => {
-        try {
-          setPlayerName(nameInput.value.trim());
-          syncPlayerProfile();
-          setMsg('✅ Nickname saved');
-        } catch (e) {
-          console.warn('Profile name save failed', e);
-          setMsg('⚠️ Failed to save nickname');
-        }
-      }, 450);
+      setMsg('Saving…');
+      try {
+        if (saveTimer) clearTimeout(saveTimer);
+      } catch {}
+      saveTimer = setTimeout(saveNameNow, 300);
+    });
+
+    nameInput.addEventListener('blur', () => {
+      try {
+        if (saveTimer) clearTimeout(saveTimer);
+      } catch {}
+      saveNameNow();
     });
   }
 
- // --- Name save ---
-const saveNameNow = () => {
-  if (!nameInput) return;
-  const n = setPlayerName(nameInput.value);
-  setMsg(`✅ Name saved: ${n}`);
-  try {
-    syncPlayerProfile();
-    syncRemoteProfileSafe('name-change');
-  } catch (e) {
-    console.warn('CBS GO: failed to sync profile after name change', e);
-  }
-};
+  // --- Avatar upload (1x, met size-check) ---
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files && fileInput.files[0];
+      if (!f) return;
 
-if (nameInput) {
-  nameInput.addEventListener('input', () => {
-    setMsg('Saving…');
-    try { if (saveTimer) clearTimeout(saveTimer); } catch {}
-    saveTimer = setTimeout(saveNameNow, 300);
-  });
-
-  nameInput.addEventListener('blur', () => {
-    try { if (saveTimer) clearTimeout(saveTimer); } catch {}
-    saveNameNow();
-  });
-}
-
-// --- Avatar upload (1x, met size-check) ---
-if (fileInput) {
-  fileInput.addEventListener('change', () => {
-    const f = fileInput.files && fileInput.files[0];
-    if (!f) return;
-
-    if (f.size > 1_500_000) {
-      setMsg('⛔ Image too large. Please choose a smaller photo (max ~1.5MB).');
-      fileInput.value = '';
-      return;
-    }
-
-    setMsg('Uploading photo…');
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        setPlayerAvatar(String(reader.result || ''));
-        setMsg('✅ Photo updated');
-        updatePanel();
-
-        try {
-          syncPlayerProfile();
-          syncRemoteProfileSafe('avatar-change');
-        } catch (e) {
-          console.warn('CBS GO: failed to sync profile after avatar change', e);
-        }
-      } catch (e) {
-        console.warn('Avatar update failed', e);
-        setMsg('⚠️ Failed to update photo');
+      if (f.size > 1_500_000) {
+        setMsg('⛔ Image too large. Please choose a smaller photo (max ~1.5MB).');
+        fileInput.value = '';
+        return;
       }
+
+      setMsg('Uploading photo…');
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          setPlayerAvatar(String(reader.result || ''));
+          setMsg('✅ Photo updated');
+          updatePanel();
+
+          try {
+            syncPlayerProfile();
+            syncRemoteProfileSafe('avatar-change');
+          } catch (e) {
+            console.warn('CBS GO: failed to sync profile after avatar change', e);
+          }
+        } catch (e) {
+          console.warn('Avatar update failed', e);
+          setMsg('⚠️ Failed to update photo');
+        }
+      };
+      reader.onerror = () => setMsg('⛔ Failed to read image.');
+      reader.readAsDataURL(f);
+    });
+  }
+
+  // --- Location sharing toggle ---
+  try {
+    updateShareLocProfileButton();
+  } catch {}
+
+  if (shareLocBtn) {
+    shareLocBtn.onclick = () => {
+      const next = !getShareLocation();
+      setShareLocation(next);
+      try {
+        updateShareLocProfileButton();
+      } catch {}
+      setMsg(next ? '📍 Location sharing enabled' : '🙈 Location sharing disabled');
     };
-    reader.onerror = () => setMsg('⛔ Failed to read image.');
-    reader.readAsDataURL(f);
-  });
-}
-
-// --- Location sharing toggle (replaces remove photo) ---
-try { updateShareLocProfileButton(); } catch {}
-
-if (shareLocBtn) {
-  shareLocBtn.onclick = () => {
-    const next = !getShareLocation();
-    setShareLocation(next);
-    try { updateShareLocProfileButton(); } catch {}
-    setMsg(next ? '📍 Location sharing enabled' : '🙈 Location sharing disabled');
-  };
-}
+  }
 
   // ---------- Friends UI binding ----------
   const friendInput = document.querySelector('#friendWalletInput');
@@ -758,9 +824,7 @@ if (shareLocBtn) {
       pick(fr, ['nickname', 'otherNickname', 'other_nickname', 'name', 'display_name'], '')
     ).trim();
 
-    const avatarRaw = String(
-      pick(fr, ['avatar', 'otherAvatar', 'other_avatar', 'pf', 'photo'], '')
-    );
+    const avatarRaw = String(pick(fr, ['avatar', 'otherAvatar', 'other_avatar', 'pf', 'photo'], ''));
 
     // ✅ fallback: show friend code if wallet missing
     const uid = String(pick(fr, ['otherUserId', 'other_user_id', 'uid', 'user_id'], '')).trim();
@@ -1014,7 +1078,10 @@ function renderBag() {
           ">
             <option value="">No card</option>
             ${sendable
-              .map((c) => `<option value="${esc(c.id)}">${esc(c.label || c.id)} (x${c.count})</option>`)
+              .map(
+                (c) =>
+                  `<option value="${esc(c.id)}">${esc(c.label || c.id)} (x${c.count})</option>`,
+              )
               .join('')}
           </select>
         </div>
@@ -1073,7 +1140,7 @@ function renderBag() {
         </div>
       </div>
 
-       ${
+      ${
         solPk
           ? `
             <div style="
@@ -1139,14 +1206,14 @@ function renderBag() {
             </div>
           `
       }
-        <div style="
+
+      <div style="
         margin-top:16px;
         padding:10px 12px;
         border-radius:14px;
         border:1px solid rgba(148,163,184,.7);
         background:rgba(15,23,42,.9);
       ">
-
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
           <div>
             <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
@@ -1303,7 +1370,6 @@ function bindBagEvents() {
   } catch (e) {
     console.warn('CBS GO: failed to sync inventory cards from bag', e);
   }
-
   // ✅ Copy Solana address
   const copySolBtn = document.querySelector('#cbsgoCopySolWalletBtn');
   if (copySolBtn) {
@@ -1438,8 +1504,8 @@ function bindBagEvents() {
         }
 
         setGiftMsg('✅ Gift sent.');
-// ✅ Force remote to match the new bag state (after deduct)
-syncRemoteProfileSafe('gift-sent', true).catch(() => {});
+        // ✅ Force remote to match the new bag state (after deduct)
+        syncRemoteProfileSafe('gift-sent', true).catch(() => {});
 
         if (giftTicketsInput) giftTicketsInput.value = '';
         if (giftCbsInput) giftCbsInput.value = '';
@@ -1469,8 +1535,61 @@ syncRemoteProfileSafe('gift-sent', true).catch(() => {});
   }
 
   pullIncomingGifts().catch(() => {});
-}
+  // ✅ Treasure open request -> write claim to Supabase
+  if (!window.__cbsgo_treasure_claim_listener) {
+    window.__cbsgo_treasure_claim_listener = true;
 
+    window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
+      try {
+        const treasureId = String(ev?.detail?.treasureId || '').trim();
+        const lat = Number(ev?.detail?.lat);
+        const lng = Number(ev?.detail?.lng);
+
+        if (!treasureId) return;
+
+        // claimant = jouw Solana wallet (lokale CBS-GO wallet)
+        const claimantWallet = (getLocalPublicKeySafe() || '').trim();
+        if (!claimantWallet) {
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:toast', { detail: { text: '⛔ No local wallet found (finish login).' } })
+          );
+          return;
+        }
+
+        // schrijf claim in Supabase (row-level update)
+        const { error } = await supabase
+          .from('treasures')
+          .update({
+            claimed_by_wallet: claimantWallet,
+            claimed_at: new Date().toISOString(),
+            claimed_lat: Number.isFinite(lat) ? lat : null,
+            claimed_lng: Number.isFinite(lng) ? lng : null,
+            status: 'active', // worker will atomically flip to processing
+          })
+          .eq('id', treasureId)
+          .is('claimed_by_wallet', null) // only first claimant wins
+          .eq('status', 'active');
+
+        if (error) {
+          console.warn('CBS-GO: treasure claim update failed', error);
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:toast', { detail: { text: `⛔ Claim failed: ${error.message}` } })
+          );
+          return;
+        }
+
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:toast', { detail: { text: '✅ Treasure opened! Paying out…' } })
+        );
+      } catch (e) {
+        console.warn('CBS-GO: treasure claim handler failed', e);
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:toast', { detail: { text: '⛔ Claim failed (unexpected error).' } })
+        );
+      }
+    });
+  }
+}
 
 // ---------- Solana Wallet pagina met Token Overview (UI v1) ----------
 function renderWalletPanel() {
@@ -2181,6 +2300,7 @@ function renderPanel() {
   if (t === 'profile') return panelWrap('Profile', `<div id="profileMount">${renderProfile()}</div>`);
   if (t === 'bag') return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
   if (t === 'wallet') return panelWrap('Solana Wallet', `<div id="walletMount">${renderWalletPanel()}</div>`);
+  if (t === 'leaderboard') return panelWrap('Leaderboard', `<div id="lbMount">${renderLeaderboardPanel()}</div>`);
   return '';
 }
 
@@ -2315,12 +2435,12 @@ function updatePanel() {
   const root = document.querySelector('#panelRoot');
   if (!root) return;
   root.innerHTML = renderPanel();
-
+ 
   const t = getSelectedTab();
   if (t === 'profile') bindProfileEvents();
   if (t === 'bag') bindBagEvents();
   if (t === 'wallet') bindWalletEvents();
-
+  if (t === 'leaderboard') bindLeaderboardPanel();
   const close = document.querySelector('#cbsgoClosePanel');
   if (close) {
     close.addEventListener('click', () => {
@@ -2341,7 +2461,22 @@ function bindUi() {
       updatePanel();
     });
   });
+
+  // ✅ Klik op XP box rechtsboven => open Leaderboard
+  const xp = document.querySelector('#xpMount');
+  if (xp && !xp.__lbBound) {
+    xp.__lbBound = true;
+    xp.style.cursor = 'pointer';
+    xp.title = 'Open leaderboard (XP)';
+    xp.addEventListener('click', () => {
+      const current = getSelectedTab();
+      if (current === 'leaderboard') setSelectedTab('map');
+      else setSelectedTab('leaderboard');
+      updatePanel();
+    });
+  }
 }
+
 
 // ---------- Trade popup ----------
 function showTradePopup(detail) {
@@ -2393,33 +2528,42 @@ function showTradePopup(detail) {
   if (cbs) lineParts.push(`🪙 ${cbs} CBS`);
   if (cardId && cardQty) lineParts.push(`🃏 ${cardQty} card${cardQty === 1 ? '' : 's'}`);
 
-  const fromHtml =
-    direction === 'sent'
-      ? `
-        <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
-          Sent from <b>${esc(meName)}</b> to <span style="opacity:.9;">${esc(toWallet || '')}</span>
-        </div>
-      `
-      : `
-        <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
-          From <b>${esc(fromNickname || 'Friend')}</b>
-        </div>
-      `;
+  let fromHtml = '';
+  if (direction === 'sent') {
+    fromHtml = `
+      <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
+        Sent from <b>${esc(meName)}</b> to <span style="opacity:.9;">${esc(toWallet || '')}</span>
+      </div>
+    `;
+  } else {
+    fromHtml = `
+      <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
+        From <b>${esc(fromNickname || 'Friend')}</b>
+      </div>
+    `;
+  }
 
-  const avatarHtml =
+  let avatarHtml = '';
+  if (direction === 'sent') {
+    avatarHtml = `
+      <div style="
+        width:40px;height:40px;border-radius:999px;
+        border:1px solid rgba(148,163,184,.5);
+        background:rgba(15,23,42,.9);
+        display:flex;align-items:center;justify-content:center;
+        font-size:20px;
+      ">
+        📤
+      </div>
+    `;
+  } else {
+    avatarHtml = avatarCircle(fromAvatar || '', 40);
+  }
+
+  const infoLine =
     direction === 'sent'
-      ? `
-        <div style="
-          width:40px;height:40px;border-radius:999px;
-          border:1px solid rgba(148,163,184,.5);
-          background:rgba(15,23,42,.9);
-          display:flex;align-items:center;justify-content:center;
-          font-size:20px;
-        ">
-          📤
-        </div>
-      `
-      : avatarCircle(fromAvatar || '', 40);
+      ? 'Your gift is on the way. The receiver will see it added to their Bag.'
+      : 'This gift is added to your Bag. Later you can also send and trade cards with friends.';
 
   card.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -2429,12 +2573,15 @@ function showTradePopup(detail) {
         ${fromHtml}
       </div>
     </div>
+
     <div style="font-size:13px;font-weight:600;margin-bottom:8px;">
       ${esc(lineParts.join(' · '))}
     </div>
+
     <div style="font-size:11px;opacity:.78;margin-bottom:10px;">
-      Gifts are added to your Bag. Later you can also send and trade cards with friends.
+      ${esc(infoLine)}
     </div>
+
     <button type="button" id="cbsgoTradePopupCloseBtn" style="
       padding:8px 14px;
       border-radius:999px;
@@ -2521,6 +2668,7 @@ function bootstrapApp() {
 
   bindUi();
   bindMapView();
+  bindTreasureClaimListener();
 
   tryAutoStart();
 
@@ -2601,12 +2749,115 @@ export function mountApp() {
   const app = document.querySelector('#app');
   if (!app) return;
 
+  // ---------- Loading overlay (local helper) ----------
+  const LOADER_ID = 'cbsgoLoginLoadingOverlay';
+  const ensureLoader = () => {
+    let el = document.getElementById(LOADER_ID);
+    if (el) return el;
+
+    el = document.createElement('div');
+    el.id = LOADER_ID;
+    el.style.position = 'fixed';
+    el.style.inset = '0';
+    el.style.zIndex = '99999';
+    el.style.background = 'rgba(5,7,11,0.92)';
+    el.style.backdropFilter = 'blur(10px)';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.style.padding = '24px';
+    el.style.color = '#fff';
+    el.style.fontFamily = 'system-ui, sans-serif';
+    el.style.opacity = '0';
+    el.style.pointerEvents = 'none';
+    el.style.transition = 'opacity .18s ease-out';
+
+    el.innerHTML = `
+      <div style="
+        width:min(420px, 92vw);
+        border-radius:22px;
+        border:1px solid rgba(56,189,248,.55);
+        background:rgba(10,12,18,.75);
+        box-shadow:0 24px 80px rgba(0,0,0,.75);
+        padding:18px 16px;
+      ">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="
+            width:44px;height:44px;border-radius:14px;
+            border:1px solid rgba(56,189,248,.55);
+            background:rgba(56,189,248,.10);
+            display:flex;align-items:center;justify-content:center;
+            font-size:22px;
+          ">🧭</div>
+          <div style="min-width:0;">
+            <div style="font-size:15px;font-weight:900;margin-bottom:2px;">
+              Preparing CBS-GO…
+            </div>
+            <div id="cbsgoLoginLoadingText" style="font-size:12px;opacity:.85;line-height:1.35;">
+              Loading your world
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;height:8px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.10);">
+          <div id="cbsgoLoginLoadingBar" style="
+            height:100%;
+            width:35%;
+            border-radius:999px;
+            background:rgba(56,189,248,.75);
+            box-shadow:0 0 22px rgba(56,189,248,.45);
+            animation:cbsgoLoadAnim 1.05s ease-in-out infinite alternate;
+          "></div>
+        </div>
+
+        <style>
+          @keyframes cbsgoLoadAnim {
+            from { transform: translateX(-10%); width: 30%; opacity: .75; }
+            to   { transform: translateX(10%);  width: 70%; opacity: 1; }
+          }
+        </style>
+      </div>
+    `;
+
+    document.body.appendChild(el);
+    return el;
+  };
+
+  const setLoadingText = (t) => {
+    const txt = document.getElementById('cbsgoLoginLoadingText');
+    if (txt) txt.textContent = t || '';
+  };
+
+  const showLoading = (t) => {
+    const el = ensureLoader();
+    setLoadingText(t || 'Loading your world');
+    el.style.pointerEvents = 'auto';
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+    });
+  };
+
+  const hideLoading = () => {
+    const el = document.getElementById(LOADER_ID);
+    if (!el) return;
+    el.style.opacity = '0';
+    el.style.pointerEvents = 'none';
+    setTimeout(() => {
+      try {
+        el.remove();
+      } catch {}
+    }, 220);
+  };
+
   openLoginModal();
 
   const onLoginDone = async (ev) => {
     window.removeEventListener('cbsgo:loginDone', onLoginDone);
 
     const pin = ev?.detail?.pin || '';
+
+    // ✅ show loader immediately after PIN submit
+    showLoading('Unlocking wallet & syncing profile…');
 
     // 1) bootstrap vault/local wallet
     try {
@@ -2651,6 +2902,7 @@ export function mountApp() {
       }
     } catch (e) {
       console.warn('CBS-GO: bootstrapAuthWallet failed', e);
+      hideLoading();
       alert('Wallet unlock failed (wrong PIN?)');
       openLoginModal();
       window.addEventListener('cbsgo:loginDone', onLoginDone);
@@ -2659,21 +2911,153 @@ export function mountApp() {
 
     // 2) ensure supabase player_state row exists
     try {
+      setLoadingText('Binding your account…');
       await ensureSupabaseUserBound();
     } catch {}
 
     // 3) apply remote profile to local (if available)
     try {
+      setLoadingText('Applying cloud profile…');
       await applyRemoteProfileToLocal({ preferRemote: true });
     } catch (e) {
       console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
     }
-// ✅ remote is now applied -> prevent other device overwriting it with old local
-markRemoteApplied();
+    // ✅ remote is now applied -> prevent other device overwriting it with old local
+    markRemoteApplied();
 
-    // 4) start game
+       // 4) start game
+    setLoadingText('Starting CBS-GO…');
     bootstrapApp();
+
+    // ✅ WAIT until the app is really ready (map + top UI + optional weather)
+    const waitForCondition = (fn, timeoutMs = 12000, intervalMs = 80) =>
+      new Promise((resolve, reject) => {
+        const start = Date.now();
+        const tick = () => {
+          try {
+            if (fn()) return resolve(true);
+          } catch {}
+          if (Date.now() - start > timeoutMs) return reject(new Error('timeout'));
+          setTimeout(tick, intervalMs);
+        };
+        tick();
+      });
+
+    const waitForAppReady = async () => {
+      // 1) Map mounted (canvas exists) — MapLibre typically creates a canvas
+      await waitForCondition(() => {
+        const mapMount = document.querySelector('#mapMount');
+        if (!mapMount) return false;
+        const canvas = mapMount.querySelector('canvas');
+        return !!canvas;
+      }, 15000);
+
+      // 2) XP bar mounted (top-right)
+      await waitForCondition(() => {
+        const xp = document.querySelector('#xpMount');
+        return !!xp && (xp.textContent || '').trim().length > 0;
+      }, 12000);
+
+      // 3) Weather loaded (optional) — wait for element to appear + get text
+try {
+  await waitForCondition(() => {
+    const w =
+      document.querySelector('#weatherMount') ||
+      document.querySelector('#weatherWidget') ||
+      document.querySelector('[data-weather]');
+
+    if (!w) return false; // ✅ WAIT until weather element exists
+    return (w.textContent || '').trim().length > 0; // ✅ and has content
+  }, 8000);
+} catch {}
+
+// end waitForAppReady
+};
+
+try {
+  setLoadingText('Loading map & live widgets…');
+  await waitForAppReady();
+} catch (e) {
+  console.warn('CBS-GO: app ready wait timed out (continuing)', e);
+}
+
+hideLoading();
+}; // ✅ end onLoginDone
+
+window.addEventListener('cbsgo:loginDone', onLoginDone);
+}
+
+function bindTreasureClaimListener() {
+  if (window.__cbsgo_treasure_claim_listener) return;
+  window.__cbsgo_treasure_claim_listener = true;
+
+  // maak/haal supabase client uit je app (werkt met VITE env vars)
+  const getSupabaseClient = async () => {
+    // als je al ergens een global client hebt, gebruik die
+    if (window.supabase) return window.supabase;
+    if (window.__supabase) return window.__supabase;
+
+    // anders: maak er 1 aan vanuit Vite env
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !anon) throw new Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+    const client = createClient(url, anon);
+    window.__supabase = client;
+    return client;
   };
 
-  window.addEventListener('cbsgo:loginDone', onLoginDone);
+  window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
+    try {
+      const detail = ev?.detail || {};
+      const treasure_id = String(detail.treasure_id || '').trim();
+      const claimant_wallet = String(detail.claimant_wallet || '').trim();
+      const distance_m = Number(detail.distance_m || 0);
+
+      if (!treasure_id || !claimant_wallet) {
+        console.warn('CBSGO: treasureOpenRequest missing data', detail);
+        return;
+      }
+
+      console.log('CBSGO: claiming treasure in Supabase...', { treasure_id, claimant_wallet });
+
+      const supabase = await getSupabaseClient();
+
+      // claim: alleen als status nog 'active' is
+      // (RLS / policy moet dit toestaan voor ingelogde user)
+      const patch = {
+        status: 'processing',
+        claimant_wallet,
+        claimed_at: new Date().toISOString(),
+        // claimed_by vullen we liever server-side via auth.uid(),
+        // maar als jouw tabel trigger/policy dat al doet is dit ok.
+      };
+
+      const { data, error } = await supabase
+        .from('treasures')
+        .update(patch)
+        .eq('id', treasure_id)
+        .eq('status', 'active')
+        .select('*')
+        .maybeSingle();
+
+      if (error) {
+        console.warn('CBSGO: claim update failed', error);
+        alert(`Treasure claim failed: ${error.message}`);
+        return;
+      }
+
+      if (!data) {
+        // niks geüpdatet = al geclaimd / niet active
+        alert('Too late — this treasure is already claimed.');
+        return;
+      }
+
+      console.log('CBSGO: treasure claimed, worker will pay now', data);
+      alert('✅ Treasure claim sent. Payout will arrive shortly (if you are the first).');
+    } catch (e) {
+      console.warn('CBSGO: claim handler crashed', e);
+      alert(`Treasure claim error: ${e?.message || e}`);
+    }
+  });
 }

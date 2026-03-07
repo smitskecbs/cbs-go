@@ -1,8 +1,12 @@
 // src/app/leaderboard.js
 // Local profile storage (nickname + avatar) in this browser.
 // Uses XP/level from state.js (single source of truth)
+//
+// ✅ Keep existing local behavior
+// ✅ Add remote leaderboard (Supabase) so you can show ALL players (also 0 xp)
 
 import { getXp, getLevel } from './state.js';
+import { supabase } from './supabaseClient.js';
 
 const KEY = 'cbsgo_leaderboard_v2';
 const KEY_NAME = 'cbsgo_player_name_v2';
@@ -95,4 +99,29 @@ export function submitMyScore() {
   writeJSON(KEY, arr);
 
   return { name, xp, level, avatar };
+}
+
+/**
+ * ✅ NEW: Remote leaderboard (ALL players, also 0 xp)
+ * Reads from Supabase table: public.game_profiles
+ * Expected columns: user_id, nickname, avatar, xp, level
+ */
+export async function loadLeaderboard(limit = 250) {
+  try {
+    const { data, error } = await supabase
+      .from('game_profiles')
+      .select('user_id, nickname, avatar, xp, level, updated_at')
+      .order('xp', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.warn('CBS GO: loadLeaderboard failed', error);
+      return [];
+    }
+
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.warn('CBS GO: loadLeaderboard exception', e);
+    return [];
+  }
 }

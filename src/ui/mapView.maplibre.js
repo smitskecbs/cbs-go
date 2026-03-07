@@ -1,24 +1,16 @@
 // src/ui/mapView.maplibre.js
-// CBS GO — MapLibre game map (stable build)
+// CBS GO — MapLibre game map (CLEAN + STABLE build 2026-02-26)
 //
-// Loot update:
-// ✅ Loot is BLACK SQUARE + ⭐ (direction-agnostic, never upside-down)
-// ✅ Glow on ⭐ indicates loot quality/rarity (stronger = rarer/better)
-//
-// Ring fix (MOBILE HARD FIX):
-// ✅ Pickup ring layers are forced to the TOP (moveLayer) so they can’t be hidden
-// ✅ Retry-safe timing for mobile style load
-// ✅ Re-applied on styledata + idle + gps + move/moveend + mode switch
-//
-// Friends update (WORLDWIDE + SAME SIZE AS YOU):
-// ✅ Friend PF size matches player PF (42px core)
-// ✅ Friend scale stays ~1.0 (also visible on globe)
-// ✅ Your PF always on top (player zIndex 2000)
-// ✅ If friend is in Netherlands, friend zIndex is forced lower (so you always win overlap in NL)
+// Fixes:
+// - No duplicate declarations (prevents "has already been declared")
+// - Loot = black square + ⭐ (glow indicates rarity)
+// - Ring layers forced to TOP + retry-safe on mobile
+// - Friends worldwide, same size as player, player always on top (NL friends lower)
+// - No auto-rotate map by GPS/phone compass (finger rotate only)
+// - Weather label + 5-day forecast modal
 
 import maplibregl from 'maplibre-gl';
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
-import { openPuzzleModal } from './puzzleModal.js';
 
 /* -------------------- CONFIG -------------------- */
 
@@ -26,7 +18,7 @@ const OPEN_WEATHER_API_KEY = '48a387bba00043ac4ba5823371abc9d2';
 
 const PICKUP_RADIUS_M = 80;
 
-// Loot spawns (meters)
+// Loot
 const LOOT_ENABLED = true;
 const LOOT_MAX_ACTIVE = 6;
 const LOOT_SPAWN_MIN_DISTANCE_M = 70;
@@ -35,47 +27,24 @@ const LOOT_RESPAWN_MS = 45_000;
 const LOOT_DESPAWN_AGE_MS = 5 * 60_000;
 const LOOT_DESPAWN_DIST_M = 260;
 
-// Puzzle
-const PUZZLES_ENABLED = true;
-const PUZZLE_MAX_ACTIVE = 1;
-const PUZZLE_SPAWN_CHUNK_M = 240;
-const PUZZLE_SPAWN_CHANCE = 0.35;
-const FIRST_PUZZLE_MIN_METERS = 90;
-
 // Camera
-const FOLLOW_ZOOM = 19.2;
+const FOLLOW_ZOOM = 17;
 const PLAYER_VIEW_DURATION_MS = 700;
 const WORLD_VIEW_DURATION_MS = 700;
 
 // Visibility
-const RING_HIDE_BELOW_ZOOM = 0; // ring altijd zichtbaar in player-mode
+const RING_HIDE_BELOW_ZOOM = 0;
 const LOOT_HIDE_BELOW_ZOOM = 12.8;
 
-// Rotate map with heading (player-mode)
-const ROTATE_MAP_WITH_HEADING = true;
-const ROTATE_DURATION_MS = 220;
-const ROTATE_MIN_DEG_DELTA = 2;
-const ROTATE_THROTTLE_MS = 120;
-
-// Phone orientation rotate
-const ROTATE_MAP_WITH_PHONE = true;
-const PHONE_ROTATE_THROTTLE_MS = 120;
-const PHONE_ROTATE_MIN_DEG_DELTA = 2;
-const PHONE_ROTATE_SMOOTH = 0.18;
-const PHONE_HEADING_PRIORITY = true;
-
-// Fallback (als GPS er nog niet is)
+// Fallback (no GPS)
 const FALLBACK_CENTER = [4.87, 51.687]; // [lng, lat]
 const FALLBACK_ZOOM = 15.5;
 
-// World start
+// World mode
 const WORLD_CENTER = [10, 25];
 const WORLD_ZOOM = 1.55;
 
-// Auto switch from world -> player when user zooms in far enough
 const AUTO_SWITCH_TO_PLAYER_ZOOM = 10.5;
-
-// Auto switch back from player -> world when zoomed out far enough
 const AUTO_SWITCH_TO_WORLD_ZOOM = 4.2;
 
 // Projection
@@ -86,33 +55,21 @@ const USE_TRUE_GLOBE = true;
 let map = null;
 let destroyed = false;
 
-let lastUserLatLng = null; // [lat,lng]
+let lastUserLatLng = null; // [lat, lng]
 let lastHeadingDeg = 0;
 
 let inWorldMode = true;
 let hasGpsFix = false;
 
-// rotate state
-let lastBearingAt = 0;
-
-// phone state
-let phoneHeadingDeg = null;
-let phoneHeadingSmoothed = null;
-let lastPhoneBearingAt = 0;
-let phoneListenerOn = false;
-
-// loot/puzzle
+// loot
 let lootItems = []; // { id, lat, lng, createdAt, reward, marker, rootEl, scaleEl, kind }
-let activePuzzle = null; // { id, lat, lng, marker, rootEl, scaleEl }
 let lastLootSpawnAt = 0;
-let puzzleMeters = 0;
-let firstPuzzleSpawned = false;
 
 // friends
 let friendMarkers = new Map(); // user_id -> { marker, rootEl, scaleEl, lat, lng, nickname, avatar, t }
 let lastOnlinePlayers = []; // cached
 
-// privacy state
+// privacy
 let shareLocation = (localStorage.getItem('cbsgo_shareLocation') ?? '1') === '1';
 
 // weather/place
@@ -135,18 +92,77 @@ let locationState = {
 
 let lastPlaceCellKey = null;
 
-// UI handle
+// forecast
+let forecastAbort = null;
+let forecastState = {
+  days: [],        // [{ date, min, max, iconEmoji, condition }]
+  lastUpdated: 0,
+  lastLatLng: null // [lat,lng]
+};
+
+// UI
 let worldBtnEl = null;
 
 // window listeners guard
 let resizeListenersOn = false;
 
-// ✅ autoswitch only after user interaction in world
+// autoswitch only after user interaction in world
 let worldUserInteracted = false;
 
-// ✅ block autoswitch during boot/init
+// block autoswitch during boot/init
 let mapBooting = true;
 
+/* -------------------- MAP LIFECYCLE -------------------- */
+
+function destroyMapIfAny() {
+  destroyed = true;
+
+  // player
+  try { playerMarker?.remove?.(); } catch {}
+  playerMarker = null;
+  playerArrowEl = null;
+  arrowDegSmoothed = null;
+
+  // loot
+  try { lootItems.forEach((x) => { try { x.marker?.remove?.(); } catch {} }); } catch {}
+  lootItems = [];
+  lastLootSpawnAt = 0;
+
+  // friends
+  try { friendMarkers.forEach((fm) => { try { fm.marker?.remove?.(); } catch {} }); } catch {}
+  try { friendMarkers.clear(); } catch {}
+  lastOnlinePlayers = [];
+
+  // abort ongoing requests
+  try { weatherAbort?.abort?.(); } catch {}
+  try { placeAbort?.abort?.(); } catch {}
+  try { forecastAbort?.abort?.(); } catch {}
+  weatherAbort = null;
+  placeAbort = null;
+  forecastAbort = null;
+
+  lastWeatherLatLng = null;
+  lastPlaceCellKey = null;
+
+  // gps + mode
+  lastUserLatLng = null;
+  lastHeadingDeg = 0;
+  inWorldMode = true;
+  hasGpsFix = false;
+
+  // autoswitch / boot flags
+  worldUserInteracted = false;
+  mapBooting = true;
+
+  // ring cleanup
+  try { clearPickupRing(); } catch {}
+
+  // map instance
+  try { if (map) map.remove(); } catch {}
+  map = null;
+
+  destroyed = false; // allow fresh init
+}
 /* -------------------- HELPERS -------------------- */
 
 function ensureEl(id) {
@@ -252,7 +268,7 @@ function shouldShowGameplayMarkers() {
   return getZoom() >= LOOT_HIDE_BELOW_ZOOM;
 }
 
-// ✅ NL bbox: if friend is in NL, keep them lower zIndex so you always win overlap in NL
+// NL bbox: keep friend lower zIndex in NL so player wins overlap
 function isInNetherlands(lat, lng) {
   return (
     Number.isFinite(lat) &&
@@ -264,126 +280,43 @@ function isInNetherlands(lat, lng) {
   );
 }
 
-/* -------------------- PRIVACY / FRIEND VISIBILITY -------------------- */
-
-function truthyShareValue(v) {
-  if (typeof v === 'boolean') return v;
-  if (typeof v === 'number') return v === 1;
-  if (typeof v === 'string') {
-    const s = v.trim().toLowerCase();
-    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
-  }
-  return null; // unknown
-}
-
-/**
- * Show rule:
- * - If share flag exists and is explicitly false => hide.
- * - Else if lat/lng exists => show.
- * - Else hide.
- */
-function playerSharesLocation(p) {
-  if (!p) return false;
-  const hasCoords = Number.isFinite(p.lat) && Number.isFinite(p.lng);
-
-  if ('shareLocation' in p) {
-    const v = truthyShareValue(p.shareLocation);
-    if (v === false) return false;
-    if (v === true) return true;
-    return hasCoords;
-  }
-  if ('share_location' in p) {
-    const v = truthyShareValue(p.share_location);
-    if (v === false) return false;
-    if (v === true) return true;
-    return hasCoords;
-  }
-  if ('share_loc' in p) {
-    const v = truthyShareValue(p.share_loc);
-    if (v === false) return false;
-    if (v === true) return true;
-    return hasCoords;
-  }
-  if ('share' in p) {
-    const v = truthyShareValue(p.share);
-    if (v === false) return false;
-    if (v === true) return true;
-    return hasCoords;
-  }
-
-  return hasCoords;
-}
-
-/* -------------------- SAFE MARKER SCALING -------------------- */
-/**
- * CRUCIAL:
- * - NEVER set `transform` on MapLibre marker root element (MapLibre uses it for positioning).
- * - We only scale an INNER wrapper (scaleEl).
- */
-
-function lootScaleForZoom(z) {
-  // z=19 -> ~1.00, z=13 -> ~0.48, z=11 -> ~0.34
-  return clamp(0.34 + (z - 11) * 0.055, 0.26, 1.0);
-}
-
-// ✅ Friend same size as you: keep scale around 1.0 even on globe
-function friendScaleForZoom(z) {
-  // On extreme world zoom: tiny reduction to avoid total overlap clutter
-  if (z <= 2.5) return 0.95;
-  if (z <= 4.5) return 1.0;
-  return 1.0;
-}
-
-function applyAllMarkerScales() {
-  if (!map) return;
-  const z = getZoom();
-
-  const ls = lootScaleForZoom(z);
-  lootItems.forEach((it) => {
-    if (!it?.scaleEl) return;
-    it.scaleEl.style.transform = `translateZ(0) scale(${ls})`;
-  });
-
-  if (activePuzzle?.scaleEl) {
-    activePuzzle.scaleEl.style.transform = `translateZ(0) scale(${ls})`;
-  }
-
-  const fs = friendScaleForZoom(z);
-  friendMarkers.forEach((fm) => {
-    if (!fm?.scaleEl) return;
-    fm.scaleEl.style.transform = `translateZ(0) scale(${fs})`;
-  });
-}
-
 /* -------------------- TOAST -------------------- */
 
 let toastTimer = null;
+let toastHideTimer = null;
 
 function showToast(msg, ms = 1600) {
   const el = ensureEl('cbsgoToast');
   if (!el) return;
 
+  const duration = clamp(Number(ms) || 1600, 600, 6000);
+
   el.textContent = String(msg || '');
+
+  // reset state first (prevents stuck animation on rapid calls)
+  try { clearTimeout(toastTimer); } catch {}
+  try { clearTimeout(toastHideTimer); } catch {}
+
   el.style.display = 'block';
+  el.style.opacity = '0';
+  el.style.transform = 'translateX(-50%) translateY(6px)';
 
   requestAnimationFrame(() => {
     el.style.opacity = '1';
     el.style.transform = 'translateX(-50%) translateY(-4px)';
   });
 
-  try {
-    clearTimeout(toastTimer);
-  } catch {}
   toastTimer = setTimeout(() => {
     el.style.opacity = '0';
-    el.style.transform = 'translateX(-50%) translateY(0px)';
-    setTimeout(() => {
+    el.style.transform = 'translateX(-50%) translateY(6px)';
+
+    toastHideTimer = setTimeout(() => {
       el.style.display = 'none';
-    }, 170);
-  }, ms);
+    }, 180);
+  }, duration);
 }
 
-/* -------------------- PICKUP RING -------------------- */
+/* -------------------- PICKUP RING (MOBILE HARD FIX) -------------------- */
 
 const SRC_RANGE = 'cbsgo-range-src';
 const LYR_RANGE_FILL = 'cbsgo-range-fill';
@@ -426,17 +359,11 @@ function circlePolygonGeodesic(lat, lng, radiusM, steps = 112) {
   };
 }
 
-// ✅ MOBILE HARD FIX: force layers to top so ring can’t be hidden
 function elevateRangeLayers() {
   if (!map) return;
   if (!map.isStyleLoaded()) return;
-
-  try {
-    if (map.getLayer(LYR_RANGE_FILL)) map.moveLayer(LYR_RANGE_FILL);
-  } catch {}
-  try {
-    if (map.getLayer(LYR_RANGE_LINE)) map.moveLayer(LYR_RANGE_LINE);
-  } catch {}
+  try { if (map.getLayer(LYR_RANGE_FILL)) map.moveLayer(LYR_RANGE_FILL); } catch {}
+  try { if (map.getLayer(LYR_RANGE_LINE)) map.moveLayer(LYR_RANGE_LINE); } catch {}
 }
 
 function ensureRangeLayers() {
@@ -451,33 +378,49 @@ function ensureRangeLayers() {
       });
     }
 
+    // ---- FILL (binnen cirkel) ----
     if (!map.getLayer(LYR_RANGE_FILL)) {
       map.addLayer({
         id: LYR_RANGE_FILL,
         type: 'fill',
         source: SRC_RANGE,
         paint: {
-          // zichtbaarder op mobiel
-          'fill-color': 'rgba(56,189,248,0.22)',
-          'fill-outline-color': 'rgba(56,189,248,0.0)',
+          // ✅ binnen cirkel oranje (duidelijker dan 0.22)
+          'fill-color': 'rgba(255,165,0,0.35)',
+          // outline via fill is onbetrouwbaar; echte rand = LINE layer hieronder
+          'fill-outline-color': 'rgba(255,165,0,0.0)',
         },
       });
+    } else {
+      try { map.setPaintProperty(LYR_RANGE_FILL, 'fill-color', 'rgba(255,165,0,0.35)'); } catch {}
+      try { map.setPaintProperty(LYR_RANGE_FILL, 'fill-outline-color', 'rgba(255,165,0,0.0)'); } catch {}
     }
 
+    // ---- LINE (buiten rand) ----
     if (!map.getLayer(LYR_RANGE_LINE)) {
       map.addLayer({
         id: LYR_RANGE_LINE,
         type: 'line',
         source: SRC_RANGE,
         paint: {
-          'line-color': 'rgba(56,189,248,0.95)',
-          'line-width': 3.5,
-          'line-dasharray': [2, 3],
+          // ✅ volle oranje rand (geen stippels)
+          'line-color': 'rgba(255,165,0,0.98)',
+          'line-width': 4.5,
+          'line-opacity': 1,
+          'line-blur': 0,
         },
       });
+    } else {
+      try { map.setPaintProperty(LYR_RANGE_LINE, 'line-color', 'rgba(255,165,0,0.98)'); } catch {}
+      try { map.setPaintProperty(LYR_RANGE_LINE, 'line-width', 4.5); } catch {}
+      try { map.setPaintProperty(LYR_RANGE_LINE, 'line-opacity', 1); } catch {}
+      try { map.setPaintProperty(LYR_RANGE_LINE, 'line-blur', 0); } catch {}
+
+      // ✅ dash écht uit (meest betrouwbaar)
+      try { map.removePaintProperty(LYR_RANGE_LINE, 'line-dasharray'); } catch {}
     }
   } catch {
-    // Timing issues on mobile: if addLayer fails, next retry fixes it
+    // mobile timing: retry later
   }
 
   elevateRangeLayers();
@@ -489,13 +432,6 @@ function clearPickupRing() {
   if (src) src.setData({ type: 'FeatureCollection', features: [] });
 }
 
-/**
- * ✅ HARD ring fix:
- * - Retries until style is loaded (mobile timing)
- * - Re-adds layers if needed
- * - Forces layers to TOP (moveLayer)
- * - Only shows in player-mode
- */
 function forceUpdatePickupRing(lat, lng, tries = 0) {
   if (!map || destroyed) return;
   if (inWorldMode) return;
@@ -505,8 +441,9 @@ function forceUpdatePickupRing(lat, lng, tries = 0) {
     return;
   }
 
-  ensureRangeLayers(); // will also elevate
-  elevateRangeLayers(); // extra hard push
+  ensureRangeLayers();
+  elevateRangeLayers();
+
   const src = map.getSource(SRC_RANGE);
   if (!src) {
     if (tries < 40) setTimeout(() => forceUpdatePickupRing(lat, lng, tries + 1), 120);
@@ -526,13 +463,43 @@ function forceUpdatePickupRing(lat, lng, tries = 0) {
   elevateRangeLayers();
 }
 
+/* -------------------- SAFE MARKER SCALING -------------------- */
+
+function lootScaleForZoom(z) {
+  return clamp(0.34 + (z - 11) * 0.055, 0.26, 1.0);
+}
+
+function friendScaleForZoom(z) {
+  if (z <= 2.2) return 0.92;
+  if (z <= 3.2) return 0.96;
+  return 1.0;
+}
+
+function applyAllMarkerScales() {
+  if (!map) return;
+  const z = getZoom();
+
+  const ls = lootScaleForZoom(z);
+  lootItems.forEach((it) => {
+    if (!it?.scaleEl) return;
+    it.scaleEl.style.transform = `translateZ(0) scale(${ls})`;
+  });
+
+  const fs = friendScaleForZoom(z);
+  friendMarkers.forEach((fm) => {
+    if (!fm?.scaleEl) return;
+    fm.scaleEl.style.transform = `translateZ(0) scale(${fs})`;
+  });
+}
+
 /* -------------------- PLAYER MARKER -------------------- */
 
 let playerArrowEl = null;
 let arrowDegSmoothed = null;
+let playerMarker = null;
 
 function buildPlayerEl() {
-  const av = getPlayerAvatar();
+  const av = getPlayerAvatar?.();
 
   const wrap = document.createElement('div');
   wrap.className = 'cbsgo-player cbsgo-marker-player';
@@ -546,22 +513,32 @@ function buildPlayerEl() {
   const core = document.createElement('div');
   core.className = 'cbsgo-player-core';
 
+  const setInitialsFallback = () => {
+    core.innerHTML = '';
+    core.textContent = initialsFromName();
+  };
+
   if (av) {
     const img = document.createElement('img');
-    img.src = av;
+    img.src = String(av);
     img.alt = 'me';
     img.width = 42;
     img.height = 42;
     img.decoding = 'async';
     img.loading = 'eager';
+    img.referrerPolicy = 'no-referrer';
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'cover';
     img.style.display = 'block';
+
+    // ✅ fallback als avatar url stuk is / 404 / CORS
+    img.onerror = () => setInitialsFallback();
+
     core.textContent = '';
     core.appendChild(img);
   } else {
-    core.textContent = initialsFromName();
+    setInitialsFallback();
   }
 
   wrap.appendChild(core);
@@ -576,18 +553,16 @@ function buildPlayerEl() {
 function updatePlayerArrow() {
   if (!playerArrowEl) return;
 
+  // Arrow points to world heading; if user rotated map with fingers, subtract map bearing.
   const bearing = safeMapBearing();
   const target = wrap360(wrap360(lastHeadingDeg) - bearing);
 
   if (arrowDegSmoothed == null) arrowDegSmoothed = target;
-
   const diff = shortestAngleDeltaDeg(arrowDegSmoothed, target);
   arrowDegSmoothed = wrap360(arrowDegSmoothed + diff * 0.22);
 
   playerArrowEl.style.setProperty('--deg', `${arrowDegSmoothed}deg`);
 }
-
-let playerMarker = null;
 
 function ensurePlayerMarker(lat, lng) {
   if (!map) return;
@@ -596,10 +571,7 @@ function ensurePlayerMarker(lat, lng) {
     const { wrap, arrow } = buildPlayerEl();
     playerArrowEl = arrow;
 
-    playerMarker = new maplibregl.Marker({
-      element: wrap,
-      anchor: 'center',
-    })
+    playerMarker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
       .setLngLat([lng, lat])
       .addTo(map);
   } else {
@@ -608,35 +580,75 @@ function ensurePlayerMarker(lat, lng) {
 
   updatePlayerArrow();
 
-  // ✅ Force ring in player-mode, always (mobile hard)
-  if (!inWorldMode) {
-    forceUpdatePickupRing(lat, lng);
-  }
-
+  if (!inWorldMode) forceUpdatePickupRing(lat, lng);
   syncGameplayMarkerVisibility();
 }
 
 function refreshPlayerLooks() {
-  try {
-    playerMarker?.remove?.();
-  } catch {}
+  try { playerMarker?.remove?.(); } catch {}
   playerMarker = null;
   playerArrowEl = null;
   arrowDegSmoothed = null;
 
-  if (lastUserLatLng) {
-    ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
-  }
+  if (lastUserLatLng) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
 }
 
-/* -------------------- FRIEND MARKERS (WORLDWIDE) -------------------- */
+/* -------------------- FRIEND MARKERS -------------------- */
+
+const FRIEND_TTL_MS = 20_000;
+
+function truthyShareValue(v) {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+  }
+  return null;
+}
+
+function playerSharesLocation(p) {
+  if (!p) return false;
+
+  const lat = Number(
+    p.lat != null ? p.lat :
+    (p.latitude != null ? p.latitude :
+    (p.pos?.lat != null ? p.pos.lat :
+    (p.pos?.latitude != null ? p.pos.latitude : NaN)))
+  );
+
+  const lng = Number(
+    p.lng != null ? p.lng :
+    (p.lon != null ? p.lon :
+    (p.longitude != null ? p.longitude :
+    (p.pos?.lng != null ? p.pos.lng :
+    (p.pos?.lon != null ? p.pos.lon :
+    (p.pos?.longitude != null ? p.pos.longitude : NaN)))))
+  );
+
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+
+  const candidates = [
+    p.shareLocation, p.share_location, p.share_loc, p.share,
+    p.privacy?.shareLocation, p.privacy?.share_location, p.privacy?.share,
+  ];
+
+  for (const raw of candidates) {
+    if (raw === undefined) continue;
+    const v = truthyShareValue(raw);
+    if (v === false) return false;
+    if (v === true) return true;
+  }
+
+  return hasCoords;
+}
+
+function safeStr(v) { return String(v ?? '').trim(); }
 
 function buildFriendEl(nickname, avatar, lat, lng) {
   const root = document.createElement('div');
   root.className = 'cbsgo-marker-root';
   root.style.pointerEvents = 'none';
-
-  // ✅ Under player always; extra under if friend is in NL
   root.style.zIndex = isInNetherlands(lat, lng) ? '1200' : '1400';
 
   const scale = document.createElement('div');
@@ -651,6 +663,11 @@ function buildFriendEl(nickname, avatar, lat, lng) {
   const core = document.createElement('div');
   core.className = 'cbsgo-friend-core';
 
+  const setInitialsFallback = () => {
+    core.innerHTML = '';
+    core.textContent = initialsFromName(nickname);
+  };
+
   if (avatar) {
     const img = document.createElement('img');
     img.src = String(avatar);
@@ -659,13 +676,18 @@ function buildFriendEl(nickname, avatar, lat, lng) {
     img.height = 42;
     img.decoding = 'async';
     img.loading = 'eager';
+    img.referrerPolicy = 'no-referrer';
     img.style.width = '100%';
     img.style.height = '100%';
     img.style.objectFit = 'cover';
     img.style.display = 'block';
+
+    // fallback als avatar stuk is / 404 / CORS
+    img.onerror = () => setInitialsFallback();
+
     core.appendChild(img);
   } else {
-    core.textContent = initialsFromName(nickname);
+    setInitialsFallback();
   }
 
   const label = document.createElement('div');
@@ -694,65 +716,82 @@ function upsertFriendMarkers(players) {
     if (!p) continue;
     if (p.isMe) continue;
     if (!playerSharesLocation(p)) continue;
-    if (!Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
 
-    const id = String(p.user_id || p.wallet_pk || p.uid || p.id || '');
+    // accepteer ook latitude/longitude varianten
+    const lat = Number(
+      p.lat != null ? p.lat :
+      (p.latitude != null ? p.latitude :
+      (p.pos?.lat != null ? p.pos.lat :
+      (p.pos?.latitude != null ? p.pos.latitude : NaN)))
+    );
+
+    const lng = Number(
+      p.lng != null ? p.lng :
+      (p.lon != null ? p.lon :
+      (p.longitude != null ? p.longitude :
+      (p.pos?.lng != null ? p.pos.lng :
+      (p.pos?.lon != null ? p.pos.lon :
+      (p.pos?.longitude != null ? p.pos.longitude : NaN)))))
+    );
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    const id = safeStr(p.user_id || p.wallet_pk || p.uid || p.id);
     if (!id) continue;
 
     seen.add(id);
 
-    const nick = p.nickname || 'Player';
-    const avatar = p.avatar || '';
+    const nick = safeStr(p.nickname) || 'Player';
+    const avatar = safeStr(p.avatar) || '';
 
     let fm = friendMarkers.get(id);
 
     if (!fm) {
-      const { rootEl, scaleEl } = buildFriendEl(nick, avatar, p.lat, p.lng);
-
-      const marker = new maplibregl.Marker({
-        element: rootEl,
-        anchor: 'center',
-      })
-        .setLngLat([p.lng, p.lat])
+      const { rootEl, scaleEl } = buildFriendEl(nick, avatar, lat, lng);
+      const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center' })
+        .setLngLat([lng, lat])
         .addTo(map);
 
-      fm = { marker, rootEl, scaleEl, lat: p.lat, lng: p.lng, nickname: nick, avatar, t: now };
-      friendMarkers.set(id, fm);
-    } else {
-      fm.t = now;
-      fm.lat = p.lat;
-      fm.lng = p.lng;
-      try {
-        fm.marker.setLngLat([p.lng, p.lat]);
-      } catch {}
+      friendMarkers.set(id, {
+        marker, rootEl, scaleEl,
+        lat, lng,
+        nickname: nick, avatar,
+        t: now,
+      });
+      continue;
+    }
 
-      // keep NL zIndex logic up-to-date even if location changed
-      try {
-        if (fm.rootEl) fm.rootEl.style.zIndex = isInNetherlands(p.lat, p.lng) ? '1200' : '1400';
-      } catch {}
+    fm.t = now;
+    fm.lat = lat;
+    fm.lng = lng;
 
-      if (fm.nickname !== nick || fm.avatar !== avatar) {
-        try {
-          fm.marker.remove();
-        } catch {}
-        const { rootEl, scaleEl } = buildFriendEl(nick, avatar, p.lat, p.lng);
-        const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center' })
-          .setLngLat([p.lng, p.lat])
-          .addTo(map);
-        fm.marker = marker;
-        fm.rootEl = rootEl;
-        fm.scaleEl = scaleEl;
-        fm.nickname = nick;
-        fm.avatar = avatar;
-      }
+    try { fm.marker.setLngLat([lng, lat]); } catch {}
+
+    try {
+      if (fm.rootEl) fm.rootEl.style.zIndex = isInNetherlands(lat, lng) ? '1200' : '1400';
+    } catch {}
+
+    // rebuild alleen als nick/avatar echt veranderd is
+    if (fm.nickname !== nick || fm.avatar !== avatar) {
+      try { fm.marker.remove(); } catch {}
+
+      const { rootEl, scaleEl } = buildFriendEl(nick, avatar, lat, lng);
+      const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center' })
+        .setLngLat([lng, lat])
+        .addTo(map);
+
+      fm.marker = marker;
+      fm.rootEl = rootEl;
+      fm.scaleEl = scaleEl;
+      fm.nickname = nick;
+      fm.avatar = avatar;
     }
   }
 
   friendMarkers.forEach((fm, id) => {
-    if (!seen.has(id)) {
-      try {
-        fm.marker?.remove?.();
-      } catch {}
+    const tooOld = (now - (fm?.t || 0)) > FRIEND_TTL_MS;
+    if (!seen.has(id) || tooOld) {
+      try { fm.marker?.remove?.(); } catch {}
       friendMarkers.delete(id);
     }
   });
@@ -760,300 +799,70 @@ function upsertFriendMarkers(players) {
   applyAllMarkerScales();
 }
 
-/* -------------------- LOOT / PUZZLES -------------------- */
-
-function rollLootKind() {
-  const r = Math.random();
-  if (r < 0.6) return 'small';
-  if (r < 0.9) return 'medium';
-  if (r < 0.98) return 'large';
-  return 'jackpot';
-}
-
-const CARD_DROP_CHANCE = 0.35;
-const CARD_POOL = ['walk_sun_1', 'walk_rain_1', 'walk_city_1', 'cbs_heart_1'];
-const RARE_CARD_IDS = new Set(['cbs_heart_1']);
-
-function pickRandomCardId() {
-  if (!CARD_POOL.length) return null;
-  const idx = Math.floor(Math.random() * CARD_POOL.length);
-  return CARD_POOL[idx];
-}
-
-function computeLootReward(kind) {
-  const k = kind || 'small';
-  let xp, tickets, cbs;
-
-  if (k === 'jackpot') {
-    xp = 30 + Math.floor(Math.random() * 31);
-    tickets = 2 + Math.floor(Math.random() * 2);
-    cbs = 20 + Math.floor(Math.random() * 31);
-  } else if (k === 'large') {
-    xp = 20 + Math.floor(Math.random() * 21);
-    tickets = 1 + Math.floor(Math.random() * 2);
-    cbs = 10 + Math.floor(Math.random() * 16);
-  } else if (k === 'medium') {
-    xp = 10 + Math.floor(Math.random() * 16);
-    tickets = Math.random() < 0.7 ? 1 : 0;
-    cbs = Math.random() < 0.5 ? 5 + Math.floor(Math.random() * 11) : 0;
-  } else {
-    xp = 5 + Math.floor(Math.random() * 11);
-    tickets = Math.random() < 0.25 ? 1 : 0;
-    cbs = Math.random() < 0.25 ? 3 + Math.floor(Math.random() * 8) : 0;
-  }
-
-  let cardId = null;
-  let cardCount = 0;
-  if (Math.random() < CARD_DROP_CHANCE) {
-    const chosen = pickRandomCardId();
-    if (chosen) {
-      cardId = chosen;
-      cardCount = 1;
-    }
-  }
-
-  return { xp, tickets, cbs, cardId, cardCount };
-}
-
-/**
- * Glow score (stronger = rarer/better)
- */
-function computeLootGlowPx(kind, reward) {
-  const k = kind || 'small';
-  const r = reward || {};
-
-  const hasExtra = !!(r.tickets > 0 || r.cbs > 0 || (r.cardId && r.cardCount > 0));
-  const hasRareCard = !!(r.cardId && RARE_CARD_IDS.has(String(r.cardId)));
-
-  let px = 0;
-  if (k === 'medium') px = 10;
-  if (k === 'large') px = 18;
-  if (k === 'jackpot') px = 26;
-
-  if (hasExtra) px = Math.max(px, 12);
-  if (hasRareCard) px = Math.max(px, 32);
-
-  return clamp(px, 0, 36);
-}
-
-/**
- * ✅ Loot marker: black square + ⭐
- * Glow is on the ⭐
- */
-function buildLootGroundEl(kind, reward) {
-  const root = document.createElement('div');
-  root.className = 'cbsgo-marker-root';
-  root.style.pointerEvents = 'auto';
-
-  const scale = document.createElement('div');
-  scale.className = 'cbsgo-scale';
-  scale.style.transformOrigin = 'center center';
-  scale.style.willChange = 'transform';
-
-  const glowPx = computeLootGlowPx(kind, reward);
-
-  scale.innerHTML = `
-    <div class="cbsgo-loot-square">
-      <div class="cbsgo-loot-star" style="--loot-glow:${glowPx}px;">⭐</div>
-    </div>
-  `;
-
-  root.appendChild(scale);
-  return { rootEl: root, scaleEl: scale };
-}
-
-function buildPuzzleEl() {
-  const root = document.createElement('div');
-  root.className = 'cbsgo-marker-root';
-  root.style.pointerEvents = 'auto';
-
-  const scale = document.createElement('div');
-  scale.className = 'cbsgo-scale';
-  scale.style.transformOrigin = 'bottom center';
-  scale.style.willChange = 'transform';
-
-  scale.innerHTML = `
-    <div class="cbsgo-pin cbsgo-marker-loot">
-      <div class="cbsgo-gift-core">🧩</div>
-    </div>
-  `;
-
-  root.appendChild(scale);
-  return { rootEl: root, scaleEl: scale };
-}
-
-function canSpawnGameplay() {
-  return !!map && !inWorldMode && hasGpsFix;
-}
-
-function spawnLootAround(center) {
-  if (!LOOT_ENABLED || !canSpawnGameplay() || !center) return;
-
-  const now = Date.now();
-  if (now - lastLootSpawnAt < LOOT_RESPAWN_MS) return;
-  if (lootItems.length >= LOOT_MAX_ACTIVE) return;
-
-  const kind = rollLootKind();
-  const reward = computeLootReward(kind);
-  const pos = randomNearbyLatLng(center, LOOT_SPAWN_MIN_DISTANCE_M, LOOT_SPAWN_MAX_DISTANCE_M);
-  const id = `loot_${now}_${Math.floor(Math.random() * 9999)}`;
-
-  const { rootEl, scaleEl } = buildLootGroundEl(kind, reward);
-
-  const marker = new maplibregl.Marker({
-    element: rootEl,
-    anchor: 'center',
-    offset: [0, 0],
-  })
-    .setLngLat([pos.lng, pos.lat])
-    .addTo(map);
-
-  rootEl.addEventListener('click', () => {
-    if (!lastUserLatLng) return;
-
-    const player = { lat: lastUserLatLng[0], lng: lastUserLatLng[1] };
-    const chest = { lat: pos.lat, lng: pos.lng };
-    const dist = metersBetween(player, chest);
-
-    if (dist > PICKUP_RADIUS_M) {
-      showToast(`Too far. Move closer (${Math.round(dist)}m / ${PICKUP_RADIUS_M}m).`, 1600);
-      return;
-    }
-
-    try {
-      marker.remove();
-    } catch {}
-    lootItems = lootItems.filter((x) => x.id !== id);
-
-    const { xp, tickets, cbs, cardId, cardCount } = reward;
-    const parts = [];
-    if (xp) parts.push(`+${xp} XP`);
-    if (tickets) parts.push(`+${tickets} ticket${tickets === 1 ? '' : 's'}`);
-    if (cbs) parts.push(`+${cbs} CBS`);
-    if (cardId && cardCount > 0) parts.push(`+${cardCount} card`);
-
-    showToast(`Loot found: ${parts.join(' · ')}`, 2000);
-
-    try {
-      window.dispatchEvent(
-        new CustomEvent('cbsgo:lootReward', {
-          detail: { kind: 'mystery', xp: xp || 0, tickets: tickets || 0, cbs: cbs || 0, cardId, cardCount },
-        })
-      );
-    } catch {}
-  });
-
-  lootItems.push({ id, marker, rootEl, scaleEl, createdAt: now, lat: pos.lat, lng: pos.lng, reward, kind });
-  lastLootSpawnAt = now;
-
-  syncGameplayMarkerVisibility();
-}
-
-function cleanupLoot(center) {
-  if (!canSpawnGameplay() || !center) return;
-
-  const now = Date.now();
-  lootItems = lootItems.filter((item) => {
-    const age = now - (item.createdAt || 0);
-    if (age > LOOT_DESPAWN_AGE_MS) {
-      try {
-        item.marker.remove();
-      } catch {}
-      return false;
-    }
-
-    const dist = metersBetween(center, { lat: item.lat, lng: item.lng });
-    if (Number.isFinite(dist) && dist > LOOT_DESPAWN_DIST_M) {
-      try {
-        item.marker.remove();
-      } catch {}
-      return false;
-    }
-    return true;
-  });
-
-  if (lootItems.length === 0) lastLootSpawnAt = 0;
-}
-
-function maybeSpawnPuzzle(center) {
-  if (!PUZZLES_ENABLED || !canSpawnGameplay() || !center) return;
-  if (PUZZLE_MAX_ACTIVE <= 0) return;
-  if (activePuzzle) return;
-
-  if (!firstPuzzleSpawned) {
-    if (puzzleMeters < FIRST_PUZZLE_MIN_METERS) return;
-    puzzleMeters = 0;
-    firstPuzzleSpawned = true;
-  } else {
-    if (puzzleMeters < PUZZLE_SPAWN_CHUNK_M) return;
-    if (Math.random() > PUZZLE_SPAWN_CHANCE) return;
-    puzzleMeters = 0;
-  }
-
-  const pos = randomNearbyLatLng(center, 45, 110);
-  const id = `puzzle_${Date.now()}`;
-
-  const { rootEl, scaleEl } = buildPuzzleEl();
-  const marker = new maplibregl.Marker({
-    element: rootEl,
-    anchor: 'bottom',
-    offset: [0, 0],
-  })
-    .setLngLat([pos.lng, pos.lat])
-    .addTo(map);
-
-  rootEl.addEventListener('click', () => {
-    if (!lastUserLatLng) return;
-
-    const player = { lat: lastUserLatLng[0], lng: lastUserLatLng[1] };
-    const target = { lat: pos.lat, lng: pos.lng };
-    const dist = metersBetween(player, target);
-
-    if (dist > PICKUP_RADIUS_M) {
-      showToast(`Too far. Move closer (${Math.round(dist)}m / ${PICKUP_RADIUS_M}m).`, 1600);
-      return;
-    }
-
-    try {
-      marker.remove();
-    } catch {}
-    activePuzzle = null;
-    openPuzzleModal({ id, name: 'CBS GO Puzzle' });
-  });
-
-  activePuzzle = { id, lat: pos.lat, lng: pos.lng, marker, rootEl, scaleEl };
-  syncGameplayMarkerVisibility();
-}
-
-/* -------------------- VISIBILITY -------------------- */
+/* -------------------- VISIBILITY SYNC -------------------- */
 
 function syncGameplayMarkerVisibility() {
   const showGameplay = shouldShowGameplayMarkers();
 
+  // loot
   lootItems.forEach((it) => {
-    if (it?.rootEl) it.rootEl.style.display = showGameplay ? 'block' : 'none';
+    const el = it?.rootEl;
+    if (!el) return;
+    el.style.display = showGameplay ? 'block' : 'none';
+    // ✅ avoid accidental clicks when hidden
+    el.style.pointerEvents = showGameplay ? 'auto' : 'none';
   });
 
-  if (activePuzzle?.rootEl) {
-    activePuzzle.rootEl.style.display = showGameplay ? 'block' : 'none';
-  }
-
-  // ✅ Ring should always update in player-mode (and retry-safe)
+  // ✅ pickup ring only when it should be visible (prevents weird layer "resets")
   if (lastUserLatLng && !inWorldMode) {
-    forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
+    if (showGameplay && shouldShowRing()) {
+      forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
+    } else {
+      clearPickupRing();
+    }
   }
 
   applyAllMarkerScales();
   updatePlayerArrow();
 }
 
-/* -------------------- WEATHER/PLACE -------------------- */
+/* -------------------- WEATHER + PLACE + FORECAST -------------------- */
 
 function placeCellKey(lat, lng) {
   const step = 0.002;
   const a = Math.round(lat / step) * step;
   const o = Math.round(lng / step) * step;
   return `${a.toFixed(3)}_${o.toFixed(3)}`;
+}
+
+function conditionToEmoji(condition, isNight = false) {
+  let iconEmoji = '⛅';
+  if (condition === 'clear') iconEmoji = isNight ? '🌙' : '☀️';
+  else if (condition === 'clouds') iconEmoji = '☁️';
+  else if (condition === 'rain') iconEmoji = '🌧️';
+  else if (condition === 'storm') iconEmoji = '⛈️';
+  else if (condition === 'snow') iconEmoji = '❄️';
+  else if (condition === 'mist') iconEmoji = '🌫️';
+  return iconEmoji;
+}
+
+function codeToCondition(iconCode, mainLower) {
+  let condition = 'clear';
+
+  const code = String(iconCode || '');
+  const main = String(mainLower || '').toLowerCase();
+
+  if (code.startsWith('03') || code.startsWith('04')) condition = 'clouds';
+  else if (code.startsWith('09') || code.startsWith('10')) condition = 'rain';
+  else if (code.startsWith('11')) condition = 'storm';
+  else if (code.startsWith('13')) condition = 'snow';
+  else if (code.startsWith('50')) condition = 'mist';
+
+  if (main.includes('rain')) condition = 'rain';
+  if (main.includes('snow')) condition = 'snow';
+  if (main.includes('thunder')) condition = 'storm';
+
+  return condition;
 }
 
 function getWeatherLabel() {
@@ -1068,10 +877,292 @@ function updateWeatherLabel() {
   if (el) el.textContent = getWeatherLabel();
 }
 
+/* ✅ FIX: deze helper ontbrak vaak → crash bij openForecastModal */
+function dayNameFromDate(dateStr) {
+  try {
+    // verwacht "YYYY-MM-DD"
+    const s = String(dateStr || '').slice(0, 10);
+    const d = new Date(s + 'T12:00:00'); // midday = minder timezone gedoe
+    if (Number.isNaN(d.getTime())) return s || 'Day';
+    return d.toLocaleDateString(undefined, { weekday: 'short' });
+  } catch {
+    return String(dateStr || 'Day');
+  }
+}
+
+/**
+ * ✅ Day = weather box left
+ * ✅ Night = weather box right
+ * (also sets a body class you can use for dark mode styling later)
+ */
 function setNightClass(isNight) {
-  const host = ensureEl('cbsgoMapHost');
-  if (!host) return;
-  host.dataset.night = isNight ? '1' : '0';
+  try {
+    document.documentElement.classList.toggle('cbsgo-night', !!isNight);
+  } catch {}
+
+  const box = ensureEl('cbsgoWeather');
+  if (!box) return;
+
+  // keep it clickable & consistent
+  box.style.position = box.style.position || 'fixed';
+  box.style.top = box.style.top || '12px';
+
+  if (isNight) {
+    box.style.left = 'auto';
+    box.style.right = '12px';
+    box.style.textAlign = 'right';
+  } else {
+    box.style.right = 'auto';
+    box.style.left = '12px';
+    box.style.textAlign = 'left';
+  }
+}
+
+function closeForecastModal() {
+  const backdrop = ensureEl('cbsgoForecastBackdrop');
+  const modal = ensureEl('cbsgoForecastModal');
+  if (backdrop) {
+    backdrop.style.display = 'none';
+    backdrop.onclick = null;
+  }
+  if (modal) modal.style.display = 'none';
+
+  try { window.removeEventListener('keydown', window.__cbsgo_forecast_esc); } catch {}
+  window.__cbsgo_forecast_esc = null;
+}
+
+function openForecastModal() {
+  const backdropId = 'cbsgoForecastBackdrop';
+  const modalId = 'cbsgoForecastModal';
+
+  let backdrop = ensureEl(backdropId);
+  let modal = ensureEl(modalId);
+
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = backdropId;
+    backdrop.style.cssText = `
+      position:fixed; inset:0;
+      background:rgba(0,0,0,0.72);
+      z-index:99998;
+      display:none;
+    `;
+    document.body.appendChild(backdrop);
+  }
+
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = `
+      position:fixed;
+      left:50%;
+      top:50%;
+      transform:translate(-50%,-50%);
+      width:min(92vw, 520px);
+      max-height:min(72vh, 560px);
+      overflow:auto;
+      z-index:99999;
+      display:none;
+    `;
+    document.body.appendChild(modal);
+  }
+
+  const place = locationState.place ? String(locationState.place) : 'Your area';
+  const updated = forecastState.lastUpdated ? new Date(forecastState.lastUpdated) : null;
+  const updatedText = updated ? updated.toLocaleString() : '';
+
+  const rows = (forecastState.days || []).slice(0, 5).map((d) => {
+    const dn = dayNameFromDate(d.date);
+    const min = Number.isFinite(d.min) ? Math.round(d.min) : '…';
+    const max = Number.isFinite(d.max) ? Math.round(d.max) : '…';
+    const cond = String(d.condition || '').trim();
+    return `
+      <div class="cbsgo-pill" style="
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding:10px 12px; margin-top:10px;
+        background:rgba(10,12,18,0.78);
+        border:1px solid rgba(255,255,255,0.14);
+      ">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="font-size:20px;">${esc(d.iconEmoji || '⛅')}</div>
+          <div>
+            <div style="font-weight:800; font-size:13px;">${esc(dn)}</div>
+            <div style="opacity:0.75; font-size:12px;">${esc(cond)}</div>
+          </div>
+        </div>
+        <div style="font-weight:900; font-size:13px;">
+          <span>${max}°</span>
+<span style="opacity:0.35;"> / </span>
+<span style="opacity:0.75;">${min}°</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const empty = `
+    <div style="margin-top:10px; opacity:0.82; font-size:13px; line-height:1.45;">
+      Forecast is loading…<br/>
+      If it stays empty: wait a few seconds and tap again.
+    </div>
+  `;
+
+  modal.innerHTML = `
+    <div class="cbsgo-pill" style="
+      border-radius:18px;
+      padding:14px;
+      background:rgba(0,0,0,0.88);
+      border:1px solid rgba(120,190,255,0.25);
+      box-shadow: 0 18px 40px rgba(0,0,0,0.60);
+      color:#fff;
+      font-family: system-ui;
+    ">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:900; font-size:16px;">5-day forecast</div>
+          <div style="opacity:0.75; font-size:12px; margin-top:2px;">
+            ${esc(place)} ${updatedText ? '· ' + esc(updatedText) : ''}
+          </div>
+        </div>
+        <button class="cbsgo-pill" type="button" id="cbsgoForecastCloseBtn" style="
+          width:42px;height:42px;font-size:18px;
+          display:flex;align-items:center;justify-content:center;cursor:pointer;
+        ">✕</button>
+      </div>
+
+      ${rows || empty}
+
+      <div style="margin-top:12px; opacity:0.6; font-size:12px;">
+        Tip: tap outside or press ESC to close.
+      </div>
+    </div>
+  `;
+
+  backdrop.style.display = 'block';
+  modal.style.display = 'block';
+
+  const close = () => closeForecastModal();
+  const closeBtn = ensureEl('cbsgoForecastCloseBtn');
+  if (closeBtn) closeBtn.onclick = close;
+  backdrop.onclick = close;
+
+  try {
+    if (!window.__cbsgo_forecast_esc) {
+      window.__cbsgo_forecast_esc = (ev) => { if (ev?.key === 'Escape') closeForecastModal(); };
+    }
+    window.addEventListener('keydown', window.__cbsgo_forecast_esc);
+  } catch {}
+}
+
+function bindWeatherClickOnce() {
+  const box = ensureEl('cbsgoWeather');
+  if (!box || box.__cbsgo_bound) return;
+  box.__cbsgo_bound = true;
+
+  box.style.cursor = 'pointer';
+  box.style.userSelect = 'none';
+  box.title = 'Tap for 5-day forecast';
+
+  box.addEventListener('click', async () => {
+    if (lastUserLatLng) {
+      const lat = lastUserLatLng[0];
+      const lng = lastUserLatLng[1];
+
+      const stale = !forecastState.lastUpdated || (Date.now() - forecastState.lastUpdated) > 10 * 60 * 1000;
+      const empty = !Array.isArray(forecastState.days) || forecastState.days.length === 0;
+
+      if (stale || empty) {
+        fetchForecastForLatLng(lat, lng).then(() => {
+          const modal = ensureEl('cbsgoForecastModal');
+          const isOpen = modal && modal.style.display === 'block';
+          if (isOpen) openForecastModal();
+        });
+      }
+    }
+    openForecastModal();
+  });
+
+  if (typeof window !== 'undefined' && !window.openWeatherForecastModal) {
+    window.openWeatherForecastModal = () => {
+      try { box.click(); } catch { openForecastModal(); }
+    };
+  }
+}
+
+async function fetchForecastForLatLng(lat, lng) {
+  if (!OPEN_WEATHER_API_KEY) return;
+  const now = Date.now();
+
+  if (forecastState.lastLatLng) {
+    const moved = metersBetween(
+      { lat: forecastState.lastLatLng[0], lng: forecastState.lastLatLng[1] },
+      { lat, lng }
+    );
+    if (Number.isFinite(moved) && moved > 2500) forecastState.lastUpdated = 0;
+  }
+
+  if (forecastState.lastUpdated && now - forecastState.lastUpdated < 10 * 60 * 1000) return;
+
+  try {
+    try { forecastAbort?.abort?.(); } catch {}
+    forecastAbort = new AbortController();
+
+    const url =
+      `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lng}` +
+      `&appid=${OPEN_WEATHER_API_KEY}&units=metric`;
+
+    const res = await fetch(url, { signal: forecastAbort.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    const list = Array.isArray(data?.list) ? data.list : [];
+    const byDay = new Map();
+
+    for (const it of list) {
+      const dtTxt = String(it?.dt_txt || '').slice(0, 10);
+      if (!dtTxt) continue;
+
+      const tMin = Number(it?.main?.temp_min);
+      const tMax = Number(it?.main?.temp_max);
+      const code = it?.weather?.[0]?.icon || '01d';
+      const mainLower = String(it?.weather?.[0]?.main || '').toLowerCase();
+      const condition = codeToCondition(code, mainLower);
+
+      let row = byDay.get(dtTxt);
+      if (!row) {
+        row = { date: dtTxt, min: Number.isFinite(tMin) ? tMin : null, max: Number.isFinite(tMax) ? tMax : null, condition, iconCode: code };
+        byDay.set(dtTxt, row);
+      } else {
+        if (Number.isFinite(tMin)) row.min = row.min == null ? tMin : Math.min(row.min, tMin);
+        if (Number.isFinite(tMax)) row.max = row.max == null ? tMax : Math.max(row.max, tMax);
+
+        const pri = (c) => (c === 'storm' ? 5 : c === 'snow' ? 4 : c === 'rain' ? 3 : c === 'mist' ? 2 : c === 'clouds' ? 1 : 0);
+        if (pri(condition) > pri(row.condition)) {
+          row.condition = condition;
+          row.iconCode = code;
+        }
+      }
+    }
+
+   const days = [...byDay.values()]
+  .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+  .slice(0, 5)
+  .map((d) => {
+    // ✅ Forecast = dag-overzicht → altijd day icon (geen maan)
+    const isNight = false;
+    return {
+      date: d.date,
+      min: d.min,
+      max: d.max,
+      condition: d.condition,
+      iconEmoji: conditionToEmoji(d.condition, isNight),
+    };
+  });
+
+    forecastState = { days, lastUpdated: now, lastLatLng: [lat, lng] };
+  } catch (e) {
+    if (e?.name === 'AbortError') return;
+    console.warn('Forecast fetch failed', e);
+  }
 }
 
 async function fetchWeatherForLatLng(lat, lng) {
@@ -1089,9 +1180,7 @@ async function fetchWeatherForLatLng(lat, lng) {
   if (weatherState.lastUpdated && now - weatherState.lastUpdated < 5 * 60 * 1000) return;
 
   try {
-    try {
-      weatherAbort?.abort?.();
-    } catch {}
+    try { weatherAbort?.abort?.(); } catch {}
     weatherAbort = new AbortController();
 
     const url =
@@ -1106,18 +1195,8 @@ async function fetchWeatherForLatLng(lat, lng) {
     const code = data?.weather?.[0]?.icon || '01d';
     const main = String(data?.weather?.[0]?.main || '').toLowerCase();
 
-    let isNight = code.endsWith('n');
-    let condition = 'clear';
-
-    if (code.startsWith('03') || code.startsWith('04')) condition = 'clouds';
-    else if (code.startsWith('09') || code.startsWith('10')) condition = 'rain';
-    else if (code.startsWith('11')) condition = 'storm';
-    else if (code.startsWith('13')) condition = 'snow';
-    else if (code.startsWith('50')) condition = 'mist';
-
-    if (main.includes('rain')) condition = 'rain';
-    if (main.includes('snow')) condition = 'snow';
-    if (main.includes('thunder')) condition = 'storm';
+    let isNight = String(code).endsWith('n');
+    let condition = codeToCondition(code, main);
 
     try {
       const dt = Number(data?.dt || 0);
@@ -1129,22 +1208,20 @@ async function fetchWeatherForLatLng(lat, lng) {
       }
     } catch {}
 
-    let iconEmoji = '⛅';
-    if (condition === 'clear') iconEmoji = isNight ? '🌙' : '☀️';
-    else if (condition === 'clouds') iconEmoji = '☁️';
-    else if (condition === 'rain') iconEmoji = '🌧️';
-    else if (condition === 'storm') iconEmoji = '⛈️';
-    else if (condition === 'snow') iconEmoji = '❄️';
-    else if (condition === 'mist') iconEmoji = '🌫️';
+    const iconEmoji = conditionToEmoji(condition, isNight);
 
     weatherState = { temp, iconEmoji, condition, isNight, lastUpdated: now };
     lastWeatherLatLng = [lat, lng];
 
     updateWeatherLabel();
     setNightClass(isNight);
+
+    bindWeatherClickOnce();
+    fetchForecastForLatLng(lat, lng);
   } catch (e) {
     if (e?.name === 'AbortError') return;
     console.warn('Weather fetch failed', e);
+    bindWeatherClickOnce();
   }
 }
 
@@ -1158,9 +1235,7 @@ async function fetchPlaceName(lat, lng) {
   if (locationState.lastUpdated && now - locationState.lastUpdated < 10 * 60 * 1000) return;
 
   try {
-    try {
-      placeAbort?.abort?.();
-    } catch {}
+    try { placeAbort?.abort?.(); } catch {}
     placeAbort = new AbortController();
 
     const url =
@@ -1177,13 +1252,14 @@ async function fetchPlaceName(lat, lng) {
     locationState = { place: place ? String(place) : null, lastUpdated: now };
     lastPlaceCellKey = cell;
     updateWeatherLabel();
+    bindWeatherClickOnce();
   } catch (e) {
     if (e?.name === 'AbortError') return;
     console.warn('Place lookup failed', e);
     locationState.lastUpdated = now;
+    bindWeatherClickOnce();
   }
 }
-
 /* -------------------- STYLES -------------------- */
 
 function injectStylesOnce() {
@@ -1195,10 +1271,7 @@ function injectStylesOnce() {
     #cbsgoMapHost { position:relative; width:100%; height:100%; overflow:hidden; }
     #cbsgoMap { position:absolute; inset:0; }
 
-    /* NEVER override MapLibre marker transform */
     .cbsgo-marker-root { position: relative; }
-
-    /* SAFE scaling wrapper inside marker */
     .cbsgo-scale { display:block; transform-origin: bottom center; }
 
     #cbsgoMapHost::after{
@@ -1258,21 +1331,6 @@ function injectStylesOnce() {
       border-radius:2px;
     }
 
-    .cbsgo-pin{ position:relative; width:44px; height:58px; }
-    .cbsgo-gift-core{
-      position:absolute;
-      left:0; top:0;
-      width:44px; height:44px;
-      border-radius:18px;
-      display:flex; align-items:center; justify-content:center;
-      background: rgba(10,12,18,0.80);
-      border: 1px solid rgba(255,255,255,0.16);
-      box-shadow: 0 10px 22px rgba(0,0,0,0.45);
-      font-size:22px;
-      backdrop-filter: blur(10px);
-    }
-
-    /* ✅ Loot square + ⭐ + glow-on-star */
     .cbsgo-loot-square{
       width: 46px;
       height: 46px;
@@ -1292,7 +1350,6 @@ function injectStylesOnce() {
         drop-shadow(0 0 calc(var(--loot-glow, 0px) * 1.65) rgba(255,215,0,0.45));
     }
 
-    /* Friend bubble */
     .cbsgo-friend{
       display:flex;
       flex-direction:column;
@@ -1300,7 +1357,6 @@ function injectStylesOnce() {
       gap:6px;
       transform: translateY(-6px);
     }
-    /* ✅ Friend core matches player core size */
     .cbsgo-friend-core{
       width:42px; height:42px;
       border-radius:999px;
@@ -1338,8 +1394,6 @@ function injectStylesOnce() {
     }
 
     .cbsgo-marker-player { z-index:2000 !important; }
-    .cbsgo-marker-loot   { z-index:1000 !important; }
-
     .maplibregl-ctrl { display:none !important; }
 
     @keyframes cbsgoSpin {
@@ -1350,53 +1404,256 @@ function injectStylesOnce() {
   document.head.appendChild(style);
 }
 
-/* -------------------- MAP MODES -------------------- */
+/* -------------------- LOOT (ALL CARDS + RARITY WEIGHTS) -------------------- */
 
-function destroyMapIfAny() {
-  destroyed = true;
-
-  try { playerMarker?.remove?.(); } catch {}
-  playerMarker = null;
-  playerArrowEl = null;
-  arrowDegSmoothed = null;
-
-  lootItems.forEach((x) => { try { x.marker?.remove?.(); } catch {} });
-  lootItems = [];
-
-  try { activePuzzle?.marker?.remove?.(); } catch {}
-  activePuzzle = null;
-
-  friendMarkers.forEach((fm) => { try { fm.marker?.remove?.(); } catch {} });
-  friendMarkers.clear();
-  lastOnlinePlayers = [];
-
-  try { weatherAbort?.abort?.(); } catch {}
-  try { placeAbort?.abort?.(); } catch {}
-  weatherAbort = null;
-  placeAbort = null;
-
-  lastUserLatLng = null;
-  lastHeadingDeg = 0;
-
-  inWorldMode = true;
-  hasGpsFix = false;
-
-  lastBearingAt = 0;
-
-  lastLootSpawnAt = 0;
-  puzzleMeters = 0;
-  firstPuzzleSpawned = false;
-
-  phoneHeadingDeg = null;
-  phoneHeadingSmoothed = null;
-  lastPhoneBearingAt = 0;
-
-  worldUserInteracted = false;
-  mapBooting = true;
-
-  try { if (map) map.remove(); } catch {}
-  map = null;
+// Loot chest rarity (size)
+function rollLootKind() {
+  const r = Math.random();
+  if (r < 0.6) return 'small';
+  if (r < 0.9) return 'medium';
+  if (r < 0.98) return 'large';
+  return 'jackpot';
 }
+
+// ✅ Card drop settings
+const CARD_DROP_CHANCE = 0.35;
+
+// ✅ ALLE kaarten (zelfde ids als cardsPanel.js)
+// (Later kun je hier makkelijk 300+ kaarten van maken)
+const CARD_DEFS = [
+  // Walking
+  { id: 'walk_sun_1',         rarity: 'common' },
+  { id: 'walk_rain_1',        rarity: 'common' },
+  { id: 'walk_night_1',       rarity: 'uncommon' },
+  { id: 'walk_city_1',        rarity: 'uncommon' },
+  { id: 'walk_nature_1',      rarity: 'rare' },
+  { id: 'walk_beach_1',       rarity: 'rare' },
+  { id: 'walk_morning_1',     rarity: 'common' },
+  { id: 'walk_evening_1',     rarity: 'common' },
+  { id: 'walk_park_1',        rarity: 'uncommon' },
+  { id: 'walk_bridge_1',      rarity: 'uncommon' },
+  { id: 'walk_placeholder_1', rarity: 'common' },
+  { id: 'walk_placeholder_2', rarity: 'common' },
+
+  // CBS
+  { id: 'cbs_heart_1',        rarity: 'rare' },
+  { id: 'cbs_chain_1',        rarity: 'epic' },
+  { id: 'cbs_fire_1',         rarity: 'epic' },
+  { id: 'cbs_go_1',           rarity: 'legendary' },
+  { id: 'cbs_star_1',         rarity: 'rare' },
+  { id: 'cbs_glow_1',         rarity: 'rare' },
+  { id: 'cbs_team_1',         rarity: 'epic' },
+  { id: 'cbs_legend_1',       rarity: 'legendary' },
+  { id: 'cbs_placeholder_1',  rarity: 'rare' },
+  { id: 'cbs_placeholder_2',  rarity: 'rare' },
+];
+
+// ✅ Hoe zeldzamer, hoe minder vaak (tweakbaar)
+const RARITY_WEIGHT = {
+  common: 1.00,
+  uncommon: 0.60,
+  rare: 0.25,
+  epic: 0.10,
+  legendary: 0.04,
+};
+
+const cardRarityById = new Map(CARD_DEFS.map((c) => [c.id, (c.rarity || 'common')]));
+
+function isRareOrBetter(cardId) {
+  const r = cardRarityById.get(String(cardId)) || 'common';
+  return r === 'rare' || r === 'epic' || r === 'legendary';
+}
+
+// ✅ Weighted pick: rare/epic/legendary minder vaak
+function pickRandomCardId() {
+  if (!CARD_DEFS.length) return null;
+
+  let total = 0;
+  for (const c of CARD_DEFS) total += (RARITY_WEIGHT[c.rarity] ?? 1);
+
+  if (!(total > 0)) {
+    return CARD_DEFS[Math.floor(Math.random() * CARD_DEFS.length)]?.id || null;
+  }
+
+  let roll = Math.random() * total;
+  for (const c of CARD_DEFS) {
+    roll -= (RARITY_WEIGHT[c.rarity] ?? 1);
+    if (roll <= 0) return c.id;
+  }
+
+  return CARD_DEFS[CARD_DEFS.length - 1].id;
+}
+
+function computeLootReward(kind) {
+  const k = kind || 'small';
+  let xp, tickets, cbs;
+
+  if (k === 'jackpot') {
+    xp = 30 + Math.floor(Math.random() * 31);
+    tickets = 2 + Math.floor(Math.random() * 2);
+    cbs = 20 + Math.floor(Math.random() * 31);
+  } else if (k === 'large') {
+    xp = 20 + Math.floor(Math.random() * 21);
+    tickets = 1 + Math.floor(Math.random() * 2);
+    cbs = 10 + Math.floor(Math.random() * 16);
+  } else if (k === 'medium') {
+    xp = 10 + Math.floor(Math.random() * 16);
+    tickets = Math.random() < 0.7 ? 1 : 0;
+    cbs = Math.random() < 0.5 ? 5 + Math.floor(Math.random() * 11) : 0;
+  } else {
+    xp = 5 + Math.floor(Math.random() * 11);
+    tickets = Math.random() < 0.25 ? 1 : 0;
+    cbs = Math.random() < 0.25 ? 3 + Math.floor(Math.random() * 8) : 0;
+  }
+
+  let cardId = null;
+  let cardCount = 0;
+
+  if (Math.random() < CARD_DROP_CHANCE) {
+    const chosen = pickRandomCardId();
+    if (chosen) { cardId = chosen; cardCount = 1; }
+  }
+
+  return { xp, tickets, cbs, cardId, cardCount };
+}
+
+function computeLootGlowPx(kind, reward) {
+  const k = kind || 'small';
+  const r = reward || {};
+
+  const hasExtra = !!(r.tickets > 0 || r.cbs > 0 || (r.cardId && r.cardCount > 0));
+  const hasRareCard = !!(r.cardId && isRareOrBetter(r.cardId));
+
+  let px = 0;
+  if (k === 'medium') px = 10;
+  if (k === 'large') px = 18;
+  if (k === 'jackpot') px = 26;
+
+  if (hasExtra) px = Math.max(px, 12);
+  if (hasRareCard) px = Math.max(px, 32);
+
+  return clamp(px, 0, 36);
+}
+
+function buildLootGroundEl(kind, reward) {
+  const root = document.createElement('div');
+  root.className = 'cbsgo-marker-root';
+  root.style.pointerEvents = 'auto';
+  root.style.touchAction = 'manipulation';
+  root.style.cursor = 'pointer';
+
+  const scale = document.createElement('div');
+  scale.className = 'cbsgo-scale';
+  scale.style.transformOrigin = 'center center';
+  scale.style.willChange = 'transform';
+
+  const glowPx = computeLootGlowPx(kind, reward);
+
+  scale.innerHTML = `
+    <div class="cbsgo-loot-square" role="button" aria-label="Open loot">
+      <div class="cbsgo-loot-star" style="--loot-glow:${glowPx}px;">⭐</div>
+    </div>
+  `;
+
+  root.appendChild(scale);
+  return { rootEl: root, scaleEl: scale };
+}
+
+function canSpawnGameplay() {
+  return !!map && !inWorldMode && hasGpsFix;
+}
+
+function spawnLootAround(center) {
+  if (!LOOT_ENABLED || !canSpawnGameplay() || !center) return;
+
+  const now = Date.now();
+  if (now - lastLootSpawnAt < LOOT_RESPAWN_MS) return;
+  if (lootItems.length >= LOOT_MAX_ACTIVE) return;
+
+  const kind = rollLootKind();
+  const reward = computeLootReward(kind);
+  const pos = randomNearbyLatLng(center, LOOT_SPAWN_MIN_DISTANCE_M, LOOT_SPAWN_MAX_DISTANCE_M);
+  const id = `loot_${now}_${Math.floor(Math.random() * 9999)}`;
+
+  const { rootEl, scaleEl } = buildLootGroundEl(kind, reward);
+
+  const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center', offset: [0, 0] })
+    .setLngLat([pos.lng, pos.lat])
+    .addTo(map);
+
+  const tryOpen = () => {
+    if (!lastUserLatLng) return;
+
+    const player = { lat: lastUserLatLng[0], lng: lastUserLatLng[1] };
+    const chest = { lat: pos.lat, lng: pos.lng };
+    const dist = metersBetween(player, chest);
+
+    if (dist > PICKUP_RADIUS_M) {
+      showToast(`Too far. Move closer (${Math.round(dist)}m / ${PICKUP_RADIUS_M}m).`, 1600);
+      return;
+    }
+
+    try { marker.remove(); } catch {}
+    lootItems = lootItems.filter((x) => x.id !== id);
+
+    const { xp, tickets, cbs, cardId, cardCount } = reward;
+    const parts = [];
+    if (xp) parts.push(`+${xp} XP`);
+    if (tickets) parts.push(`+${tickets} ticket${tickets === 1 ? '' : 's'}`);
+    if (cbs) parts.push(`+${cbs} CBS`);
+    if (cardId && cardCount > 0) parts.push(`+${cardCount} card`);
+
+    showToast(`Loot found: ${parts.join(' · ')}`, 2000);
+
+    try {
+      window.dispatchEvent(new CustomEvent('cbsgo:lootReward', {
+        detail: { kind: 'mystery', xp: xp || 0, tickets: tickets || 0, cbs: cbs || 0, cardId, cardCount },
+      }));
+    } catch {}
+  };
+
+  const onPointerUp = (e) => {
+    try { e.preventDefault(); } catch {}
+    try { e.stopPropagation(); } catch {}
+    tryOpen();
+  };
+
+  rootEl.addEventListener('pointerup', onPointerUp, { passive: false });
+  rootEl.addEventListener('click', (e) => {
+    try { e.preventDefault(); } catch {}
+    try { e.stopPropagation(); } catch {}
+    tryOpen();
+  }, { passive: false });
+
+  lootItems.push({ id, marker, rootEl, scaleEl, createdAt: now, lat: pos.lat, lng: pos.lng, reward, kind });
+  lastLootSpawnAt = now;
+
+  syncGameplayMarkerVisibility();
+}
+
+function cleanupLoot(center) {
+  if (!canSpawnGameplay() || !center) return;
+
+  const now = Date.now();
+  lootItems = lootItems.filter((item) => {
+    const age = now - (item.createdAt || 0);
+    if (age > LOOT_DESPAWN_AGE_MS) {
+      try { item.marker.remove(); } catch {}
+      return false;
+    }
+
+    const dist = metersBetween(center, { lat: item.lat, lng: item.lng });
+    if (Number.isFinite(dist) && dist > LOOT_DESPAWN_DIST_M) {
+      try { item.marker.remove(); } catch {}
+      return false;
+    }
+    return true;
+  });
+
+  if (lootItems.length === 0) lastLootSpawnAt = 0;
+}
+
+/* -------------------- MAP MODES -------------------- */
 
 function setWorldMode({ animate = true } = {}) {
   if (!map) return;
@@ -1407,19 +1664,14 @@ function setWorldMode({ animate = true } = {}) {
     try { map.setProjection({ type: 'globe' }); } catch {}
   }
 
+  // World: allow rotate by fingers
   try { map.dragRotate.enable(); } catch {}
   try { map.touchZoomRotate.enableRotation(); } catch {}
 
   clearPickupRing();
   syncGameplayMarkerVisibility();
 
-  const cam = {
-    center: WORLD_CENTER,
-    zoom: WORLD_ZOOM,
-    bearing: 0,
-    duration: WORLD_VIEW_DURATION_MS,
-  };
-
+  const cam = { center: WORLD_CENTER, zoom: WORLD_ZOOM, bearing: 0, duration: WORLD_VIEW_DURATION_MS };
   if (animate) map.easeTo(cam);
   else map.jumpTo({ center: cam.center, zoom: cam.zoom, bearing: cam.bearing });
 
@@ -1427,7 +1679,6 @@ function setWorldMode({ animate = true } = {}) {
   if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
   if (worldBtnEl) worldBtnEl.textContent = '🌍';
-
   applyAllMarkerScales();
 }
 
@@ -1439,27 +1690,21 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
     try { map.setProjection({ type: 'mercator' }); } catch {}
   }
 
+  // Player: finger rotate only
   try { map.dragRotate.disable(); } catch {}
-  try { map.touchZoomRotate.disableRotation(); } catch {}
+  try { map.touchZoomRotate.enableRotation(); } catch {}
 
   const has = !!lastUserLatLng;
   const center = has ? [lastUserLatLng[1], lastUserLatLng[0]] : FALLBACK_CENTER;
 
-  // ✅ snap-to-perfect zoom right away on button press
   if (snap) {
-    map.jumpTo({
-      center,
-      zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM,
-      bearing: Number.isFinite(lastHeadingDeg) ? wrap360(lastHeadingDeg) : 0,
-    });
+    map.jumpTo({ center, zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM });
 
-    // HARD: ensure layers exist AND are on top
     ensureRangeLayers();
     elevateRangeLayers();
 
     if (has) {
       forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-      // extra micro-tick for mobile render pipeline
       requestAnimationFrame(() => {
         if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
       });
@@ -1475,36 +1720,10 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
     return;
   }
 
-  // fallback animate mode (not used on button click)
   ensureRangeLayers();
-  const cam = {
-    center,
-    zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM,
-    bearing: Number.isFinite(lastHeadingDeg) ? wrap360(lastHeadingDeg) : 0,
-    duration: PLAYER_VIEW_DURATION_MS,
-  };
-
-  if (animate) {
-    map.easeTo(cam);
-    const snapEnd = () => {
-      map.off('moveend', snapEnd);
-      if (!lastUserLatLng) return;
-
-      map.jumpTo({
-        center: [lastUserLatLng[1], lastUserLatLng[0]],
-        zoom: FOLLOW_ZOOM,
-        bearing: Number.isFinite(lastHeadingDeg) ? wrap360(lastHeadingDeg) : 0,
-      });
-
-      ensureRangeLayers();
-      elevateRangeLayers();
-      forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-      syncGameplayMarkerVisibility();
-    };
-    map.on('moveend', snapEnd);
-  } else {
-    map.jumpTo({ center: cam.center, zoom: cam.zoom, bearing: cam.bearing });
-  }
+  const cam = { center, zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM, duration: PLAYER_VIEW_DURATION_MS };
+  if (animate) map.easeTo(cam);
+  else map.jumpTo({ center: cam.center, zoom: cam.zoom });
 
   if (worldBtnEl) worldBtnEl.textContent = '🧭';
 
@@ -1517,13 +1736,14 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
   applyAllMarkerScales();
 }
 
+/* -------------------- MAP INIT -------------------- */
+
 function initMapLibre() {
   const el = ensureEl('cbsgoMap');
   if (!el) return false;
 
   destroyMapIfAny();
   destroyed = false;
-
   mapBooting = true;
 
   map = new maplibregl.Map({
@@ -1543,13 +1763,10 @@ function initMapLibre() {
     map.once('idle', () => {
       mapBooting = false;
 
-      // HARD: idle is a great moment on mobile to re-apply ring
       ensureRangeLayers();
       elevateRangeLayers();
-      if (lastUserLatLng && !inWorldMode) {
-        forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-      }
 
+      if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
       if (lastUserLatLng) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
       if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
@@ -1557,13 +1774,10 @@ function initMapLibre() {
     });
   });
 
-  // ✅ If style reloads, re-add ring layers + retry ring + push to top
   map.on('styledata', () => {
     if (!map || destroyed) return;
-
     ensureRangeLayers();
     elevateRangeLayers();
-
     if (lastUserLatLng && !inWorldMode) {
       forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
       requestAnimationFrame(() => {
@@ -1572,17 +1786,12 @@ function initMapLibre() {
     }
   });
 
-  // ✅ Also on idle (some mobiles reorder layers after styledata)
   map.on('idle', () => {
     if (!map || destroyed) return;
     if (!map.isStyleLoaded()) return;
-
     ensureRangeLayers();
     elevateRangeLayers();
-
-    if (lastUserLatLng && !inWorldMode) {
-      forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-    }
+    if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
   });
 
   const markWorldInteract = () => {
@@ -1603,7 +1812,6 @@ function initMapLibre() {
       setPlayerMode({ animate: true, snap: false });
       return;
     }
-
     if (!inWorldMode && z <= AUTO_SWITCH_TO_WORLD_ZOOM) {
       setWorldMode({ animate: true });
       return;
@@ -1613,17 +1821,13 @@ function initMapLibre() {
   });
 
   map.on('move', () => {
-    if (lastUserLatLng && !inWorldMode) {
-      forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-    }
+    if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
     updatePlayerArrow();
     applyAllMarkerScales();
   });
 
   map.on('moveend', () => {
-    if (lastUserLatLng && !inWorldMode) {
-      forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-    }
+    if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
     updatePlayerArrow();
     applyAllMarkerScales();
   });
@@ -1640,14 +1844,7 @@ function initMapLibre() {
       if (!map) return;
       try { map.resize(); } catch {}
 
-      try {
-        lootItems.forEach((it) => it?.marker?.setLngLat?.([it.lng, it.lat]));
-        if (activePuzzle?.marker) activePuzzle.marker.setLngLat([activePuzzle.lng, activePuzzle.lat]);
-      } catch {}
-
-      if (lastUserLatLng && !inWorldMode) {
-        forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
-      }
+      if (lastUserLatLng && !inWorldMode) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
 
       updatePlayerArrow();
       syncGameplayMarkerVisibility();
@@ -1665,95 +1862,371 @@ function initMapLibre() {
   return true;
 }
 
-/* -------------------- PHONE ORIENTATION -------------------- */
-
-function getScreenAngleDeg() {
-  try {
-    const a = window.screen?.orientation?.angle;
-    if (Number.isFinite(a)) return a;
-  } catch {}
-  try {
-    const a = window.orientation;
-    if (Number.isFinite(a)) return a;
-  } catch {}
-  return 0;
-}
-
-function computePhoneHeadingFromEvent(ev) {
-  if (!ev) return null;
-
-  if (typeof ev.webkitCompassHeading === 'number' && Number.isFinite(ev.webkitCompassHeading)) {
-    return wrap360(ev.webkitCompassHeading);
-  }
-
-  if (typeof ev.alpha === 'number' && Number.isFinite(ev.alpha)) {
-    const screenAngle = getScreenAngleDeg();
-    return wrap360(360 - ev.alpha + screenAngle);
-  }
-
-  return null;
-}
-
-async function ensurePhoneOrientationListener() {
-  if (phoneListenerOn) return;
-  phoneListenerOn = true;
-
-  const handler = (ev) => {
-    if (destroyed) return;
-    if (!ROTATE_MAP_WITH_PHONE) return;
-    if (!map || inWorldMode) return;
-    if (!map.isStyleLoaded()) return;
-
-    const h = computePhoneHeadingFromEvent(ev);
-    if (!Number.isFinite(h)) return;
-
-    phoneHeadingDeg = wrap360(h);
-
-    if (phoneHeadingSmoothed == null) phoneHeadingSmoothed = phoneHeadingDeg;
-    const diff = shortestAngleDeltaDeg(phoneHeadingSmoothed, phoneHeadingDeg);
-    phoneHeadingSmoothed = wrap360(phoneHeadingSmoothed + diff * PHONE_ROTATE_SMOOTH);
-
-    lastHeadingDeg = wrap360(phoneHeadingSmoothed);
-    updatePlayerArrow();
-
-    const now = Date.now();
-    if (now - lastPhoneBearingAt < PHONE_ROTATE_THROTTLE_MS) return;
-
-    const cur = wrap360(map.getBearing());
-    const delta = Math.abs(shortestAngleDeltaDeg(cur, phoneHeadingSmoothed));
-    if (delta < PHONE_ROTATE_MIN_DEG_DELTA) return;
-
-    lastPhoneBearingAt = now;
-
-    const center = lastUserLatLng ? [lastUserLatLng[1], lastUserLatLng[0]] : map.getCenter();
-    map.easeTo({
-      center,
-      bearing: phoneHeadingSmoothed,
-      duration: ROTATE_DURATION_MS,
-    });
-  };
-
-  try {
-    if (
-      typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function'
-    ) {
-      window.__cbsgo_needOrientationPermission = true;
-      window.__cbsgo_orientationHandler = handler;
-      return;
-    }
-  } catch {}
-
-  window.addEventListener('deviceorientation', handler, true);
-}
-
 /* -------------------- GPS -------------------- */
 
 function startGps() {
   if (!navigator.geolocation) return;
 
+  // -------------------- Dynamic treasures from Supabase --------------------
+  let lastTreasureCheckAt = 0;
+  let lastTreasureFetchAt = 0;
+  let treasurePopupOpen = false;
+  let treasureSeenThisSession = false;
+  let activeTreasures = [];
+  let activeNearbyTreasure = null;
+
+  const TREASURE_FETCH_INTERVAL_MS = 15000;
+
+  const getSupabaseClient = async () => {
+    try {
+      if (window.__cbsgo_supabase_client) return window.__cbsgo_supabase_client;
+
+      const { createClient } = await import('@supabase/supabase-js');
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!url || !anon) {
+        console.warn('CBS-GO: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+        return null;
+      }
+
+      const client = createClient(url, anon);
+      window.__cbsgo_supabase_client = client;
+      return client;
+    } catch (e) {
+      console.warn('CBS-GO: failed to create Supabase client', e);
+      return null;
+    }
+  };
+
+  const refreshActiveTreasures = async () => {
+    try {
+      const supabase = await getSupabaseClient();
+      if (!supabase) return;
+
+      const { data, error } = await supabase
+        .from('treasures')
+        .select('id,title,lat,lng,radius_m,reward_bonk,reward_cbs,reward_sol,status')
+        .eq('status', 'active')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.warn('CBS-GO: failed to fetch treasures', error);
+        return;
+      }
+
+      activeTreasures = Array.isArray(data) ? data : [];
+      lastTreasureFetchAt = Date.now();
+    } catch (e) {
+      console.warn('CBS-GO: refreshActiveTreasures failed', e);
+    }
+  };
+
+  const getLocalPkSafe = () => {
+    try {
+      if (typeof window !== 'undefined' && typeof window.getLocalPublicKey === 'function') {
+        return String(window.getLocalPublicKey() || '').trim();
+      }
+    } catch {}
+    return '';
+  };
+
+  const buildShareText = (treasure) => {
+    const title = treasure?.title || 'a CBS-GO treasure';
+    return `I found ${title} in CBS-GO. 🧰🌍 #CBSGO #Solana`;
+  };
+
+  const shareOnX = (treasure) => {
+    try {
+      const text = encodeURIComponent(buildShareText(treasure));
+      const url = `https://twitter.com/intent/tweet?text=${text}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.warn('CBS-GO: shareOnX failed', e);
+    }
+  };
+
+  const shareOnTelegram = (treasure) => {
+    try {
+      const text = encodeURIComponent(buildShareText(treasure));
+      const url = `https://t.me/share/url?url=&text=${text}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.warn('CBS-GO: shareOnTelegram failed', e);
+    }
+  };
+
+  const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
+    if (!treasure || treasurePopupOpen) return;
+    treasurePopupOpen = true;
+    activeNearbyTreasure = treasure;
+
+    const hostId = 'cbsgoTreasurePopupHost';
+    let host = document.getElementById(hostId);
+    if (!host) {
+      host = document.createElement('div');
+      host.id = hostId;
+      document.body.appendChild(host);
+    }
+
+    host.innerHTML = '';
+
+    const wrap = document.createElement('div');
+    wrap.style.position = 'fixed';
+    wrap.style.inset = '0';
+    wrap.style.zIndex = '9000';
+    wrap.style.display = 'flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.justifyContent = 'center';
+    wrap.style.background = 'rgba(5,7,11,0.78)';
+    wrap.style.pointerEvents = 'auto';
+
+    const card = document.createElement('div');
+    card.style.width = 'min(360px, 92vw)';
+    card.style.borderRadius = '22px';
+    card.style.border = '1px solid rgba(56,189,248,.85)';
+    card.style.background = 'rgba(10,12,18,0.98)';
+    card.style.boxShadow = '0 24px 80px rgba(0,0,0,.88)';
+    card.style.padding = '18px 16px 14px 16px';
+    card.style.color = '#fff';
+    card.style.fontFamily = 'system-ui,sans-serif';
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(12px) scale(0.97)';
+    card.style.transition = 'opacity .22s ease-out, transform .22s ease-out';
+
+    const pk = getLocalPkSafe();
+    const d = Math.max(0, Math.round(Number(distanceM || 0)));
+    const acc = Number.isFinite(accuracyM) ? Math.round(accuracyM) : null;
+
+    const rewardBonk = Number(treasure?.reward_bonk || 0);
+    const rewardCbs = Number(treasure?.reward_cbs || 0);
+    const rewardSol = Number(treasure?.reward_sol || 0);
+
+    const rewardParts = [];
+    if (rewardBonk > 0) rewardParts.push(`🟡 ${rewardBonk} BONK`);
+    if (rewardCbs > 0) rewardParts.push(`🪙 ${rewardCbs} CBS`);
+    if (rewardSol > 0) rewardParts.push(`◎ ${rewardSol} SOL`);
+
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div style="
+          width:44px;height:44px;border-radius:999px;
+          border:1px solid rgba(56,189,248,.6);
+          background:rgba(56,189,248,.12);
+          display:flex;align-items:center;justify-content:center;
+          font-size:22px;
+        ">🧰</div>
+        <div style="min-width:0;">
+          <div style="font-size:15px;font-weight:900;">Treasure nearby</div>
+          <div style="font-size:11px;opacity:.8;line-height:1.35;">
+            ${treasure?.title ? `You found <b>${treasure.title}</b>.` : 'You are within range to open this treasure.'}
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:12px;opacity:.9;margin-bottom:8px;">
+        Distance: <b>${d}m</b>${acc !== null ? ` · GPS accuracy: <b>±${acc}m</b>` : ''}
+      </div>
+
+      ${
+        rewardParts.length
+          ? `
+      <div style="
+        font-size:12px;
+        margin-bottom:10px;
+        padding:9px 10px;
+        border-radius:14px;
+        background:rgba(15,23,42,.72);
+        border:1px solid rgba(148,163,184,.28);
+      ">
+        Reward: <b>${rewardParts.join(' · ')}</b>
+      </div>`
+          : ''
+      }
+
+      <div style="
+        padding:10px 10px;
+        border-radius:14px;
+        border:1px solid rgba(148,163,184,.35);
+        background:rgba(15,23,42,.75);
+        font-size:11px;
+        opacity:.9;
+        line-height:1.45;
+        margin-bottom:12px;
+      ">
+        Opening is manual (safe mode).<br/>
+        You can choose to open now. This treasure can be opened only once.
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:8px;">
+        <button id="cbsgoTreasureCancelBtn" type="button" style="
+          padding:8px 12px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.08);
+          color:#fff;
+          font-size:12px;
+          font-weight:700;
+          cursor:pointer;
+        ">Not now</button>
+
+        <button id="cbsgoTreasureOpenBtn" type="button" style="
+          padding:8px 12px;
+          border-radius:999px;
+          border:1px solid rgba(34,197,94,.85);
+          background:rgba(22,163,74,.95);
+          color:#fff;
+          font-size:12px;
+          font-weight:900;
+          cursor:pointer;
+        ">Open treasure</button>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:8px;">
+        <button id="cbsgoTreasureShareXBtn" type="button" style="
+          padding:7px 11px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.06);
+          color:#fff;
+          font-size:11px;
+          font-weight:700;
+          cursor:pointer;
+        ">Share on X</button>
+
+        <button id="cbsgoTreasureShareTgBtn" type="button" style="
+          padding:7px 11px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.18);
+          background:rgba(255,255,255,.06);
+          color:#fff;
+          font-size:11px;
+          font-weight:700;
+          cursor:pointer;
+        ">Share on Telegram</button>
+      </div>
+
+      <div id="cbsgoTreasureMsg" style="margin-top:10px;font-size:11px;opacity:.85;"></div>
+      ${
+        pk
+          ? ''
+          : `<div style="margin-top:8px;font-size:11px;opacity:.8;color:#fecaca;">
+        ⚠️ No local wallet detected yet. Finish login/PIN first.
+      </div>`
+      }
+    `;
+
+    const close = () => {
+      card.style.opacity = '0';
+      card.style.transform = 'translateY(12px) scale(0.97)';
+      setTimeout(() => {
+        if (host) host.innerHTML = '';
+        treasurePopupOpen = false;
+        activeNearbyTreasure = null;
+      }, 220);
+    };
+
+    wrap.appendChild(card);
+    host.appendChild(wrap);
+
+    requestAnimationFrame(() => {
+      card.style.opacity = '1';
+      card.style.transform = 'translateY(0) scale(1)';
+    });
+
+    wrap.addEventListener('click', (e) => {
+      if (e.target === wrap) close();
+    });
+
+    const cancelBtn = document.getElementById('cbsgoTreasureCancelBtn');
+    if (cancelBtn) cancelBtn.onclick = close;
+
+    const shareXBtn = document.getElementById('cbsgoTreasureShareXBtn');
+    if (shareXBtn) shareXBtn.onclick = () => shareOnX(treasure);
+
+    const shareTgBtn = document.getElementById('cbsgoTreasureShareTgBtn');
+    if (shareTgBtn) shareTgBtn.onclick = () => shareOnTelegram(treasure);
+
+    const msgEl = document.getElementById('cbsgoTreasureMsg');
+    const setMsg = (t) => {
+      if (msgEl) msgEl.textContent = t || '';
+    };
+
+    const openBtn = document.getElementById('cbsgoTreasureOpenBtn');
+    if (openBtn) {
+      openBtn.onclick = () => {
+        const claimant_wallet = getLocalPkSafe();
+        if (!claimant_wallet) {
+          setMsg('⛔ No local wallet found. Finish login/PIN first.');
+          return;
+        }
+
+        openBtn.disabled = true;
+        setMsg('Opening…');
+
+        try {
+          window.dispatchEvent(
+            new CustomEvent('cbsgo:treasureOpenRequest', {
+              detail: {
+                treasure_id: treasure.id,
+                claimant_wallet,
+                radius_m: Number(treasure.radius_m || 0),
+                center: {
+                  lat: Number(treasure.lat),
+                  lng: Number(treasure.lng),
+                },
+                distance_m: d,
+                t: Date.now(),
+              },
+            })
+          );
+        } catch (e) {
+          console.warn('CBS-GO: treasureOpenRequest dispatch failed', e);
+        }
+
+        setMsg('✅ Request sent. If you are first, payout will arrive shortly.');
+        treasureSeenThisSession = true;
+
+        setTimeout(() => close(), 900);
+      };
+    }
+  };
+
+  const findNearestActiveTreasure = (center, accuracyM) => {
+    if (!Array.isArray(activeTreasures) || !activeTreasures.length) return null;
+
+    let best = null;
+
+    for (const t of activeTreasures) {
+      const lat = Number(t?.lat);
+      const lng = Number(t?.lng);
+      const radius = Number(t?.radius_m || 0);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) {
+        continue;
+      }
+
+      const dist = metersBetween(center, { lat, lng });
+
+      const jitter = Number.isFinite(accuracyM) ? Math.min(Math.max(accuracyM, 0), 25) : 10;
+      const allowed = radius + jitter;
+
+      if (Number.isFinite(dist) && dist <= allowed) {
+        if (!best || dist < best.distanceM) {
+          best = {
+            treasure: t,
+            distanceM: dist,
+            accuracyM,
+          };
+        }
+      }
+    }
+
+    return best;
+  };
+
   navigator.geolocation.watchPosition(
-    (pos) => {
+    async (pos) => {
       if (destroyed) return;
 
       const { latitude, longitude, heading } = pos.coords;
@@ -1768,48 +2241,18 @@ function startGps() {
       if (Number.isFinite(heading)) gpsHeading = wrap360(heading);
       else if (prev) {
         const distMoved = metersBetween(prev, center);
-        if (Number.isFinite(distMoved) && distMoved > 2) gpsHeading = wrap360(computeHeadingDeg(prev, center));
-      }
-
-      if (PHONE_HEADING_PRIORITY && ROTATE_MAP_WITH_PHONE && Number.isFinite(phoneHeadingSmoothed)) {
-        lastHeadingDeg = wrap360(phoneHeadingSmoothed);
-      } else if (Number.isFinite(gpsHeading)) {
-        lastHeadingDeg = wrap360(gpsHeading);
-      }
-
-      if (map) ensurePlayerMarker(latitude, longitude);
-
-      if (map && !inWorldMode && ROTATE_MAP_WITH_HEADING && map.isStyleLoaded()) {
-        const now = Date.now();
-        if (now - lastBearingAt > ROTATE_THROTTLE_MS && Number.isFinite(lastHeadingDeg)) {
-          const cur = wrap360(map.getBearing());
-          const delta = Math.abs(shortestAngleDeltaDeg(cur, lastHeadingDeg));
-          if (delta >= ROTATE_MIN_DEG_DELTA) {
-            lastBearingAt = now;
-            map.easeTo({
-              center: [longitude, latitude],
-              bearing: lastHeadingDeg,
-              duration: ROTATE_DURATION_MS,
-            });
-          }
+        if (Number.isFinite(distMoved) && distMoved > 2) {
+          gpsHeading = wrap360(computeHeadingDeg(prev, center));
         }
       }
+      if (Number.isFinite(gpsHeading)) lastHeadingDeg = wrap360(gpsHeading);
 
+      if (map) ensurePlayerMarker(latitude, longitude);
       updatePlayerArrow();
 
-      if (prev) {
-        const moved = metersBetween(prev, center);
-        if (Number.isFinite(moved) && moved > 1) puzzleMeters += moved;
-      }
-
       if (!inWorldMode) {
-        maybeSpawnPuzzle(center);
         spawnLootAround(center);
         cleanupLoot(center);
-      }
-
-      // ✅ Force ring update on every GPS tick in player-mode (retry safe)
-      if (!inWorldMode) {
         forceUpdatePickupRing(latitude, longitude);
       }
 
@@ -1818,19 +2261,42 @@ function startGps() {
       fetchWeatherForLatLng(latitude, longitude);
       fetchPlaceName(latitude, longitude);
 
+      // refresh treasures every X seconds
       try {
-        window.dispatchEvent(
-          new CustomEvent('cbsgo:playerPos', {
-            detail: {
-              lat: latitude,
-              lng: longitude,
-              heading: lastHeadingDeg,
-              acc: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
-              t: Date.now(),
-              shareLocation,
-            },
-          })
-        );
+        const now = Date.now();
+        if (!lastTreasureFetchAt || now - lastTreasureFetchAt > TREASURE_FETCH_INTERVAL_MS) {
+          await refreshActiveTreasures();
+        }
+      } catch {}
+
+      // -------------------- Dynamic treasure check --------------------
+      try {
+        const now = Date.now();
+        if (!treasureSeenThisSession && !treasurePopupOpen && now - lastTreasureCheckAt > 1200) {
+          lastTreasureCheckAt = now;
+
+          const acc = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
+         const nearest = findNearestActiveTreasure(center, acc);
+
+if (nearest?.treasure) {
+  showTreasurePopup(nearest);
+}
+        }
+      } catch (e) {
+        console.warn('CBS-GO: treasure check failed', e);
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('cbsgo:playerPos', {
+          detail: {
+            lat: latitude,
+            lng: longitude,
+            heading: lastHeadingDeg,
+            acc: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+            t: Date.now(),
+            shareLocation,
+          },
+        }));
       } catch {}
     },
     (err) => {
@@ -1859,7 +2325,9 @@ export function renderMapView() {
         display:inline-flex;
         align-items:center;
         gap:6px;
-      ">
+        cursor:pointer;
+        user-select:none;
+      " title="Tap for 5-day forecast">
         <span id="cbsgoWeatherLabel">${esc(getWeatherLabel())}</span>
       </div>
 
@@ -1911,6 +2379,10 @@ export function bindMapView() {
       return;
     }
 
+    // prevent double init
+    if (window.__cbsgo_map_inited) return;
+    window.__cbsgo_map_inited = true;
+
     const ok = initMapLibre();
     if (!ok) return;
 
@@ -1932,36 +2404,19 @@ export function bindMapView() {
       });
     }
 
-    ensurePhoneOrientationListener();
-
     const worldBtn = ensureEl('cbsgoWorldBtn');
     worldBtnEl = worldBtn || null;
 
-    if (worldBtn) {
-      worldBtn.onclick = async () => {
-        if (!map) return;
+    bindWeatherClickOnce();
 
-        try {
-          if (window.__cbsgo_needOrientationPermission && typeof DeviceOrientationEvent !== 'undefined') {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-              const res = await DeviceOrientationEvent.requestPermission();
-              if (String(res).toLowerCase() === 'granted') {
-                window.__cbsgo_needOrientationPermission = false;
-                if (window.__cbsgo_orientationHandler) {
-                  window.addEventListener('deviceorientation', window.__cbsgo_orientationHandler, true);
-                }
-                showToast('Compass enabled ✅', 1200);
-              } else {
-                showToast('Compass disabled (permission not granted).', 1600);
-              }
-            }
-          }
-        } catch {}
+    /* -------------------- WORLD / PLAYER BTN -------------------- */
+    if (worldBtn) {
+      worldBtn.onclick = () => {
+        if (!map) return;
 
         worldBtn.style.animation = 'cbsgoSpin 0.6s cubic-bezier(0.25,0.46,0.45,0.94)';
         setTimeout(() => { worldBtn.style.animation = ''; }, 600);
 
-        // ✅ Button behavior: snap to perfect game zoom immediately
         if (inWorldMode) setPlayerMode({ animate: false, snap: true });
         else setWorldMode({ animate: true });
 
@@ -1971,9 +2426,7 @@ export function bindMapView() {
 
     if (!window.__cbsgo_profile_listener) {
       window.__cbsgo_profile_listener = true;
-      window.addEventListener('cbsgo:profileChanged', () => {
-        refreshPlayerLooks();
-      });
+      window.addEventListener('cbsgo:profileChanged', () => refreshPlayerLooks());
     }
 
     updateWeatherLabel();
