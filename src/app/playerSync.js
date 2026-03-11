@@ -168,7 +168,18 @@ async function fetchOnlinePlayers() {
 
     const rows = Array.isArray(data) ? data : [];
 
-    // Profiles ophalen via players table op wallet_pk
+    // Profielen ophalen:
+    // 1) game_profiles op user_id (beste bron voor avatar)
+    // 2) players op user_id
+    // 3) players op wallet_pk fallback
+    const userIds = Array.from(
+      new Set(
+        rows
+          .map((r) => r.user_id)
+          .filter((v) => typeof v === 'string' && v.length > 0),
+      ),
+    );
+
     const walletPks = Array.from(
       new Set(
         rows
@@ -177,22 +188,65 @@ async function fetchOnlinePlayers() {
       ),
     );
 
-    let profileByWallet = new Map();
+    let gameProfileByUserId = new Map();
+    let playersByUserId = new Map();
+    let playersByWallet = new Map();
+
+    if (userIds.length > 0) {
+      const { data: gameProfiles, error: gpErr } = await supabase
+        .from('game_profiles')
+        .select('user_id, nickname, avatar, wallet_pk')
+        .in('user_id', userIds);
+
+      if (gpErr) {
+        console.warn('CBS GO: fetch game_profiles failed', gpErr);
+      } else if (Array.isArray(gameProfiles)) {
+        gameProfileByUserId = new Map(
+          gameProfiles
+            .filter((p) => p && p.user_id)
+            .map((p) => [String(p.user_id), p]),
+        );
+      }
+
+      const { data: playerProfiles, error: pErr } = await supabase
+        .from('players')
+        .select('user_id, wallet_pk, nickname, avatar')
+        .in('user_id', userIds);
+
+      if (pErr) {
+        console.warn('CBS GO: fetch players by user_id failed', pErr);
+      } else if (Array.isArray(playerProfiles)) {
+        playersByUserId = new Map(
+          playerProfiles
+            .filter((p) => p && p.user_id)
+            .map((p) => [String(p.user_id), p]),
+        );
+
+        for (const p of playerProfiles) {
+          if (p?.wallet_pk) playersByWallet.set(String(p.wallet_pk), p);
+        }
+      }
+    }
 
     if (walletPks.length > 0) {
-      const { data: profiles, error: profileError } = await supabase
-        .from('players')
-        .select('wallet_pk, avatar, nickname')
-        .in('wallet_pk', walletPks);
+      const missingWallets = walletPks.filter((pk) => !playersByWallet.has(String(pk)));
 
-      if (profileError) {
-        console.warn('CBS GO: fetch player profiles failed', profileError);
-      } else if (Array.isArray(profiles)) {
-        profileByWallet = new Map(
-          profiles
-            .filter((p) => p && p.wallet_pk)
-            .map((p) => [String(p.wallet_pk), p]),
-        );
+      if (missingWallets.length > 0) {
+        const { data: walletProfiles, error: wpErr } = await supabase
+          .from('players')
+          .select('user_id, wallet_pk, nickname, avatar')
+          .in('wallet_pk', missingWallets);
+
+        if (wpErr) {
+          console.warn('CBS GO: fetch players by wallet_pk failed', wpErr);
+        } else if (Array.isArray(walletProfiles)) {
+          for (const p of walletProfiles) {
+            if (p?.wallet_pk) playersByWallet.set(String(p.wallet_pk), p);
+            if (p?.user_id && !playersByUserId.has(String(p.user_id))) {
+              playersByUserId.set(String(p.user_id), p);
+            }
+          }
+        }
       }
     }
 
@@ -204,11 +258,24 @@ async function fetchOnlinePlayers() {
         // ✅ hidden players (lat/lng null) vallen hier automatisch weg
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
+        const uid = row.user_id ? String(row.user_id) : '';
         const pk = row.wallet_pk ? String(row.wallet_pk) : '';
-        const profile = pk ? profileByWallet.get(pk) || null : null;
 
-        const nickname = (profile && profile.nickname) || row.nickname || 'Anon';
-        const avatar = profile && profile.avatar ? String(profile.avatar) : '';
+        const gameProfile = uid ? gameProfileByUserId.get(uid) || null : null;
+        const playerProfile =
+          (uid && playersByUserId.get(uid)) ||
+          (pk && playersByWallet.get(pk)) ||
+          null;
+
+        const nickname =
+          (gameProfile && gameProfile.nickname) ||
+          (playerProfile && playerProfile.nickname) ||
+          row.nickname ||
+          'Anon';
+
+        const avatar =
+          (gameProfile && gameProfile.avatar ? String(gameProfile.avatar) : '') ||
+          (playerProfile && playerProfile.avatar ? String(playerProfile.avatar) : '');
 
         return {
           user_id: row.user_id || '',

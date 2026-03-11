@@ -10,6 +10,7 @@ import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
 import {
   addTickets,
   addCbsCoins,
+  addCard,
   getTickets,
   getCbsCoins,
   loadInventory,
@@ -201,12 +202,16 @@ export async function pullIncomingGifts() {
     for (const row of data) {
       const rowId = row.id;
 
-      const { data: updatedRows, error: updError } = await supabase
-        .from(TABLE)
-        .update({ claimed: true })
-        .eq('id', rowId)
-        .eq('claimed', false)
-        .select('id');
+     const { data: updatedRows, error: updError } = await supabase
+  .from(TABLE)
+  .update({
+    claimed: true,
+    status: 'claimed',
+    claimed_at: new Date().toISOString(),
+  })
+  .eq('id', rowId)
+  .eq('claimed', false)
+  .select('id');
 
       if (updError) {
         console.warn('CBS GO: failed to mark trade as claimed', updError);
@@ -215,7 +220,7 @@ export async function pullIncomingGifts() {
 
       if (!updatedRows || !updatedRows.length) continue;
 
-      const tickets = Number(row.tickets || 0);
+           const tickets = Number(row.tickets || 0);
       const cbs = Number(row.cbs || 0);
       const cardId = row.card_id || null;
       const cardQty = Number(row.card_qty || 0);
@@ -224,8 +229,14 @@ export async function pullIncomingGifts() {
         addTickets(tickets);
         changedBag = true;
       }
+
       if (cbs) {
         addCbsCoins(cbs);
+        changedBag = true;
+      }
+
+      if (cardId && cardQty > 0) {
+        addCard(cardId, cardQty);
         changedBag = true;
       }
 

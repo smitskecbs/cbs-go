@@ -92,8 +92,12 @@ function short(addr) {
 }
 
 function isLikelySolanaPubkey(s) {
-  const v = String(s || '').trim()
-  return v.length >= 32 && v.length <= 44
+  try {
+    new PublicKey(String(s || '').trim())
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function testConnection() {
@@ -279,9 +283,9 @@ async function runOnce() {
     }
 
     // SOL alleen versturen als reward_sol bestaat en > 0
-    if (rewardSol > 0) {
-      await paySol(payoutWallet, rewardSol)
-    }
+  if (rewardSol > 0) {
+  sigs.tx_sol_sig = await paySol(payoutWallet, rewardSol)
+}
 
     await markTreasurePaid(id, {
       ...sigs,

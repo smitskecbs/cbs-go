@@ -2,6 +2,7 @@
 // Inventory for CBS-GO (tickets + CBS play money + collectible cards)
 
 const KEY = 'cbsgo_inventory_v2';
+const CARDS_KEY = 'cbsgo_cards_v1';
 
 function safeParse(raw, fallback) {
   try {
@@ -107,11 +108,6 @@ export function addCbsCoins(n = 1) {
 
 /* ---------- CARDS ---------- */
 
-export function getAllCards() {
-  const inv = loadInventory();
-  return { ...(inv.cards || {}) };
-}
-
 export function addCard(cardId, qty = 1) {
   const id = String(cardId || '').trim();
   const n = Number(qty || 1);
@@ -122,10 +118,24 @@ export function addCard(cardId, qty = 1) {
   inv.cards[id] = Number(inv.cards[id] || 0) + n;
 
   saveInventory(inv);
+
+  // ✅ sync ook naar My Cards storage
+  try {
+    const safe = {
+      counts: { ...(inv.cards || {}) },
+    };
+    localStorage.setItem(CARDS_KEY, JSON.stringify(safe));
+  } catch {}
+
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:bagChanged', {
+      detail: { cards: { ...(inv.cards || {}) } },
+    }),
+  );
+
   return inv;
 }
-
 export function removeCard(cardId, qty = 1) {
   const id = String(cardId || '').trim();
   const n = Number(qty || 1);

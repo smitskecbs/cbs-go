@@ -93,7 +93,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   // ✅ XP: max om rollback te voorkomen
   const localState = loadLocalState();
   const localXp = Number(localState.xp || 0);
-  const mergedXp = Math.max(localXp, remoteXp);
+  const mergedXp = Number(remoteXp || 0);
 
   // ✅ Inventory: REMOTE is leidend (anders komen gifts terug!)
   const mergedTickets = Number(remoteTickets || 0);

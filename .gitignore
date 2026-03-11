@@ -1,10 +1,54 @@
-﻿.env
+﻿# =====================
+# Environment / secrets
+# =====================
+.env
 .env.*
+*.env
+
+# =====================
+# Node
+# =====================
 node_modules/
 dist/
 .vite/
 
+# =====================
+# Worker secrets
+# =====================
 server/treasure-worker/keys/
 server/treasure-worker/*.json
 !server/treasure-worker/package.json
 !server/treasure-worker/package-lock.json
+
+# =====================
+# Android signing keys
+# =====================
+*.jks
+*.keystore
+cbs-go-key.jks
+
+# =====================
+# Logs
+# =====================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =====================
+# OS files
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+
+# =====================
+# Build / temporary
+# =====================
+tmp/
+temp/
+.cache/

@@ -9,7 +9,7 @@
 // - Only if vault is empty: backup local to vault.
 
 import { supabase } from './supabaseClient.js';
-import { hasWallet, getPublicKey, getSecretKeyBase58, importWalletFromSecret } from './wallet.js';
+import { getPublicKey, getSecretKeyBase58, importWalletFromSecret, createWallet } from './wallet.js';
 
 function cleanPin6(raw) {
   return String(raw || '').replace(/\D/g, '').slice(0, 6);
@@ -138,14 +138,15 @@ export async function bootstrapAuthWallet(pin, oldPin = '') {
     return { mode: 'recover', wallet_pk: recoveredPk };
   }
 
-  // 4) Vault empty -> BACKUP local (must exist)
-  if (!hasWallet()) {
-    return { mode: 'no_vault_no_local', wallet_pk: '' };
-  }
-
-  const wallet_pk = getPublicKey();
+    // 4) Vault empty -> create a NEW local wallet for this auth user
+  // IMPORTANT:
+  // Do NOT reuse an old device wallet from another account.
+  const wallet_pk = createWallet(pin6);
   const sk = getSecretKeyBase58();
-  if (!wallet_pk || !sk) throw new Error('Local wallet missing keys');
+
+  if (!wallet_pk || !sk) {
+    throw new Error('Failed to create local wallet for this account');
+  }
 
   const encrypted = await encryptString(pin6, sk);
 
@@ -155,7 +156,7 @@ export async function bootstrapAuthWallet(pin, oldPin = '') {
 
   if (insErr) throw insErr;
 
-  return { mode: 'backup', wallet_pk };
+  return { mode: 'created_new_for_user', wallet_pk };
 }
 
 if (typeof window !== 'undefined') {

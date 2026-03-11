@@ -3,6 +3,7 @@
 // Recovery: als je via Supabase recovery link binnenkomt (?type=recovery),
 // dan openen we direct SetPinModal zodat je een nieuwe PIN kan kiezen.
 
+import { supabase } from '../app/supabaseClient.js';
 import { openEmailLoginModal } from './emailLoginModal.js';
 import { openSetPinModal } from './setPinModal.js';
 
@@ -46,15 +47,147 @@ function hasRecoveryFlag() {
   return false;
 }
 
-export function openLoginModal() {
-  // ✅ Recovery detect BEFORE we mount the welcome modal
+export async function openLoginModal() {
+  // ✅ Recovery detect BEFORE we mount anything
   if (hasRecoveryFlag()) {
     remove();
     openSetPinModal();
     return;
   }
 
-  // ✅ Normale flow: welcome modal
+  // ✅ Check existing Supabase session first
+  let existingUser = null;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (!error) {
+      existingUser = data?.session?.user || null;
+    }
+  } catch (e) {
+    console.warn('CBS-GO: session check failed', e);
+  }
+
+  // ---------- PIN only flow (already logged in) ----------
+  if (existingUser) {
+    const html = `
+      <div style="
+        width:min(420px, 92vw);
+        border-radius:22px;
+        border:1px solid rgba(56,189,248,.85);
+        background:rgba(10,12,18,.98);
+        box-shadow:0 24px 80px rgba(0,0,0,.88);
+        padding:18px 16px 16px 16px;
+        color:#fff;
+        font-family:system-ui,sans-serif;
+      ">
+        <h2 style="margin:0 0 6px 0;font-size:18px;">Welcome back</h2>
+        <p style="margin:0 0 14px 0;font-size:12px;opacity:.8;">
+          Session found for <b>${existingUser.email || 'your account'}</b>.<br/>
+          Enter your 6-digit PIN to unlock CBS-GO.
+        </p>
+
+        <input
+          id="cbsgoPinOnlyInput"
+          inputmode="numeric"
+          type="password"
+          maxlength="6"
+          placeholder="••••••"
+          style="
+            width:100%;
+            padding:12px 14px;
+            border-radius:14px;
+            border:1px solid rgba(255,255,255,.14);
+            background:rgba(255,255,255,.06);
+            color:#fff;
+            font-size:14px;
+            outline:none;
+            margin-bottom:10px;
+          "
+        />
+
+        <button id="cbsgoPinOnlyBtn" type="button" style="
+          width:100%;
+          padding:12px 14px;
+          border-radius:999px;
+          border:1px solid rgba(56,189,248,.9);
+          background:rgba(56,189,248,.2);
+          color:#e0f2fe;
+          font-size:14px;
+          font-weight:700;
+          cursor:pointer;
+        ">Unlock with PIN</button>
+
+        <button id="cbsgoUseOtherAccountBtn" type="button" style="
+          width:100%;
+          margin-top:10px;
+          padding:10px 12px;
+          border-radius:999px;
+          border:1px solid rgba(255,255,255,.14);
+          background:rgba(255,255,255,.06);
+          color:#fff;
+          font-size:12px;
+          font-weight:600;
+          cursor:pointer;
+        ">Use another account</button>
+
+        <div id="cbsgoLoginMsg" style="margin-top:10px;font-size:12px;opacity:.9;"></div>
+      </div>
+    `;
+
+    const wrap = mount(html);
+
+    const msgEl = wrap.querySelector('#cbsgoLoginMsg');
+    const pinInput = wrap.querySelector('#cbsgoPinOnlyInput');
+    const pinBtn = wrap.querySelector('#cbsgoPinOnlyBtn');
+    const otherBtn = wrap.querySelector('#cbsgoUseOtherAccountBtn');
+
+    const setMsg = (t) => {
+      if (msgEl) msgEl.textContent = t || '';
+    };
+
+    const done = (detail = {}) => {
+      remove();
+      window.dispatchEvent(new CustomEvent('cbsgo:loginDone', { detail }));
+    };
+
+    const cleanPin = (raw) => String(raw || '').replace(/\D/g, '').slice(0, 6);
+
+    if (pinInput) {
+      pinInput.addEventListener('input', () => {
+        const next = cleanPin(pinInput.value);
+        if (pinInput.value !== next) pinInput.value = next;
+      });
+      try { pinInput.focus(); } catch {}
+    }
+
+    if (pinBtn) {
+      pinBtn.onclick = () => {
+        const pin = cleanPin(pinInput?.value || '');
+        if (pin.length !== 6) {
+          setMsg('⛔ Enter your 6-digit PIN.');
+          return;
+        }
+
+        setMsg('✅ Session found. Unlocking…');
+        done({ pin, email: existingUser.email || '' });
+      };
+    }
+
+    if (otherBtn) {
+      otherBtn.onclick = async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          console.warn('CBS-GO: signOut failed', e);
+        }
+        remove();
+        openLoginModal();
+      };
+    }
+
+    return;
+  }
+
+  // ---------- Normal email login flow ----------
   const html = `
     <div style="
       width:min(420px, 92vw);

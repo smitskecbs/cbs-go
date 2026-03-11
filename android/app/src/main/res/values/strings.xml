@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CBS-GO</string>
+    <string name="title_activity_main">CBS-GO</string>
+    <string name="package_name">com.cbsgame.go</string>
+    <string name="custom_url_scheme">com.cbsgame.go</string>
+</resources>

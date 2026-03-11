@@ -28,7 +28,7 @@ function getBaseProfile() {
   const wallet_pk = safeWalletPk();
   if (!wallet_pk) return null;
 
-  const nickname = String(getPlayerName() || '').trim() || null;
+  const nickname = String(getPlayerName() || '').trim() || 'Anon';
   const avatar = String(getPlayerAvatar() || '') || '';
 
   return { wallet_pk, nickname, avatar };

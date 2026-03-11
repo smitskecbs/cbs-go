@@ -28,7 +28,7 @@ const LOOT_DESPAWN_AGE_MS = 5 * 60_000;
 const LOOT_DESPAWN_DIST_M = 260;
 
 // Camera
-const FOLLOW_ZOOM = 17;
+const FOLLOW_ZOOM = 16.7;
 const PLAYER_VIEW_DURATION_MS = 700;
 const WORLD_VIEW_DURATION_MS = 700;
 
@@ -56,7 +56,45 @@ let map = null;
 let destroyed = false;
 
 let lastUserLatLng = null; // [lat, lng]
+let lastRingLatLng = null;
 let lastHeadingDeg = 0;
+let smoothedUserLatLng = null; // [lat, lng] voor rustige UI
+
+function smoothUiLatLng(rawLat, rawLng, accuracyM = null) {
+  const next = { lat: Number(rawLat), lng: Number(rawLng) };
+  if (!Number.isFinite(next.lat) || !Number.isFinite(next.lng)) {
+    return smoothedUserLatLng || null;
+  }
+
+  // Eerste fix = direct zetten
+  if (!smoothedUserLatLng) {
+    smoothedUserLatLng = [next.lat, next.lng];
+    return smoothedUserLatLng;
+  }
+
+  const prev = { lat: smoothedUserLatLng[0], lng: smoothedUserLatLng[1] };
+  const dist = metersBetween(prev, next);
+
+  // Slechte GPS? Kleine sprongen gewoon negeren
+  const deadzoneM = Number.isFinite(accuracyM)
+    ? Math.max(3, Math.min(accuracyM * 0.35, 12))
+    : 5;
+
+  if (dist < deadzoneM) {
+    return smoothedUserLatLng;
+  }
+
+  // Hoe slechter GPS, hoe rustiger bewegen
+  const alpha = Number.isFinite(accuracyM)
+    ? Math.max(0.12, Math.min(0.28, 8 / Math.max(8, accuracyM)))
+    : 0.22;
+
+  const lat = prev.lat + (next.lat - prev.lat) * alpha;
+  const lng = prev.lng + (next.lng - prev.lng) * alpha;
+
+  smoothedUserLatLng = [lat, lng];
+  return smoothedUserLatLng;
+}
 
 let inWorldMode = true;
 let hasGpsFix = false;
@@ -433,6 +471,17 @@ function clearPickupRing() {
 }
 
 function forceUpdatePickupRing(lat, lng, tries = 0) {
+  // voorkom jitter: alleen update als speler echt beweegt
+if (lastRingLatLng) {
+  const dist = metersBetween(
+    { lat: lastRingLatLng[0], lng: lastRingLatLng[1] },
+    { lat, lng }
+  );
+
+  if (dist < 2) return;
+}
+
+lastRingLatLng = [lat, lng];
   if (!map || destroyed) return;
   if (inWorldMode) return;
 
@@ -742,7 +791,20 @@ function upsertFriendMarkers(players) {
     seen.add(id);
 
     const nick = safeStr(p.nickname) || 'Player';
-    const avatar = safeStr(p.avatar) || '';
+    const avatar =
+  safeStr(
+    p.avatar ??
+    p.photo_url ??
+    p.photoURL ??
+    p.profile_picture ??
+    p.profilePicture ??
+    p.pfp ??
+    p.pf ??
+    p.image ??
+    p.picture ??
+    p.user_metadata?.avatar_url ??
+    p.user_metadata?.picture
+  ) || '';
 
     let fm = friendMarkers.get(id);
 
@@ -891,32 +953,17 @@ function dayNameFromDate(dateStr) {
 }
 
 /**
- * ✅ Day = weather box left
- * ✅ Night = weather box right
- * (also sets a body class you can use for dark mode styling later)
+ * ✅ Day / night class only
  */
 function setNightClass(isNight) {
   try {
     document.documentElement.classList.toggle('cbsgo-night', !!isNight);
-  } catch {}
+  } catch (e) {}
 
-  const box = ensureEl('cbsgoWeather');
-  if (!box) return;
-
-  // keep it clickable & consistent
-  box.style.position = box.style.position || 'fixed';
-  box.style.top = box.style.top || '12px';
-
-  if (isNight) {
-    box.style.left = 'auto';
-    box.style.right = '12px';
-    box.style.textAlign = 'right';
-  } else {
-    box.style.right = 'auto';
-    box.style.left = '12px';
-    box.style.textAlign = 'left';
-  }
+  const host = ensureEl('cbsgoMapHost');
+  if (host) host.setAttribute('data-night', isNight ? '1' : '0');
 }
+
 
 function closeForecastModal() {
   const backdrop = ensureEl('cbsgoForecastBackdrop');
@@ -1867,427 +1914,677 @@ function initMapLibre() {
 function startGps() {
   if (!navigator.geolocation) return;
 
-  // -------------------- Dynamic treasures from Supabase --------------------
-  let lastTreasureCheckAt = 0;
-  let lastTreasureFetchAt = 0;
-  let treasurePopupOpen = false;
-  let treasureSeenThisSession = false;
-  let activeTreasures = [];
-  let activeNearbyTreasure = null;
+// -------------------- Dynamic treasures from Supabase --------------------
+let lastTreasureCheckAt = 0;
+let lastTreasureFetchAt = 0;
+let treasurePopupOpen = false;
+let treasureSeenThisSession = false;
+let activeTreasures = [];
+let activeNearbyTreasure = null;
+let activeTreasureMarkers = new Map();
 
-  const TREASURE_FETCH_INTERVAL_MS = 15000;
+const TREASURE_FETCH_INTERVAL_MS = 15000;
 
-  const getSupabaseClient = async () => {
-    try {
-      if (window.__cbsgo_supabase_client) return window.__cbsgo_supabase_client;
+const getSupabaseClient = async () => {
+  try {
+    if (window.__cbsgo_supabase_client) return window.__cbsgo_supabase_client;
 
-      const { createClient } = await import('@supabase/supabase-js');
-      const url = import.meta.env.VITE_SUPABASE_URL;
-      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const { createClient } = await import('@supabase/supabase-js');
+    const url = import.meta.env.VITE_SUPABASE_URL;
+    const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      if (!url || !anon) {
-        console.warn('CBS-GO: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
-        return null;
-      }
-
-      const client = createClient(url, anon);
-      window.__cbsgo_supabase_client = client;
-      return client;
-    } catch (e) {
-      console.warn('CBS-GO: failed to create Supabase client', e);
+    if (!url || !anon) {
+      console.warn('CBS-GO: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
       return null;
     }
+
+    const client = createClient(url, anon);
+    window.__cbsgo_supabase_client = client;
+    return client;
+  } catch (e) {
+    console.warn('CBS-GO: failed to create Supabase client', e);
+    return null;
+  }
+};
+
+const refreshActiveTreasures = async () => {
+  try {
+    const supabase = await getSupabaseClient();
+    if (!supabase) return;
+
+    const { data, error } = await supabase
+      .from('treasures')
+      .select('id,title,lat,lng,radius_m,reward_bonk,reward_cbs,reward_sol,status')
+      .eq('status', 'active')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.warn('CBS-GO: failed to fetch treasures', error);
+      return;
+    }
+
+    activeTreasures = Array.isArray(data) ? data : [];
+    lastTreasureFetchAt = Date.now();
+  } catch (e) {
+    console.warn('CBS-GO: refreshActiveTreasures failed', e);
+  }
+};
+
+const getLocalPkSafe = () => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.getLocalPublicKey === 'function') {
+      return String(window.getLocalPublicKey() || '').trim();
+    }
+  } catch {}
+  return '';
+};
+
+const buildShareText = (treasure) => {
+  const title = treasure?.title || 'a CBS-GO treasure';
+  return `I found ${title} in CBS-GO. 🎁🌍 #CBSGO #Solana`;
+};
+
+const shareOnX = (treasure) => {
+  try {
+    const text = encodeURIComponent(buildShareText(treasure));
+    const url = `https://twitter.com/intent/tweet?text=${text}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    console.warn('CBS-GO: shareOnX failed', e);
+  }
+};
+
+const shareOnTelegram = (treasure) => {
+  try {
+    const text = encodeURIComponent(buildShareText(treasure));
+    const url = `https://t.me/share/url?url=&text=${text}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } catch (e) {
+    console.warn('CBS-GO: shareOnTelegram failed', e);
+  }
+};
+
+const getMarkerClass = () => {
+  try {
+    if (typeof mapboxgl !== 'undefined' && mapboxgl?.Marker) return mapboxgl.Marker;
+  } catch {}
+
+  try {
+    if (typeof maplibregl !== 'undefined' && maplibregl?.Marker) return maplibregl.Marker;
+  } catch {}
+
+  try {
+    if (window?.mapboxgl?.Marker) return window.mapboxgl.Marker;
+  } catch {}
+
+  try {
+    if (window?.maplibregl?.Marker) return window.maplibregl.Marker;
+  } catch {}
+
+  return null;
+};
+
+const ensureTreasureStyles = () => {
+  if (document.getElementById('cbsgoTreasureStyles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'cbsgoTreasureStyles';
+  style.textContent = `
+
+.cbsgo-treasure-marker{
+  position:relative;
+  width:64px;
+  height:64px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  user-select:none;
+}
+
+/* glow ring op de grond */
+.cbsgo-treasure-marker .ring{
+  position:absolute;
+  bottom:4px;
+  left:50%;
+  transform:translateX(-50%);
+  width:42px;
+  height:14px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(34,211,238,.45), rgba(34,211,238,.05) 70%, transparent);
+  filter:blur(3px);
+  animation:cbsgoTreasureRing 1.8s ease-in-out infinite;
+}
+
+/* het cadeau zelf */
+.cbsgo-treasure-marker .gift{
+  font-size:36px;
+  animation:cbsgoTreasureFloat 2s ease-in-out infinite;
+  text-shadow:
+    0 0 10px rgba(255,255,255,.4),
+    0 0 20px rgba(34,211,238,.3);
+}
+
+/* label */
+.cbsgo-treasure-marker .label{
+  position:absolute;
+  bottom:-12px;
+  font-size:10px;
+  font-weight:800;
+  color:#e0f2fe;
+  background:rgba(2,6,23,.8);
+  border:1px solid rgba(56,189,248,.35);
+  border-radius:999px;
+  padding:2px 7px;
+  pointer-events:none;
+}
+
+/* animaties */
+
+@keyframes cbsgoTreasureFloat{
+  0%{ transform:translateY(0px); }
+  50%{ transform:translateY(-6px); }
+  100%{ transform:translateY(0px); }
+}
+
+@keyframes cbsgoTreasureRing{
+  0%{ transform:translateX(-50%) scale(.9); opacity:.6;}
+  50%{ transform:translateX(-50%) scale(1.1); opacity:1;}
+  100%{ transform:translateX(-50%) scale(.9); opacity:.6;}
+}
+
+  `;
+  document.head.appendChild(style);
+};
+const removeTreasureMarker = (id) => {
+  const entry = activeTreasureMarkers.get(String(id));
+  if (!entry) return;
+
+  try {
+    entry.marker?.remove?.();
+  } catch (e) {
+    console.warn('CBS-GO: removeTreasureMarker failed', e);
+  }
+
+  activeTreasureMarkers.delete(String(id));
+};
+
+const clearAllTreasureMarkers = () => {
+  for (const id of [...activeTreasureMarkers.keys()]) {
+    removeTreasureMarker(id);
+  }
+};
+
+const createTreasureMarkerElement = (treasure, onClick) => {
+
+  const el = document.createElement('div');
+  el.className = 'cbsgo-treasure-marker';
+
+  el.innerHTML = `
+    <div class="gift">🎁</div>
+    <div class="ring"></div>
+    <div class="label">TREASURE</div>
+  `;
+
+  el.onclick = (e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    onClick?.();
   };
 
-  const refreshActiveTreasures = async () => {
-    try {
-      const supabase = await getSupabaseClient();
-      if (!supabase) return;
+  return el;
+};
 
-      const { data, error } = await supabase
-        .from('treasures')
-        .select('id,title,lat,lng,radius_m,reward_bonk,reward_cbs,reward_sol,status')
-        .eq('status', 'active')
-        .order('created_at', { ascending: true });
+const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
+  if (!treasure || treasurePopupOpen) return;
+  treasurePopupOpen = true;
+  activeNearbyTreasure = treasure;
 
-      if (error) {
-        console.warn('CBS-GO: failed to fetch treasures', error);
+  const hostId = 'cbsgoTreasurePopupHost';
+  let host = document.getElementById(hostId);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = hostId;
+    document.body.appendChild(host);
+  }
+
+  host.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.style.position = 'fixed';
+  wrap.style.inset = '0';
+  wrap.style.zIndex = '9000';
+  wrap.style.display = 'flex';
+  wrap.style.alignItems = 'center';
+  wrap.style.justifyContent = 'center';
+  wrap.style.background = 'rgba(2,6,23,.74)';
+  wrap.style.backdropFilter = 'blur(8px)';
+  wrap.style.webkitBackdropFilter = 'blur(8px)';
+  wrap.style.pointerEvents = 'auto';
+
+  const card = document.createElement('div');
+  card.style.width = 'min(430px, 92vw)';
+  card.style.borderRadius = '28px';
+  card.style.border = '1px solid rgba(56,189,248,.45)';
+  card.style.background = 'linear-gradient(180deg, rgba(8,15,28,.98) 0%, rgba(7,10,18,.98) 100%)';
+  card.style.boxShadow = '0 30px 90px rgba(0,0,0,.58), 0 0 0 1px rgba(255,255,255,.03) inset, 0 0 40px rgba(34,211,238,.10)';
+  card.style.padding = '18px';
+  card.style.color = '#fff';
+  card.style.fontFamily = 'system-ui,sans-serif';
+  card.style.opacity = '0';
+  card.style.transform = 'translateY(18px) scale(0.96)';
+  card.style.transition = 'opacity .22s ease-out, transform .22s ease-out';
+
+  const pk = getLocalPkSafe();
+  const d = Math.max(0, Math.round(Number(distanceM || 0)));
+  const acc = Number.isFinite(accuracyM) ? Math.round(accuracyM) : null;
+
+  const rewardBonk = Number(treasure?.reward_bonk || 0);
+  const rewardCbs = Number(treasure?.reward_cbs || 0);
+  const rewardSol = Number(treasure?.reward_sol || 0);
+
+  const rewardParts = [];
+  if (rewardBonk > 0) rewardParts.push(`🐕 ${rewardBonk} BONK`);
+  if (rewardCbs > 0) rewardParts.push(`🪙 ${rewardCbs} CBS`);
+  if (rewardSol > 0) rewardParts.push(`☀️ ${rewardSol} SOL`);
+
+  card.innerHTML = `
+    <div style="
+      display:flex;
+      align-items:center;
+      gap:14px;
+      margin-bottom:14px;
+      padding:12px;
+      border-radius:20px;
+      background:linear-gradient(180deg, rgba(15,23,42,.68), rgba(2,6,23,.5));
+      border:1px solid rgba(56,189,248,.18);
+    ">
+      <div style="
+        width:58px;height:58px;border-radius:18px;
+        border:1px solid rgba(56,189,248,.38);
+        background:
+          radial-gradient(circle at 30% 25%, rgba(103,232,249,.18), rgba(34,211,238,.06) 45%, rgba(0,0,0,0) 72%),
+          linear-gradient(180deg, rgba(15,23,42,.98), rgba(8,15,28,.98));
+        display:flex;align-items:center;justify-content:center;
+        font-size:28px;
+        box-shadow: 0 10px 30px rgba(34,211,238,.12);
+      ">🎁</div>
+
+      <div style="min-width:0;flex:1;">
+        <div style="font-size:18px;font-weight:900;letter-spacing:.01em;">Treasure nearby</div>
+        <div style="font-size:12px;opacity:.82;line-height:1.45;margin-top:3px;">
+          ${treasure?.title ? `Tap to open <b>${treasure.title}</b>.` : 'You are close enough to open this treasure.'}
+        </div>
+      </div>
+    </div>
+
+    <div style="
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-bottom:12px;
+    ">
+      <div style="
+        padding:11px 12px;
+        border-radius:16px;
+        background:rgba(15,23,42,.72);
+        border:1px solid rgba(148,163,184,.18);
+      ">
+        <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.08em;">Distance</div>
+        <div style="font-size:18px;font-weight:900;margin-top:2px;">${d}m</div>
+      </div>
+
+      <div style="
+        padding:11px 12px;
+        border-radius:16px;
+        background:rgba(15,23,42,.72);
+        border:1px solid rgba(148,163,184,.18);
+      ">
+        <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.08em;">GPS accuracy</div>
+        <div style="font-size:18px;font-weight:900;margin-top:2px;">${acc !== null ? `±${acc}m` : '—'}</div>
+      </div>
+    </div>
+
+    ${
+      rewardParts.length
+        ? `
+    <div style="
+      margin-bottom:12px;
+      padding:12px 13px;
+      border-radius:18px;
+      background:linear-gradient(180deg, rgba(8,47,73,.55), rgba(15,23,42,.78));
+      border:1px solid rgba(56,189,248,.28);
+      box-shadow: 0 8px 28px rgba(2,132,199,.08) inset;
+    ">
+      <div style="font-size:10px;opacity:.72;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;">Reward</div>
+      <div style="font-size:13px;font-weight:800;line-height:1.6;">${rewardParts.join(' · ')}</div>
+    </div>`
+        : ''
+    }
+
+    <div style="
+      padding:11px 12px;
+      border-radius:16px;
+      border:1px solid rgba(148,163,184,.22);
+      background:rgba(15,23,42,.68);
+      font-size:11px;
+      opacity:.9;
+      line-height:1.5;
+      margin-bottom:14px;
+    ">
+      Manual open mode is active.<br>
+      This treasure can only be opened once, so first valid claim wins.
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:10px;">
+      <button id="cbsgoTreasureCancelBtn" type="button" style="
+        padding:10px 14px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.06);
+        color:#fff;
+        font-size:12px;
+        font-weight:800;
+        cursor:pointer;
+      ">Close</button>
+
+      <button id="cbsgoTreasureOpenBtn" type="button" style="
+        padding:10px 16px;
+        border-radius:999px;
+        border:1px solid rgba(34,197,94,.65);
+        background:linear-gradient(180deg, rgba(34,197,94,.98), rgba(22,163,74,.96));
+        color:#fff;
+        font-size:12px;
+        font-weight:900;
+        cursor:pointer;
+        box-shadow: 0 12px 26px rgba(22,163,74,.22);
+      ">Open treasure</button>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:4px;">
+      <button id="cbsgoTreasureShareXBtn" type="button" style="
+        padding:8px 12px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.04);
+        color:#fff;
+        font-size:11px;
+        font-weight:800;
+        cursor:pointer;
+      ">Share on X</button>
+
+      <button id="cbsgoTreasureShareTgBtn" type="button" style="
+        padding:8px 12px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(255,255,255,.04);
+        color:#fff;
+        font-size:11px;
+        font-weight:800;
+        cursor:pointer;
+      ">Share on Telegram</button>
+    </div>
+
+    <div id="cbsgoTreasureMsg" style="margin-top:10px;font-size:11px;opacity:.85;min-height:16px;"></div>
+
+    ${
+      pk
+        ? ''
+        : `<div style="margin-top:8px;font-size:11px;opacity:.85;color:#fecaca;">
+        ⚠️ No local wallet detected yet. Finish login/PIN first.
+      </div>`
+    }
+  `;
+
+  const close = () => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(18px) scale(0.96)';
+    setTimeout(() => {
+      if (host) host.innerHTML = '';
+      treasurePopupOpen = false;
+      activeNearbyTreasure = null;
+    }, 220);
+  };
+
+  wrap.appendChild(card);
+  host.appendChild(wrap);
+
+  requestAnimationFrame(() => {
+    card.style.opacity = '1';
+    card.style.transform = 'translateY(0) scale(1)';
+  });
+
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) close();
+  });
+
+  const cancelBtn = document.getElementById('cbsgoTreasureCancelBtn');
+  if (cancelBtn) cancelBtn.onclick = close;
+
+  const shareXBtn = document.getElementById('cbsgoTreasureShareXBtn');
+  if (shareXBtn) shareXBtn.onclick = () => shareOnX(treasure);
+
+  const shareTgBtn = document.getElementById('cbsgoTreasureShareTgBtn');
+  if (shareTgBtn) shareTgBtn.onclick = () => shareOnTelegram(treasure);
+
+  const msgEl = document.getElementById('cbsgoTreasureMsg');
+  const setMsg = (t) => {
+    if (msgEl) msgEl.textContent = t || '';
+  };
+
+  const openBtn = document.getElementById('cbsgoTreasureOpenBtn');
+  if (openBtn) {
+    openBtn.onclick = () => {
+      const claimant_wallet = getLocalPkSafe();
+      if (!claimant_wallet) {
+        setMsg('⛔ No local wallet found. Finish login/PIN first.');
         return;
       }
 
-      activeTreasures = Array.isArray(data) ? data : [];
-      lastTreasureFetchAt = Date.now();
-    } catch (e) {
-      console.warn('CBS-GO: refreshActiveTreasures failed', e);
-    }
-  };
+      openBtn.disabled = true;
+      setMsg('Opening…');
 
-  const getLocalPkSafe = () => {
-    try {
-      if (typeof window !== 'undefined' && typeof window.getLocalPublicKey === 'function') {
-        return String(window.getLocalPublicKey() || '').trim();
-      }
-    } catch {}
-    return '';
-  };
-
-  const buildShareText = (treasure) => {
-    const title = treasure?.title || 'a CBS-GO treasure';
-    return `I found ${title} in CBS-GO. 🧰🌍 #CBSGO #Solana`;
-  };
-
-  const shareOnX = (treasure) => {
-    try {
-      const text = encodeURIComponent(buildShareText(treasure));
-      const url = `https://twitter.com/intent/tweet?text=${text}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      console.warn('CBS-GO: shareOnX failed', e);
-    }
-  };
-
-  const shareOnTelegram = (treasure) => {
-    try {
-      const text = encodeURIComponent(buildShareText(treasure));
-      const url = `https://t.me/share/url?url=&text=${text}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (e) {
-      console.warn('CBS-GO: shareOnTelegram failed', e);
-    }
-  };
-
-  const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
-    if (!treasure || treasurePopupOpen) return;
-    treasurePopupOpen = true;
-    activeNearbyTreasure = treasure;
-
-    const hostId = 'cbsgoTreasurePopupHost';
-    let host = document.getElementById(hostId);
-    if (!host) {
-      host = document.createElement('div');
-      host.id = hostId;
-      document.body.appendChild(host);
-    }
-
-    host.innerHTML = '';
-
-    const wrap = document.createElement('div');
-    wrap.style.position = 'fixed';
-    wrap.style.inset = '0';
-    wrap.style.zIndex = '9000';
-    wrap.style.display = 'flex';
-    wrap.style.alignItems = 'center';
-    wrap.style.justifyContent = 'center';
-    wrap.style.background = 'rgba(5,7,11,0.78)';
-    wrap.style.pointerEvents = 'auto';
-
-    const card = document.createElement('div');
-    card.style.width = 'min(360px, 92vw)';
-    card.style.borderRadius = '22px';
-    card.style.border = '1px solid rgba(56,189,248,.85)';
-    card.style.background = 'rgba(10,12,18,0.98)';
-    card.style.boxShadow = '0 24px 80px rgba(0,0,0,.88)';
-    card.style.padding = '18px 16px 14px 16px';
-    card.style.color = '#fff';
-    card.style.fontFamily = 'system-ui,sans-serif';
-    card.style.opacity = '0';
-    card.style.transform = 'translateY(12px) scale(0.97)';
-    card.style.transition = 'opacity .22s ease-out, transform .22s ease-out';
-
-    const pk = getLocalPkSafe();
-    const d = Math.max(0, Math.round(Number(distanceM || 0)));
-    const acc = Number.isFinite(accuracyM) ? Math.round(accuracyM) : null;
-
-    const rewardBonk = Number(treasure?.reward_bonk || 0);
-    const rewardCbs = Number(treasure?.reward_cbs || 0);
-    const rewardSol = Number(treasure?.reward_sol || 0);
-
-    const rewardParts = [];
-    if (rewardBonk > 0) rewardParts.push(`🟡 ${rewardBonk} BONK`);
-    if (rewardCbs > 0) rewardParts.push(`🪙 ${rewardCbs} CBS`);
-    if (rewardSol > 0) rewardParts.push(`◎ ${rewardSol} SOL`);
-
-    card.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-        <div style="
-          width:44px;height:44px;border-radius:999px;
-          border:1px solid rgba(56,189,248,.6);
-          background:rgba(56,189,248,.12);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-        ">🧰</div>
-        <div style="min-width:0;">
-          <div style="font-size:15px;font-weight:900;">Treasure nearby</div>
-          <div style="font-size:11px;opacity:.8;line-height:1.35;">
-            ${treasure?.title ? `You found <b>${treasure.title}</b>.` : 'You are within range to open this treasure.'}
-          </div>
-        </div>
-      </div>
-
-      <div style="font-size:12px;opacity:.9;margin-bottom:8px;">
-        Distance: <b>${d}m</b>${acc !== null ? ` · GPS accuracy: <b>±${acc}m</b>` : ''}
-      </div>
-
-      ${
-        rewardParts.length
-          ? `
-      <div style="
-        font-size:12px;
-        margin-bottom:10px;
-        padding:9px 10px;
-        border-radius:14px;
-        background:rgba(15,23,42,.72);
-        border:1px solid rgba(148,163,184,.28);
-      ">
-        Reward: <b>${rewardParts.join(' · ')}</b>
-      </div>`
-          : ''
+      try {
+        window.dispatchEvent(
+          new CustomEvent('cbsgo:treasureOpenRequest', {
+            detail: {
+              treasure_id: treasure.id,
+              claimant_wallet,
+              radius_m: Number(treasure.radius_m || 0),
+              center: {
+                lat: Number(treasure.lat),
+                lng: Number(treasure.lng),
+              },
+              distance_m: d,
+              t: Date.now(),
+            },
+          })
+        );
+      } catch (e) {
+        console.warn('CBS-GO: treasureOpenRequest dispatch failed', e);
       }
 
-      <div style="
-        padding:10px 10px;
-        border-radius:14px;
-        border:1px solid rgba(148,163,184,.35);
-        background:rgba(15,23,42,.75);
-        font-size:11px;
-        opacity:.9;
-        line-height:1.45;
-        margin-bottom:12px;
-      ">
-        Opening is manual (safe mode).<br/>
-        You can choose to open now. This treasure can be opened only once.
-      </div>
+      treasureSeenThisSession = true;
+      removeTreasureMarker(treasure.id);
 
-      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:8px;">
-        <button id="cbsgoTreasureCancelBtn" type="button" style="
-          padding:8px 12px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(255,255,255,.08);
-          color:#fff;
-          font-size:12px;
-          font-weight:700;
-          cursor:pointer;
-        ">Not now</button>
-
-        <button id="cbsgoTreasureOpenBtn" type="button" style="
-          padding:8px 12px;
-          border-radius:999px;
-          border:1px solid rgba(34,197,94,.85);
-          background:rgba(22,163,74,.95);
-          color:#fff;
-          font-size:12px;
-          font-weight:900;
-          cursor:pointer;
-        ">Open treasure</button>
-      </div>
-
-      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:8px;">
-        <button id="cbsgoTreasureShareXBtn" type="button" style="
-          padding:7px 11px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(255,255,255,.06);
-          color:#fff;
-          font-size:11px;
-          font-weight:700;
-          cursor:pointer;
-        ">Share on X</button>
-
-        <button id="cbsgoTreasureShareTgBtn" type="button" style="
-          padding:7px 11px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(255,255,255,.06);
-          color:#fff;
-          font-size:11px;
-          font-weight:700;
-          cursor:pointer;
-        ">Share on Telegram</button>
-      </div>
-
-      <div id="cbsgoTreasureMsg" style="margin-top:10px;font-size:11px;opacity:.85;"></div>
-      ${
-        pk
-          ? ''
-          : `<div style="margin-top:8px;font-size:11px;opacity:.8;color:#fecaca;">
-        ⚠️ No local wallet detected yet. Finish login/PIN first.
-      </div>`
-      }
-    `;
-
-    const close = () => {
-      card.style.opacity = '0';
-      card.style.transform = 'translateY(12px) scale(0.97)';
-      setTimeout(() => {
-        if (host) host.innerHTML = '';
-        treasurePopupOpen = false;
-        activeNearbyTreasure = null;
-      }, 220);
+      setMsg('✅ Request sent. If you are first, payout will arrive shortly.');
+      setTimeout(() => close(), 900);
     };
+  }
+};
 
-    wrap.appendChild(card);
-    host.appendChild(wrap);
+const syncNearbyTreasureMarkers = (center, accuracyM) => {
+  if (!map || !Array.isArray(activeTreasures)) return;
 
-    requestAnimationFrame(() => {
-      card.style.opacity = '1';
-      card.style.transform = 'translateY(0) scale(1)';
-    });
+  if (treasureSeenThisSession) {
+    clearAllTreasureMarkers();
+    return;
+  }
 
-    wrap.addEventListener('click', (e) => {
-      if (e.target === wrap) close();
-    });
+  ensureTreasureStyles();
 
-    const cancelBtn = document.getElementById('cbsgoTreasureCancelBtn');
-    if (cancelBtn) cancelBtn.onclick = close;
+  const MarkerClass = getMarkerClass();
+  if (!MarkerClass) {
+    console.warn('CBS-GO: no Marker class found (mapboxgl/maplibregl)');
+    return;
+  }
 
-    const shareXBtn = document.getElementById('cbsgoTreasureShareXBtn');
-    if (shareXBtn) shareXBtn.onclick = () => shareOnX(treasure);
+  const visibleIds = new Set();
 
-    const shareTgBtn = document.getElementById('cbsgoTreasureShareTgBtn');
-    if (shareTgBtn) shareTgBtn.onclick = () => shareOnTelegram(treasure);
+  for (const t of activeTreasures) {
+    const id = String(t?.id ?? '');
+    const lat = Number(t?.lat);
+    const lng = Number(t?.lng);
+    const radius = Number(t?.radius_m || 0);
 
-    const msgEl = document.getElementById('cbsgoTreasureMsg');
-    const setMsg = (t) => {
-      if (msgEl) msgEl.textContent = t || '';
-    };
+    if (!id || !Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) {
+      removeTreasureMarker(id);
+      continue;
+    }
 
-    const openBtn = document.getElementById('cbsgoTreasureOpenBtn');
-    if (openBtn) {
-      openBtn.onclick = () => {
-        const claimant_wallet = getLocalPkSafe();
-        if (!claimant_wallet) {
-          setMsg('⛔ No local wallet found. Finish login/PIN first.');
+    const dist = metersBetween(center, { lat, lng });
+    const jitter = Number.isFinite(accuracyM) ? Math.min(Math.max(accuracyM, 0), 25) : 10;
+
+    // claim/open afstand
+    const openDistance = radius + jitter;
+
+    // reveal afstand:
+    // treasure wordt pas zichtbaar als je echt dichtbij bent
+    // minimum 20m, maximum 60m, of de echte radius als die kleiner is
+    const revealDistance = Math.min(openDistance, Math.max(20, Math.min(radius, 60)));
+
+    // buiten reveal afstand = marker weg
+    if (!Number.isFinite(dist) || dist > revealDistance) {
+      removeTreasureMarker(id);
+      continue;
+    }
+
+    visibleIds.add(id);
+
+    const existing = activeTreasureMarkers.get(id);
+
+    if (!existing) {
+      const el = createTreasureMarkerElement(t, () => {
+        const latest = activeTreasureMarkers.get(id);
+        if (!latest) return;
+
+        // popup alleen openen als je nog steeds binnen echte open radius bent
+        if (!Number.isFinite(latest.distanceM) || latest.distanceM > (Number(latest.treasure?.radius_m || 0) + (Number.isFinite(latest.accuracyM) ? Math.min(Math.max(latest.accuracyM, 0), 25) : 10))) {
           return;
         }
 
-        openBtn.disabled = true;
-        setMsg('Opening…');
+        showTreasurePopup({
+          treasure: latest.treasure,
+          distanceM: latest.distanceM,
+          accuracyM: latest.accuracyM,
+        });
+      });
 
-        try {
-          window.dispatchEvent(
-            new CustomEvent('cbsgo:treasureOpenRequest', {
-              detail: {
-                treasure_id: treasure.id,
-                claimant_wallet,
-                radius_m: Number(treasure.radius_m || 0),
-                center: {
-                  lat: Number(treasure.lat),
-                  lng: Number(treasure.lng),
-                },
-                distance_m: d,
-                t: Date.now(),
-              },
-            })
-          );
-        } catch (e) {
-          console.warn('CBS-GO: treasureOpenRequest dispatch failed', e);
-        }
+      let marker = null;
 
-        setMsg('✅ Request sent. If you are first, payout will arrive shortly.');
-        treasureSeenThisSession = true;
-
-        setTimeout(() => close(), 900);
-      };
-    }
-  };
-
-  const findNearestActiveTreasure = (center, accuracyM) => {
-    if (!Array.isArray(activeTreasures) || !activeTreasures.length) return null;
-
-    let best = null;
-
-    for (const t of activeTreasures) {
-      const lat = Number(t?.lat);
-      const lng = Number(t?.lng);
-      const radius = Number(t?.radius_m || 0);
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) {
+      try {
+        marker = new MarkerClass({
+          element: el,
+          anchor: 'bottom',
+        })
+          .setLngLat([lng, lat])
+          .addTo(map);
+      } catch (e) {
+        console.warn('CBS-GO: failed to create treasure marker', e);
         continue;
       }
 
-      const dist = metersBetween(center, { lat, lng });
+      activeTreasureMarkers.set(id, {
+        marker,
+        el,
+        treasure: t,
+        distanceM: dist,
+        accuracyM,
+      });
+    } else {
+      existing.treasure = t;
+      existing.distanceM = dist;
+      existing.accuracyM = accuracyM;
 
-      const jitter = Number.isFinite(accuracyM) ? Math.min(Math.max(accuracyM, 0), 25) : 10;
-      const allowed = radius + jitter;
-
-      if (Number.isFinite(dist) && dist <= allowed) {
-        if (!best || dist < best.distanceM) {
-          best = {
-            treasure: t,
-            distanceM: dist,
-            accuracyM,
-          };
-        }
+      try {
+        existing.marker?.setLngLat?.([lng, lat]);
+      } catch (e) {
+        console.warn('CBS-GO: failed to update treasure marker position', e);
       }
     }
+  }
 
-    return best;
-  };
+  for (const id of [...activeTreasureMarkers.keys()]) {
+    if (!visibleIds.has(id)) {
+      removeTreasureMarker(id);
+    }
+  }
+};
 
-  navigator.geolocation.watchPosition(
-    async (pos) => {
-      if (destroyed) return;
+navigator.geolocation.watchPosition(
+  async (pos) => {
+    if (destroyed) return;
 
-      const { latitude, longitude, heading } = pos.coords;
-      const center = { lat: latitude, lng: longitude };
+    const { latitude, longitude, heading } = pos.coords;
+    const center = { lat: latitude, lng: longitude };
 
-      const prev = lastUserLatLng ? { lat: lastUserLatLng[0], lng: lastUserLatLng[1] } : null;
+    const prev = lastUserLatLng ? { lat: lastUserLatLng[0], lng: lastUserLatLng[1] } : null;
 
-      lastUserLatLng = [latitude, longitude];
-      hasGpsFix = true;
+        lastUserLatLng = [latitude, longitude];
+    hasGpsFix = true;
 
-      let gpsHeading = null;
-      if (Number.isFinite(heading)) gpsHeading = wrap360(heading);
-      else if (prev) {
-        const distMoved = metersBetween(prev, center);
-        if (Number.isFinite(distMoved) && distMoved > 2) {
-          gpsHeading = wrap360(computeHeadingDeg(prev, center));
-        }
+    const uiLatLng = smoothUiLatLng(
+      latitude,
+      longitude,
+      Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null
+    ) || [latitude, longitude];
+
+    let gpsHeading = null;
+    if (Number.isFinite(heading)) gpsHeading = wrap360(heading);
+    else if (prev) {
+      const distMoved = metersBetween(prev, center);
+      if (Number.isFinite(distMoved) && distMoved > 2) {
+        gpsHeading = wrap360(computeHeadingDeg(prev, center));
       }
-      if (Number.isFinite(gpsHeading)) lastHeadingDeg = wrap360(gpsHeading);
+    }
+    if (Number.isFinite(gpsHeading)) lastHeadingDeg = wrap360(gpsHeading);
 
-      if (map) ensurePlayerMarker(latitude, longitude);
-      updatePlayerArrow();
+       if (map) ensurePlayerMarker(uiLatLng[0], uiLatLng[1]);
+    updatePlayerArrow();
 
-      if (!inWorldMode) {
-        spawnLootAround(center);
-        cleanupLoot(center);
-        forceUpdatePickupRing(latitude, longitude);
+    if (!inWorldMode) {
+      spawnLootAround(center);
+      cleanupLoot(center);
+      forceUpdatePickupRing(uiLatLng[0], uiLatLng[1]);
+    }
+
+    applyAllMarkerScales();
+
+    fetchWeatherForLatLng(latitude, longitude);
+    fetchPlaceName(latitude, longitude);
+
+    try {
+      const now = Date.now();
+      if (!lastTreasureFetchAt || now - lastTreasureFetchAt > TREASURE_FETCH_INTERVAL_MS) {
+        await refreshActiveTreasures();
       }
+    } catch {}
 
-      applyAllMarkerScales();
+    try {
+      const now = Date.now();
+      if (now - lastTreasureCheckAt > 1200) {
+        lastTreasureCheckAt = now;
 
-      fetchWeatherForLatLng(latitude, longitude);
-      fetchPlaceName(latitude, longitude);
-
-      // refresh treasures every X seconds
-      try {
-        const now = Date.now();
-        if (!lastTreasureFetchAt || now - lastTreasureFetchAt > TREASURE_FETCH_INTERVAL_MS) {
-          await refreshActiveTreasures();
-        }
-      } catch {}
-
-      // -------------------- Dynamic treasure check --------------------
-      try {
-        const now = Date.now();
-        if (!treasureSeenThisSession && !treasurePopupOpen && now - lastTreasureCheckAt > 1200) {
-          lastTreasureCheckAt = now;
-
-          const acc = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
-         const nearest = findNearestActiveTreasure(center, acc);
-
-if (nearest?.treasure) {
-  showTreasurePopup(nearest);
-}
-        }
-      } catch (e) {
-        console.warn('CBS-GO: treasure check failed', e);
+        const acc = Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null;
+        syncNearbyTreasureMarkers(center, acc);
       }
+    } catch (e) {
+      console.warn('CBS-GO: treasure marker check failed', e);
+    }
 
-      try {
-        window.dispatchEvent(new CustomEvent('cbsgo:playerPos', {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('cbsgo:playerPos', {
           detail: {
             lat: latitude,
             lng: longitude,
@@ -2296,16 +2593,16 @@ if (nearest?.treasure) {
             t: Date.now(),
             shareLocation,
           },
-        }));
-      } catch {}
-    },
-    (err) => {
-      console.warn('GPS error:', err?.message || err?.code || 'unknown');
-    },
-    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
-  );
-}
-
+        })
+      );
+    } catch {}
+  },
+  (err) => {
+    console.warn('GPS error:', err?.message || err?.code || 'unknown');
+  },
+  { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+);
+  }
 /* -------------------- PUBLIC API -------------------- */
 
 export function renderMapView() {
@@ -2315,35 +2612,56 @@ export function renderMapView() {
     <div id="cbsgoMapHost" data-night="0">
       <div id="cbsgoMap"></div>
 
-      <div id="cbsgoWeather" class="cbsgo-pill" style="
-        position:absolute;
-        top:16px;
-        left:12px;
-        z-index:3000;
-        padding:6px 10px;
-        font-size:12px;
-        display:inline-flex;
-        align-items:center;
-        gap:6px;
-        cursor:pointer;
-        user-select:none;
-      " title="Tap for 5-day forecast">
-        <span id="cbsgoWeatherLabel">${esc(getWeatherLabel())}</span>
-      </div>
-
-      <div id="cbsgoMapControls" style="
+      <div id="cbsgoTopLeftUi" style="
         position:absolute;
         left:12px;
-        top:58px;
+        top:calc(env(safe-area-inset-top, 0px) + 42px);
         z-index:3000;
         display:flex;
         flex-direction:column;
+        align-items:flex-start;
         gap:10px;
+        pointer-events:none;
       ">
-        <button id="cbsgoWorldBtn" class="cbsgo-pill" type="button" aria-label="World / Player toggle"
-          style="width:52px;height:52px;font-size:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
-          🌍
-        </button>
+        <div id="cbsgoWeather" class="cbsgo-pill" style="
+          position:relative;
+          margin:0;
+          padding:6px 10px;
+          font-size:12px;
+          display:inline-flex;
+          align-items:center;
+          gap:6px;
+          text-align:left;
+          max-width:min(62vw, 240px);
+          cursor:pointer;
+          user-select:none;
+          pointer-events:auto;
+        " title="Tap for 5-day forecast">
+          <span id="cbsgoWeatherLabel">${esc(getWeatherLabel())}</span>
+        </div>
+
+        <div id="cbsgoMapControls" style="
+          position:relative;
+          margin:0;
+          display:flex;
+          flex-direction:column;
+          gap:10px;
+          pointer-events:auto;
+        ">
+          <button id="cbsgoWorldBtn" class="cbsgo-pill" type="button" aria-label="World / Player toggle"
+            style="
+              width:52px;
+              height:52px;
+              margin:0;
+              font-size:22px;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              cursor:pointer;
+            ">
+            🌍
+          </button>
+        </div>
       </div>
 
       <div id="cbsgoToast" class="cbsgo-pill" style="

@@ -22,7 +22,7 @@ import { renderXpBar } from './xpBar.js';
 import { renderLeaderboardPanel, bindLeaderboardPanel } from './leaderboardPanel.js';
 import { tryAutoStart } from '../app/steps.js';
 import { isDev, hardResetCBSGO } from '../app/devTools.js';
-
+import { renderDevPanelBody, bindDevPanelButtons } from './devPanel.js';
 import {
   getPlayerName,
   setPlayerName,
@@ -277,7 +277,7 @@ const CBS_MINT = 'B9z8cEWFmc7LvQtjKsaLoKqW5MJmGRCWqs1DPKupCfkk';
 const CBS_DECIMALS = 9;
 
 // ---------- Common SPL tokens ----------
-const BONK_MINT = 'DezXAZ8z7PnrnRJvxUuG1spHxsFJqts7qF4N8ko9rEz';
+const BONK_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
 const BONK_DECIMALS = 5;
 
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -1049,6 +1049,9 @@ function renderBag() {
   const tickets = getTickets();
   const cbs = getCbsCoins();
 
+  const canClaimMysteryBox = tickets >= 1000;
+  const canClaimCbsReward = cbs >= 1000;
+
   // ✅ één adres overal: de echte Solana/SPL wallet
   const solPk = getLocalPublicKeySafe();
 
@@ -1118,7 +1121,7 @@ function renderBag() {
         Your collected items in the real world.
       </p>
 
-      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;flex-wrap:wrap;gap:10px;">
         <div style="
           padding:8px 14px;
           border-radius:999px;
@@ -1137,6 +1140,81 @@ function renderBag() {
           font-size:13px;
         ">
           🪙 CBS (play money): <b>${cbs}</b>
+        </div>
+      </div>
+
+      <div style="
+        margin-top:14px;
+        display:flex;
+        flex-direction:column;
+        gap:10px;
+      ">
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          border:1px solid ${canClaimMysteryBox ? 'rgba(251,191,36,.55)' : 'rgba(255,255,255,.10)'};
+          background:${canClaimMysteryBox ? 'rgba(120,53,15,.22)' : 'rgba(15,23,42,.72)'};
+        ">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:13px;font-weight:800;">🎁 Mystery Box</div>
+              <div style="font-size:11px;opacity:.8;margin-top:3px;">
+                Collect 1000 tickets to claim a mystery box with BONK, SOL or CBS rewards.
+              </div>
+            </div>
+
+            <button
+              id="claimMysteryBoxBtn"
+              type="button"
+              ${canClaimMysteryBox ? '' : 'disabled'}
+              style="
+                padding:8px 12px;
+                border-radius:999px;
+                border:1px solid ${canClaimMysteryBox ? 'rgba(251,191,36,.95)' : 'rgba(255,255,255,.10)'};
+                background:${canClaimMysteryBox ? 'rgba(245,158,11,.95)' : 'rgba(255,255,255,.06)'};
+                color:${canClaimMysteryBox ? '#111827' : 'rgba(255,255,255,.45)'};
+                font-size:12px;
+                font-weight:800;
+                cursor:${canClaimMysteryBox ? 'pointer' : 'default'};
+              "
+            >
+              ${canClaimMysteryBox ? 'Claim box' : `${1000 - tickets} left`}
+            </button>
+          </div>
+        </div>
+
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          border:1px solid ${canClaimCbsReward ? 'rgba(34,197,94,.55)' : 'rgba(255,255,255,.10)'};
+          background:${canClaimCbsReward ? 'rgba(20,83,45,.22)' : 'rgba(15,23,42,.72)'};
+        ">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+            <div>
+              <div style="font-size:13px;font-weight:800;">🪙 CBS Reward</div>
+              <div style="font-size:11px;opacity:.8;margin-top:3px;">
+                Collect 1000 CBS play money to claim a CBS reward later.
+              </div>
+            </div>
+
+            <button
+              id="claimCbsRewardBtn"
+              type="button"
+              ${canClaimCbsReward ? '' : 'disabled'}
+              style="
+                padding:8px 12px;
+                border-radius:999px;
+                border:1px solid ${canClaimCbsReward ? 'rgba(34,197,94,.9)' : 'rgba(255,255,255,.10)'};
+                background:${canClaimCbsReward ? 'rgba(34,197,94,.95)' : 'rgba(255,255,255,.06)'};
+                color:${canClaimCbsReward ? '#052e16' : 'rgba(255,255,255,.45)'};
+                font-size:12px;
+                font-weight:800;
+                cursor:${canClaimCbsReward ? 'pointer' : 'default'};
+              "
+            >
+              ${canClaimCbsReward ? 'Claim reward' : `${1000 - cbs} left`}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1412,7 +1490,56 @@ function bindBagEvents() {
   const setGiftMsg = (t) => {
     if (giftMsgEl) giftMsgEl.textContent = t || '';
   };
+    const claimMysteryBoxBtn = document.querySelector('#claimMysteryBoxBtn');
+  const claimCbsRewardBtn = document.querySelector('#claimCbsRewardBtn');
 
+  if (claimMysteryBoxBtn) {
+    claimMysteryBoxBtn.onclick = () => {
+      const ticketsNow = getTickets();
+      if (ticketsNow < 1000) return;
+
+      const ok = window.confirm(
+        'Claim Mystery Box?\n\nThis will spend 1000 tickets and reset those tickets from your Bag.'
+      );
+      if (!ok) return;
+
+      inventory.addTickets?.(-1000);
+
+      window.dispatchEvent(
+        new CustomEvent('cbsgo:tradePopup', {
+          detail: {
+            direction: 'received',
+            fromNickname: 'Mystery Box',
+            fromAvatar: '',
+            tickets: 0,
+            cbs: 0,
+            cardId: null,
+            cardQty: 0,
+          },
+        }),
+      );
+
+      setMsg('✅ Mystery Box claimed. Reward logic comes next.');
+      updatePanel();
+    };
+  }
+
+  if (claimCbsRewardBtn) {
+    claimCbsRewardBtn.onclick = () => {
+      const cbsNow = getCbsCoins();
+      if (cbsNow < 1000) return;
+
+      const ok = window.confirm(
+        'Claim CBS Reward?\n\nThis will spend 1000 CBS play money from your Bag.'
+      );
+      if (!ok) return;
+
+      inventory.addCbsCoins?.(-1000);
+
+      setMsg('✅ CBS Reward claimed. Real reward logic comes next.');
+      updatePanel();
+    };
+  }
   async function populateFriendSelect() {
     if (!giftFriendSelect) return;
     try {
@@ -1541,9 +1668,9 @@ function bindBagEvents() {
 
     window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
       try {
-        const treasureId = String(ev?.detail?.treasureId || '').trim();
-        const lat = Number(ev?.detail?.lat);
-        const lng = Number(ev?.detail?.lng);
+        const treasureId = String(ev?.detail?.treasure_id || '').trim();
+const lat = Number(ev?.detail?.center?.lat);
+const lng = Number(ev?.detail?.center?.lng);
 
         if (!treasureId) return;
 
@@ -2386,9 +2513,53 @@ export function renderAppShell() {
         ">💰</button>
       </div>
 
-      <!-- Panel-root -->
+          <!-- Panel-root -->
       <div id="panelRoot">
         ${renderPanel()}
+      </div>
+
+      <!-- Dev panel (only useful when dev button exists) -->
+      <div id="devPanelRoot" style="
+        position:fixed;
+        right:12px;
+        bottom:190px;
+        z-index:6500;
+        display:none;
+        width:min(360px, 92vw);
+        border-radius:18px;
+        border:1px solid rgba(56,189,248,.45);
+        background:rgba(10,12,18,.96);
+        box-shadow:0 18px 60px rgba(0,0,0,.6);
+        overflow:hidden;
+      ">
+        <div style="
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:8px;
+          padding:10px 12px;
+          border-bottom:1px solid rgba(255,255,255,.10);
+        ">
+          <div style="font-size:13px;font-weight:800;color:#7dd3fc;">DEV PANEL</div>
+          <button id="devPanelCloseBtn" type="button" style="
+            padding:6px 10px;
+            border-radius:999px;
+            border:1px solid rgba(255,255,255,.14);
+            background:rgba(255,255,255,.08);
+            color:#fff;
+            font-size:11px;
+            cursor:pointer;
+          ">Close</button>
+        </div>
+
+       <div id="devPanelBody" style="
+  padding:12px;
+  font-size:12px;
+  color:#e5e7eb;
+  line-height:1.45;
+">
+  ${renderDevPanelBody()}
+</div>
       </div>
 
       <!-- Toast -->
@@ -2411,21 +2582,36 @@ export function renderAppShell() {
         pointer-events:none;
       "></div>
 
-      ${
-        isDev()
-          ? `<button id="resetBtn" type="button" style="
-               position:fixed;
-               right:12px;
-               bottom:90px;
-               z-index:6000;
-               padding:10px 12px;
-               border-radius:14px;
-               border:1px solid rgba(255,255,255,.14);
-               background:rgba(0,0,0,.35);
-               color:#fff;
-             ">Reset Demo</button>`
-          : ``
-      }
+${
+  isDev()
+    ? `
+      <button id="resetBtn" type="button" style="
+        position:fixed;
+        right:12px;
+        bottom:220px;
+        z-index:6000;
+        padding:10px 12px;
+        border-radius:14px;
+        border:1px solid rgba(255,255,255,.14);
+        background:rgba(0,0,0,.35);
+        color:#fff;
+      ">Reset Demo</button>
+
+      <button id="devPanelBtn" type="button" style="
+        position:fixed;
+        right:12px;
+        bottom:140px;
+        z-index:6000;
+        padding:10px 12px;
+        border-radius:14px;
+        border:1px solid rgba(56,189,248,.6);
+        background:rgba(15,23,42,.9);
+        color:#7dd3fc;
+        font-weight:700;
+      ">DEV</button>
+      `
+    : ``
+}
     </div>
   `;
 }
@@ -2475,6 +2661,27 @@ function bindUi() {
       updatePanel();
     });
   }
+// ---------- DEV panel toggle ----------
+const devBtn = document.querySelector('#devPanelBtn');
+const devPanel = document.querySelector('#devPanelRoot');
+const devClose = document.querySelector('#devPanelCloseBtn');
+
+if (devBtn && devPanel) {
+  devBtn.addEventListener('click', () => {
+    if (devPanel.style.display === 'none' || !devPanel.style.display) {
+      devPanel.style.display = 'block';
+bindDevPanelButtons();
+    } else {
+      devPanel.style.display = 'none';
+    }
+  });
+}
+
+if (devClose && devPanel) {
+  devClose.addEventListener('click', () => {
+    devPanel.style.display = 'none';
+  });
+}
 }
 
 
@@ -2487,7 +2694,6 @@ function showTradePopup(detail) {
     direction = 'received',
     fromNickname,
     fromAvatar,
-    toWallet,
     tickets = 0,
     cbs = 0,
     cardId = null,
@@ -2532,7 +2738,7 @@ function showTradePopup(detail) {
   if (direction === 'sent') {
     fromHtml = `
       <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
-        Sent from <b>${esc(meName)}</b> to <span style="opacity:.9;">${esc(toWallet || '')}</span>
+        Sent by <b>${esc(meName)}</b>
       </div>
     `;
   } else {
@@ -2562,8 +2768,8 @@ function showTradePopup(detail) {
 
   const infoLine =
     direction === 'sent'
-      ? 'Your gift is on the way. The receiver will see it added to their Bag.'
-      : 'This gift is added to your Bag. Later you can also send and trade cards with friends.';
+      ? 'Your gift has been sent successfully.'
+      : 'This gift has been added to your Bag.';
 
   card.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -2662,10 +2868,28 @@ function bootstrapApp() {
     // When cards change (you already dispatch bagChanged after card send)
     window.addEventListener('cbsgo:bagChanged', () => schedule('bagChanged'));
 
-    // Optional extra safety: after receiving gifts popup event
-    window.addEventListener('cbsgo:friendGiftReceived', () => schedule('friendGiftReceived'));
-  }
+  // Optional extra safety: after receiving gifts popup event
+window.addEventListener('cbsgo:friendGiftReceived', () => schedule('friendGiftReceived'));
 
+window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
+  const d = ev?.detail || {};
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:tradePopup', {
+      detail: {
+        direction: 'received',
+        fromNickname: d.senderNickname || '',
+        fromAvatar: d.senderAvatar || '',
+        toWallet: d.toWallet || '',
+        tickets: Number(d.tickets || 0),
+        cbs: Number(d.cbs || 0),
+        cardId: d.cardId || null,
+        cardQty: Number(d.cardQty || 0),
+      },
+    }),
+  );
+});
+}
   bindUi();
   bindMapView();
   bindTreasureClaimListener();
