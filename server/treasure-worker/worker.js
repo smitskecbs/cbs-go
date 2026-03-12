@@ -30,9 +30,6 @@ if (process.env.TREASURE_KEYPAIR_JSON) {
 } else {
   const keypairPath = path.resolve(__dirname, process.env.TREASURE_KEYPAIR_PATH || '')
 
-  // --------------------
-  // Load keypair safely from file (local fallback)
-  // --------------------
   if (!keypairPath || !fs.existsSync(keypairPath)) {
     console.error('❌ Treasure keypair not found: missing TREASURE_KEYPAIR_JSON and TREASURE_KEYPAIR_PATH')
     process.exit(1)
@@ -43,7 +40,9 @@ if (process.env.TREASURE_KEYPAIR_JSON) {
 
 const secret = JSON.parse(secretRaw)
 const treasureWallet = Keypair.fromSecretKey(new Uint8Array(secret))
-console.log('✅ Treasure wallet loaded:', treasureWallet.publicKey.toBase58())// --------------------
+console.log('✅ Treasure wallet loaded:', treasureWallet.publicKey.toBase58())
+
+// --------------------
 // Config
 // --------------------
 const RPC_URL = String(process.env.RPC_URL || 'https://api.mainnet-beta.solana.com').trim()
@@ -52,6 +51,7 @@ if (!RPC_URL.startsWith('http://') && !RPC_URL.startsWith('https://')) {
   console.error('❌ Invalid RPC_URL:', JSON.stringify(RPC_URL))
   process.exit(1)
 }
+
 const connection = new Connection(RPC_URL, 'confirmed')
 
 // CBS + BONK config
@@ -112,7 +112,7 @@ async function testSupabase() {
 }
 
 // --------------------
-// DB queries
+// DB queries: treasures
 // --------------------
 async function fetchNextProcessingTreasure() {
   const { data, error } = await supabase
@@ -149,7 +149,6 @@ async function markTreasureFailed(id, reasonText = '') {
     updated_at: new Date().toISOString(),
   }
 
-  // probeer eerst fail_reason te schrijven
   const { error: error1 } = await supabase
     .from('treasures')
     .update({
@@ -160,8 +159,62 @@ async function markTreasureFailed(id, reasonText = '') {
 
   if (!error1) return
 
-  // fallback zonder fail_reason kolom
   const { error: error2 } = await supabase.from('treasures').update(base).eq('id', id)
+  if (error2) throw new Error(error2.message)
+}
+
+// --------------------
+// DB queries: reward_claims
+// --------------------
+async function fetchNextProcessingRewardClaim() {
+  const { data, error } = await supabase
+    .from('reward_claims')
+    .select('*')
+    .eq('status', 'processing')
+    .not('claimant_wallet', 'is', null)
+    .is('paid_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+
+  if (error) throw new Error(error.message)
+  return data && data[0] ? data[0] : null
+}
+
+async function markRewardClaimPaid(id, patch = {}) {
+  const { error } = await supabase
+    .from('reward_claims')
+    .update({
+      status: 'paid',
+      updated_at: new Date().toISOString(),
+      paid_at: new Date().toISOString(),
+      ...patch,
+    })
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
+}
+
+async function markRewardClaimFailed(id, reasonText = '') {
+  const base = {
+    status: 'failed',
+    updated_at: new Date().toISOString(),
+  }
+
+  const { error: error1 } = await supabase
+    .from('reward_claims')
+    .update({
+      ...base,
+      fail_reason: String(reasonText || ''),
+    })
+    .eq('id', id)
+
+  if (!error1) return
+
+  const { error: error2 } = await supabase
+    .from('reward_claims')
+    .update(base)
+    .eq('id', id)
+
   if (error2) throw new Error(error2.message)
 }
 
@@ -227,11 +280,11 @@ async function paySpl({ mint, decimals, toAddress, amountTokens }) {
 }
 
 // --------------------
-// Worker cycle
+// Worker cycle: treasures
 // --------------------
 async function runOnce() {
   const t = await fetchNextProcessingTreasure()
-  if (!t) return
+  if (!t) return false
 
   const id = t.id
   const payoutWallet = String(t.claimant_wallet || '').trim()
@@ -239,13 +292,13 @@ async function runOnce() {
   if (!payoutWallet) {
     console.warn('⛔ claimant_wallet empty while processing. Marking failed:', id)
     await markTreasureFailed(id, 'claimant_wallet empty')
-    return
+    return true
   }
 
   if (!isLikelySolanaPubkey(payoutWallet)) {
     console.warn('⛔ claimant_wallet invalid format. Marking failed:', id, payoutWallet)
     await markTreasureFailed(id, 'claimant_wallet invalid format')
-    return
+    return true
   }
 
   const rewardBonk = toNumberSafe(t.reward_bonk)
@@ -255,7 +308,7 @@ async function runOnce() {
   if (rewardBonk <= 0 && rewardCbs <= 0 && rewardSol <= 0) {
     console.warn('⛔ No rewards configured (all 0). Marking failed:', id)
     await markTreasureFailed(id, 'No rewards configured')
-    return
+    return true
   }
 
   console.log(`🎯 Paying treasure: ${id}`)
@@ -282,25 +335,103 @@ async function runOnce() {
       })
     }
 
-    // SOL alleen versturen als reward_sol bestaat en > 0
-  if (rewardSol > 0) {
-  sigs.tx_sol_sig = await paySol(payoutWallet, rewardSol)
-}
+    if (rewardSol > 0) {
+      sigs.tx_sol_sig = await paySol(payoutWallet, rewardSol)
+    }
 
     await markTreasurePaid(id, {
       ...sigs,
     })
 
     console.log('✅ Paid treasure:', id, 'sigs:', sigs)
+    return true
   } catch (e) {
     const msg = String(e?.message || e)
     console.warn('⛔ Payment failed:', id, msg)
 
     if (msg.toLowerCase().includes('insufficient funds')) {
-      console.warn('💡 Treasure wallet has not enough BONK/CBS. Top up wallet or lower reward.')
+      console.warn('💡 Treasure wallet has not enough BONK/CBS/SOL. Top up wallet or lower reward.')
     }
 
     await markTreasureFailed(id, msg)
+    return true
+  }
+}
+
+// --------------------
+// Worker cycle: reward_claims
+// --------------------
+async function runRewardClaimOnce() {
+  const r = await fetchNextProcessingRewardClaim()
+  if (!r) return false
+
+  const id = r.id
+  const payoutWallet = String(r.claimant_wallet || '').trim()
+
+  if (!payoutWallet) {
+    console.warn('⛔ reward_claim claimant_wallet empty. Marking failed:', id)
+    await markRewardClaimFailed(id, 'claimant_wallet empty')
+    return true
+  }
+
+  if (!isLikelySolanaPubkey(payoutWallet)) {
+    console.warn('⛔ reward_claim claimant_wallet invalid format. Marking failed:', id, payoutWallet)
+    await markRewardClaimFailed(id, 'claimant_wallet invalid format')
+    return true
+  }
+
+  const rewardBonk = toNumberSafe(r.reward_bonk)
+  const rewardCbs = toNumberSafe(r.reward_cbs)
+  const rewardSol = toNumberSafe(r.reward_sol)
+
+  if (rewardBonk <= 0 && rewardCbs <= 0 && rewardSol <= 0) {
+    console.warn('⛔ reward_claim has no rewards configured. Marking failed:', id)
+    await markRewardClaimFailed(id, 'No rewards configured')
+    return true
+  }
+
+  console.log(`🎁 Paying reward claim: ${id}`)
+  console.log(`💸 Paying ${rewardBonk} BONK + ${rewardCbs} CBS + ${rewardSol} SOL -> ${short(payoutWallet)}`)
+
+  try {
+    const sigs = {}
+
+    if (rewardBonk > 0) {
+      sigs.tx_bonk_sig = await paySpl({
+        mint: BONK_MINT,
+        decimals: BONK_DECIMALS,
+        toAddress: payoutWallet,
+        amountTokens: rewardBonk,
+      })
+    }
+
+    if (rewardCbs > 0) {
+      sigs.tx_cbs_sig = await paySpl({
+        mint: CBS_MINT,
+        decimals: CBS_DECIMALS,
+        toAddress: payoutWallet,
+        amountTokens: rewardCbs,
+      })
+    }
+
+    if (rewardSol > 0) {
+      sigs.tx_sol_sig = await paySol(payoutWallet, rewardSol)
+    }
+
+    await markRewardClaimPaid(id, sigs)
+
+    console.log('✅ Paid reward claim:', id, 'sigs:', sigs)
+    return true
+  } catch (e) {
+    const msg = String(e?.message || e)
+    console.warn('⛔ Reward claim payment failed:', id, msg)
+
+    if (msg.toLowerCase().includes('insufficient funds')) {
+      console.warn('💡 Treasure wallet has not enough BONK/CBS/SOL. Top up wallet or lower reward.')
+    }
+
+    await markRewardClaimFailed(id, msg)
+    return true
   }
 }
 
@@ -312,10 +443,14 @@ async function main() {
 
   while (true) {
     try {
-      await runOnce()
+      const didTreasure = await runOnce()
+      if (!didTreasure) {
+        await runRewardClaimOnce()
+      }
     } catch (e) {
       console.warn('⚠️ Worker cycle error:', e?.message || e)
     }
+
     await sleep(SLEEP_MS)
   }
 }
