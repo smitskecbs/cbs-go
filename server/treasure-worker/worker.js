@@ -436,6 +436,7 @@ async function runRewardClaimOnce() {
 }
 
 async function main() {
+console.log('✅ Worker version with reward_claims support loaded')
   await testConnection().catch(() => {})
   await testSupabase().catch(() => {})
 
