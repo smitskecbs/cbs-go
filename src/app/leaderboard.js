@@ -31,6 +31,22 @@ const KEY = 'cbsgo_leaderboard_v2';
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
 
+// TEMP DEBUG — remove after Anon investigation
+const LB_DEBUG = true;
+const LB_DEBUG_TAG = '[CBSGO LB DEBUG]';
+
+function lbDebug(label, payload) {
+  if (!LB_DEBUG) return;
+  console.log(LB_DEBUG_TAG, label, payload);
+}
+
+function lbDebugTable(label, rows, pick = (r, i) => r) {
+  if (!LB_DEBUG) return;
+  console.group(`${LB_DEBUG_TAG} ${label}`);
+  console.table((rows || []).map((r, i) => pick(r, i)));
+  console.groupEnd();
+}
+
 function readJSON(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -139,6 +155,52 @@ export async function loadLeaderboard(limit = 100) {
   try {
     const fetchLimit = Math.max(limit * 4, 200);
 
+    // TEMP DEBUG: unfiltered raw Supabase response (top 20 by XP)
+    let rawUnfiltered = null;
+    if (LB_DEBUG) {
+      const rawRes = await supabase
+        .from('game_profiles')
+        .select('user_id, nickname, avatar, xp, level, updated_at')
+        .order('xp', { ascending: false })
+        .limit(20);
+
+      rawUnfiltered = rawRes.data;
+      const rawErr = rawRes.error;
+
+      lbDebug('1. RAW Supabase response BEFORE any client filters', {
+        table: 'game_profiles',
+        query:
+          'SELECT user_id, nickname, avatar, xp, level, updated_at FROM game_profiles ORDER BY xp DESC LIMIT 20',
+        error: rawErr || null,
+        rowCount: Array.isArray(rawUnfiltered) ? rawUnfiltered.length : 0,
+        top20Nicknames: (rawUnfiltered || []).map((r, i) => ({
+          rank: i + 1,
+          user_id: r?.user_id,
+          nickname: r?.nickname,
+          nicknameType: typeof r?.nickname,
+          nicknameJson: JSON.stringify(r?.nickname),
+          xp: r?.xp,
+        })),
+        fullRows: rawUnfiltered,
+      });
+      lbDebugTable(
+        '1b. Top 20 nickname values (raw, unfiltered)',
+        rawUnfiltered || [],
+        (r, i) => ({
+          rank: i + 1,
+          user_id: r?.user_id,
+          nickname: r?.nickname,
+          xp: r?.xp,
+        }),
+      );
+    }
+
+    const queryDesc =
+      'game_profiles SELECT user_id,nickname,avatar,xp,level,updated_at ' +
+      'WHERE nickname IS NOT NULL AND nickname <> "" ' +
+      'AND nickname NOT IN (blocklist) AND nickname NOT ILIKE anon|anonymous|guest|player% ' +
+      `ORDER BY xp DESC LIMIT ${fetchLimit}`;
+
     const { data: profiles, error: profilesError } = await supabase
       .from('game_profiles')
       .select('user_id, nickname, avatar, xp, level, updated_at')
@@ -151,6 +213,24 @@ export async function loadLeaderboard(limit = 100) {
       .not('nickname', 'ilike', 'player%')
       .order('xp', { ascending: false })
       .limit(fetchLimit);
+
+    if (LB_DEBUG) {
+      lbDebug('2. Supabase response AFTER server-side query filters (before client map/filter)', {
+        table: 'game_profiles',
+        query: queryDesc,
+        blocklist: LEADERBOARD_NICKNAME_BLOCKLIST_IN,
+        error: profilesError || null,
+        rowCount: Array.isArray(profiles) ? profiles.length : 0,
+        top20Nicknames: (profiles || []).slice(0, 20).map((r, i) => ({
+          rank: i + 1,
+          user_id: r?.user_id,
+          nickname: r?.nickname,
+          nicknameType: typeof r?.nickname,
+          nicknameJson: JSON.stringify(r?.nickname),
+          xp: r?.xp,
+        })),
+      });
+    }
 
     if (profilesError) {
       console.warn('CBS GO: loadLeaderboard failed', profilesError);
@@ -172,6 +252,15 @@ export async function loadLeaderboard(limit = 100) {
         .select('user_id, country_code, last_seen')
         .in('user_id', userIds);
 
+      if (LB_DEBUG) {
+        lbDebug('3. player_state country lookup (NOT used for nickname display)', {
+          table: 'player_state',
+          query: 'SELECT user_id, country_code, last_seen WHERE user_id IN (...)',
+          error: stateError || null,
+          rowCount: Array.isArray(stateRows) ? stateRows.length : 0,
+        });
+      }
+
       if (stateError) {
         console.warn('CBS GO: player_state country lookup failed', stateError);
       } else if (Array.isArray(stateRows)) {
@@ -185,17 +274,75 @@ export async function loadLeaderboard(limit = 100) {
       }
     }
 
-    return rows
-      .map((r) => {
-        const uid = String(r?.user_id || '').trim();
-        return {
-          ...r,
-          nickname: normalizePlayerNickname(r?.nickname),
-          country_code: uid ? (countryByUserId.get(uid) || '') : '',
-        };
-      })
-      .filter(isValidLeaderboardEntry)
-      .slice(0, limit);
+    const afterMap = rows.map((r) => {
+      const uid = String(r?.user_id || '').trim();
+      const rawNick = r?.nickname;
+      const normalizedNick = normalizePlayerNickname(rawNick);
+      return {
+        ...r,
+        nickname: normalizedNick,
+        country_code: uid ? (countryByUserId.get(uid) || '') : '',
+        __debug: {
+          rawNickname: rawNick,
+          normalizedNickname: normalizedNick,
+          isValid: isValidLeaderboardEntry({
+            ...r,
+            nickname: normalizedNick,
+          }),
+        },
+      };
+    });
+
+    if (LB_DEBUG) {
+      lbDebug('4. After normalizePlayerNickname() map (leaderboard.js ~map step)', {
+        file: 'src/app/leaderboard.js',
+        transform: 'nickname = normalizePlayerNickname(r.nickname)',
+        top20: afterMap.slice(0, 20).map((r, i) => ({
+          rank: i + 1,
+          user_id: r.user_id,
+          rawNickname: r.__debug.rawNickname,
+          normalizedNickname: r.__debug.normalizedNickname,
+          isValid: r.__debug.isValid,
+          xp: r.xp,
+        })),
+      });
+    }
+
+    const afterFilter = afterMap.filter((r) => {
+      const ok = isValidLeaderboardEntry(r);
+      if (LB_DEBUG && !ok && afterMap.indexOf(r) < 20) {
+        lbDebug(`4b. FILTERED OUT row #${afterMap.indexOf(r) + 1}`, {
+          file: 'src/app/leaderboard.js isValidLeaderboardEntry()',
+          user_id: r.user_id,
+          rawNickname: r.__debug?.rawNickname,
+          normalizedNickname: r.nickname,
+          xp: r.xp,
+        });
+      }
+      return ok;
+    });
+
+    const finalRows = afterFilter.slice(0, limit).map(({ __debug, ...row }) => row);
+
+    if (LB_DEBUG) {
+      lbDebug('5. Final rows returned to leaderboardPanel (after filter + slice)', {
+        file: 'src/app/leaderboard.js loadLeaderboard() return',
+        rowCount: finalRows.length,
+        top20Nicknames: finalRows.slice(0, 20).map((r, i) => ({
+          rank: i + 1,
+          user_id: r.user_id,
+          nickname: r.nickname,
+          xp: r.xp,
+        })),
+      });
+      window.__cbsgo_lb_debug = {
+        rawTop20: rawUnfiltered,
+        filteredTop20: (profiles || []).slice(0, 20),
+        finalRows: finalRows.slice(0, 20),
+      };
+    }
+
+    return finalRows;
   } catch (e) {
     console.warn('CBS GO: loadLeaderboard exception', e);
     return [];
