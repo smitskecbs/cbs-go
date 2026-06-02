@@ -1,6 +1,6 @@
 // src/ui/leaderboardPanel.js
 import { sendFriendRequest, loadFriendsOverview } from '../app/friends.js';
-import { loadLeaderboard } from '../app/leaderboard.js';
+import { isValidLeaderboardEntry, loadLeaderboard } from '../app/leaderboard.js';
 
 function esc(s) {
   return String(s || '')
@@ -61,6 +61,118 @@ function friendCodeFromUid(uid) {
   return uid ? `CBS-${uid}` : '';
 }
 
+function rankBadge(idx) {
+  if (idx === 0) {
+    return `
+      <div style="
+        width:26px;
+        text-align:right;
+        font-size:18px;
+        line-height:1;
+      ">🥇</div>
+    `;
+  }
+
+  if (idx === 1) {
+    return `
+      <div style="
+        width:26px;
+        text-align:right;
+        font-size:18px;
+        line-height:1;
+      ">🥈</div>
+    `;
+  }
+
+  if (idx === 2) {
+    return `
+      <div style="
+        width:26px;
+        text-align:right;
+        font-size:18px;
+        line-height:1;
+      ">🥉</div>
+    `;
+  }
+
+  return `
+    <div style="
+      width:26px;
+      text-align:right;
+      opacity:.7;
+      font-variant-numeric:tabular-nums;
+    ">${idx + 1}</div>
+  `;
+}
+
+function medalUnderAvatar(idx) {
+  if (idx === 0) {
+    return `
+      <div style="
+        margin-top:4px;
+        font-size:14px;
+        line-height:1;
+        filter:drop-shadow(0 0 6px rgba(250,204,21,.35));
+      ">🥇</div>
+    `;
+  }
+
+  if (idx === 1) {
+    return `
+      <div style="
+        margin-top:4px;
+        font-size:14px;
+        line-height:1;
+        filter:drop-shadow(0 0 6px rgba(226,232,240,.28));
+      ">🥈</div>
+    `;
+  }
+
+  if (idx === 2) {
+    return `
+      <div style="
+        margin-top:4px;
+        font-size:14px;
+        line-height:1;
+        filter:drop-shadow(0 0 6px rgba(180,83,9,.28));
+      ">🥉</div>
+    `;
+  }
+
+  return `<div style="margin-top:4px;height:14px;"></div>`;
+}
+
+function avatarWithMedal(dataUrl, idx) {
+  return `
+    <div style="
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      flex-shrink:0;
+      min-width:34px;
+    ">
+      ${avatarCircle(dataUrl, 34)}
+      ${medalUnderAvatar(idx)}
+    </div>
+  `;
+}
+
+function flagEmojiFromCountryCode(code) {
+  const cc = String(code || '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return '';
+
+  const A = 0x1F1E6;
+  const first = cc.charCodeAt(0) - 65 + A;
+  const second = cc.charCodeAt(1) - 65 + A;
+
+  try {
+    return String.fromCodePoint(first) + String.fromCodePoint(second);
+  } catch {
+    return '';
+  }
+}
+
 export function renderLeaderboardPanel() {
   return `
     <section style="
@@ -97,8 +209,13 @@ export function bindLeaderboardPanel() {
   const msgEl = document.querySelector('#lbMsg');
   const refreshBtn = document.querySelector('#lbRefreshBtn');
 
-  const setStatus = (t) => { if (statusEl) statusEl.textContent = t || ''; };
-  const setMsg = (t) => { if (msgEl) msgEl.textContent = t || ''; };
+  const setStatus = (t) => {
+    if (statusEl) statusEl.textContent = t || '';
+  };
+
+  const setMsg = (t) => {
+    if (msgEl) msgEl.textContent = t || '';
+  };
 
   async function loadAndRender() {
     if (!listEl) return;
@@ -106,24 +223,24 @@ export function bindLeaderboardPanel() {
     setStatus('Loading players…');
 
     try {
-      // ✅ Load accepted friends first
       const friendCodes = new Set();
-      try {
-        const ov = await loadFriendsOverview();
-        const accepted = Array.isArray(ov?.accepted) ? ov.accepted : [];
-        accepted.forEach((fr) => {
-          const uid = String(fr?.otherUserId || fr?.other_user_id || fr?.uid || '').trim();
-          if (uid) friendCodes.add(friendCodeFromUid(uid));
-        });
-      } catch (e) {
-        console.warn('CBS GO: loadFriendsOverview failed (ignored)', e);
-      }
 
-      // ✅ from game_profiles (via app/leaderboard.js)
-      const rowsRaw = await loadLeaderboard(250);
-      const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
+      const [ov, rowsRaw] = await Promise.all([
+        loadFriendsOverview().catch((e) => {
+          console.warn('CBS GO: loadFriendsOverview failed (ignored)', e);
+          return { accepted: [] };
+        }),
+        loadLeaderboard(100),
+      ]);
 
-      // Ensure we show also 0 xp players; sort by xp desc
+      const accepted = Array.isArray(ov?.accepted) ? ov.accepted : [];
+      accepted.forEach((fr) => {
+        const uid = String(fr?.otherUserId || fr?.other_user_id || fr?.uid || '').trim();
+        if (uid) friendCodes.add(friendCodeFromUid(uid));
+      });
+
+      const rows = (Array.isArray(rowsRaw) ? rowsRaw : []).filter(isValidLeaderboardEntry);
+
       rows.sort((a, b) => Number(b.xp || 0) - Number(a.xp || 0));
 
       setStatus(rows.length ? '' : 'No players found yet.');
@@ -132,10 +249,30 @@ export function bindLeaderboardPanel() {
         const uid = String(r.user_id || '').trim();
         const friendCode = friendCodeFromUid(uid);
 
-        const name = String((r.nickname || 'Anon')).trim() || 'Anon';
+        const name = String(r.nickname || '').trim();
         const xp = Number(r.xp || 0);
+        const flag = flagEmojiFromCountryCode(r.country_code);
 
         const isFriend = friendCode && friendCodes.has(friendCode);
+
+        const isTop3 = idx < 3;
+        const rowBorder =
+          idx === 0
+            ? 'rgba(250,204,21,.55)'
+            : idx === 1
+              ? 'rgba(203,213,225,.45)'
+              : idx === 2
+                ? 'rgba(180,83,9,.45)'
+                : 'rgba(148,163,184,.45)';
+
+        const rowBackground =
+          idx === 0
+            ? 'linear-gradient(180deg, rgba(71,52,8,.42), rgba(15,23,42,.88))'
+            : idx === 1
+              ? 'linear-gradient(180deg, rgba(51,65,85,.34), rgba(15,23,42,.84))'
+              : idx === 2
+                ? 'linear-gradient(180deg, rgba(120,53,15,.30), rgba(15,23,42,.84))'
+                : 'rgba(15,23,42,.82)';
 
         const rightBtn = isFriend
           ? `
@@ -160,17 +297,18 @@ export function bindLeaderboardPanel() {
           <div style="
             padding:10px 10px;
             border-radius:14px;
-            border:1px solid rgba(148,163,184,.45);
-            background:rgba(15,23,42,.82);
+            border:1px solid ${rowBorder};
+            background:${rowBackground};
             display:flex;align-items:center;justify-content:space-between;
             gap:10px;margin-bottom:8px;
+            box-shadow:${isTop3 ? '0 8px 24px rgba(0,0,0,.18)' : 'none'};
           ">
             <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-              <div style="width:26px;text-align:right;opacity:.7;font-variant-numeric:tabular-nums;">${idx + 1}</div>
-              ${avatarCircle(r.avatar, 34)}
+              ${rankBadge(idx)}
+              ${avatarWithMedal(r.avatar, idx)}
               <div style="min-width:0;">
                 <div style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  ${esc(name)}
+                  ${esc(name)}${flag ? ` <span style="margin-left:6px;">${flag}</span>` : ''}
                 </div>
                 <div style="font-size:11px;opacity:.75;">
                   XP: <b>${esc(xp)}</b>
@@ -185,7 +323,6 @@ export function bindLeaderboardPanel() {
         `;
       }).join('');
 
-      // bind add friend buttons
       document.querySelectorAll('.lbAddFriendBtn').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const value = (btn.getAttribute('data-value') || '').trim();
@@ -198,7 +335,6 @@ export function bindLeaderboardPanel() {
           try {
             await sendFriendRequest(value);
             setMsg('✅ Friend request sent.');
-            // refresh UI so it can flip to "Friend" if accepted quickly
             loadAndRender().catch(() => {});
           } catch (e) {
             console.warn(e);
@@ -208,7 +344,6 @@ export function bindLeaderboardPanel() {
           }
         });
       });
-
     } catch (e) {
       console.warn('CBS GO: leaderboard load failed', e);
       setStatus('⛔ Failed to load leaderboard.');

@@ -2,19 +2,19 @@
 // Laad game_profiles (Supabase) en zet dit terug naar lokale storage,
 // zodat dezelfde email op elk device exact hetzelfde profiel gebruikt.
 //
-// FIX (BELANGRIJK):
-// - XP rollback voorkomen: merge local vs remote -> hoogste wint.
-// - Tickets/CBS/Cards: REMOTE is leidend, zodat gifts (verlaging) blijven bestaan.
-// - Nickname/avatar: remote blijft leidend (consistent voor vrienden).
+// FIX:
+// - XP rollback voorkomen: hoogste van local/remote wint
+// - Tickets/CBS/Cards: Supabase blijft leidend, maar alleen als remote nieuwer is dan local
+// - Nickname/avatar: remote alleen leidend als remote ook echt een waarde heeft
 
 import { loadRemoteProfile } from './remoteProfile.js';
 
 // storage keys (moeten matchen met je bestaande bestanden)
 const STATE_KEY = 'cbsgo_state_v6';
 const INV_KEY = 'cbsgo_inventory_v2';
-const CARDS_KEY = 'cbsgo_cards_v1'; // jouw cardsPanel/bag key
+const CARDS_KEY = 'cbsgo_cards_v1';
 
-// ✅ leaderboard keys (match jouw leaderboard.js)
+// leaderboard/profile keys
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
 
@@ -32,6 +32,32 @@ function loadLocalState() {
   return safeJsonParse(raw, { xp: 0, completed: {}, updatedAt: Date.now() });
 }
 
+function loadLocalInventory() {
+  const raw = localStorage.getItem(INV_KEY);
+  return safeJsonParse(raw, {
+    tickets: 0,
+    cbs: 0,
+    cards: {},
+    updatedAt: 0,
+  });
+}
+
+function loadLocalNickname() {
+  try {
+    return localStorage.getItem(KEY_NAME) || '';
+  } catch {
+    return '';
+  }
+}
+
+function loadLocalAvatar() {
+  try {
+    return localStorage.getItem(KEY_AVATAR) || '';
+  } catch {
+    return '';
+  }
+}
+
 function saveStateXp(xp) {
   const s = loadLocalState();
   s.xp = Number(xp || 0);
@@ -39,20 +65,23 @@ function saveStateXp(xp) {
   localStorage.setItem(STATE_KEY, JSON.stringify(s));
 }
 
-function saveInventory(tickets, cbs, cardsObj) {
+function saveInventory(tickets, cbs, cardsObj, updatedAt = null) {
   const inv = {
     tickets: Number(tickets || 0),
     cbs: Number(cbs || 0),
     cards: cardsObj && typeof cardsObj === 'object' ? { ...cardsObj } : {},
+    updatedAt:
+      Number.isFinite(Number(updatedAt)) && Number(updatedAt) > 0
+        ? Number(updatedAt)
+        : Date.now(),
   };
+
   localStorage.setItem(INV_KEY, JSON.stringify(inv));
 
-  // UI update
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
 }
 
 function saveCardsV1FromCardsObj(cardsObj) {
-  // jouw Bag/MyCards sync gebruikt cbsgo_cards_v1 met { counts: {...} }
   const safe = {
     counts: cardsObj && typeof cardsObj === 'object' ? { ...cardsObj } : {},
   };
@@ -67,8 +96,12 @@ function saveCardsV1FromCardsObj(cardsObj) {
 
 function setLocalNicknameAvatar(nickname, avatar) {
   try {
-    if (nickname != null) localStorage.setItem(KEY_NAME, String(nickname));
-    if (avatar != null) localStorage.setItem(KEY_AVATAR, String(avatar));
+    if (typeof nickname === 'string' && nickname.trim()) {
+      localStorage.setItem(KEY_NAME, String(nickname));
+    }
+    if (typeof avatar === 'string' && avatar.trim()) {
+      localStorage.setItem(KEY_AVATAR, String(avatar));
+    }
   } catch {}
 }
 
@@ -79,55 +112,86 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
   const remoteCbs = Number(remote.cbs_play || 0);
-  const remoteNickname = remote.nickname || null;
-  const remoteAvatar = remote.avatar || null;
+
+  const remoteNicknameRaw =
+    typeof remote.nickname === 'string' && remote.nickname.trim()
+      ? remote.nickname.trim()
+      : '';
+  const remoteNickname =
+    remoteNicknameRaw && remoteNicknameRaw.toLowerCase() !== 'anon'
+      ? remoteNicknameRaw
+      : '';
+
+  const remoteAvatar =
+    typeof remote.avatar === 'string' && remote.avatar.trim()
+      ? remote.avatar.trim()
+      : '';
 
   const remoteCards =
     remote.cards_json && typeof remote.cards_json === 'object'
       ? remote.cards_json
       : {};
 
-  // Alleen uitvoeren als preferRemote=true (zoals jij gebruikt in appShell)
   if (!preferRemote) return { applied: false, reason: 'preferRemote=false' };
 
-  // ✅ XP: max om rollback te voorkomen
+  // XP: hoogste wint, zodat oude remote geen rollback veroorzaakt
   const localState = loadLocalState();
   const localXp = Number(localState.xp || 0);
-  const mergedXp = Number(remoteXp || 0);
+  const mergedXp = Math.max(localXp, remoteXp);
 
-  // ✅ Inventory: REMOTE is leidend (anders komen gifts terug!)
-  const mergedTickets = Number(remoteTickets || 0);
-  const mergedCbs = Number(remoteCbs || 0);
+  // Inventory/cards: Supabase leidend, maar alleen als remote nieuwer is dan local inventory
+  const localInv = loadLocalInventory();
+  const localInvUpdatedAt = Number(localInv.updatedAt || 0);
 
-  const mergedCards =
-    remoteCards && typeof remoteCards === 'object'
-      ? { ...remoteCards }
-      : {};
+  const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
+  const remoteIsNewerForInventory = remoteUpdatedAt > localInvUpdatedAt;
 
-  // schrijf terug naar local
+  const mergedTickets = remoteIsNewerForInventory
+    ? Number(remoteTickets || 0)
+    : Number(localInv.tickets || 0);
+
+  const mergedCbs = remoteIsNewerForInventory
+    ? Number(remoteCbs || 0)
+    : Number(localInv.cbs || 0);
+
+  const mergedCards = remoteIsNewerForInventory
+    ? (remoteCards && typeof remoteCards === 'object' ? { ...remoteCards } : {})
+    : (localInv.cards && typeof localInv.cards === 'object' ? { ...localInv.cards } : {});
+
+  const inventoryStamp = remoteIsNewerForInventory ? remoteUpdatedAt : localInvUpdatedAt;
+
+  // Nickname/avatar: remote alleen toepassen als remote echt gevuld is
+  const localNickname = loadLocalNickname();
+  const localAvatar = loadLocalAvatar();
+
+  const finalNickname = remoteNickname || localNickname || '';
+  const finalAvatar = remoteAvatar || localAvatar || '';
+
   saveStateXp(mergedXp);
-  saveInventory(mergedTickets, mergedCbs, mergedCards);
+  saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
   saveCardsV1FromCardsObj(mergedCards);
+  setLocalNicknameAvatar(finalNickname, finalAvatar);
 
-  // nickname/avatar remote leidend (consistent)
-  setLocalNicknameAvatar(remoteNickname, remoteAvatar);
-
-  // notify UI
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: mergedXp } }));
   window.dispatchEvent(
     new CustomEvent('cbsgo:profileChanged', {
-      detail: { nickname: remoteNickname, avatar: remoteAvatar },
+      detail: { nickname: finalNickname, avatar: finalAvatar },
     }),
   );
 
   return {
     applied: true,
-    source: 'remote-authoritative-inventory',
+    source: remoteIsNewerForInventory ? 'remote-authoritative-inventory' : 'local-newer-inventory',
     merged: {
       xp: mergedXp,
       tickets: mergedTickets,
       cbs: mergedCbs,
       cardsCount: Object.keys(mergedCards || {}).length,
+      nickname: !!finalNickname,
+      avatar: !!finalAvatar,
+      remoteUpdatedAt,
+      localInvUpdatedAt,
+      remoteIsNewerForInventory,
     },
   };
 }

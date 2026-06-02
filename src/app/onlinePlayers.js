@@ -28,10 +28,20 @@ function getBaseProfile() {
   const wallet_pk = safeWalletPk();
   if (!wallet_pk) return null;
 
-  const nickname = String(getPlayerName() || '').trim() || 'Anon';
+  const nickname = String(getPlayerName() || '').trim();
   const avatar = String(getPlayerAvatar() || '') || '';
 
   return { wallet_pk, nickname, avatar };
+}
+
+function resolveNickname(base, extra = {}) {
+  const extraNick = String(extra.nickname || '').trim();
+  if (extraNick && extraNick.toLowerCase() !== 'anon') return extraNick;
+
+  const baseNick = String(base?.nickname || '').trim();
+  if (baseNick && baseNick.toLowerCase() !== 'anon') return baseNick;
+
+  return '';
 }
 
 async function getAuthUserId() {
@@ -51,15 +61,21 @@ export async function syncPlayerProfile(extra = {}) {
       return;
     }
 
+    const nickname = resolveNickname(base, extra);
+    if (!nickname) {
+      console.warn('CBS GO: no nickname yet, skip players profile sync');
+      return;
+    }
+
     const user_id = await getAuthUserId();
 
     // Payload: alleen kolommen die bestaan
     const payload = {
       user_id: user_id || null,
       wallet_pk: base.wallet_pk,
-      nickname: base.nickname,
       avatar: base.avatar,
-      ...extra, // alleen gebruiken als jij zeker weet dat het kolommen zijn die bestaan
+      ...extra,
+      nickname,
     };
 
     // Als user ingelogd is, update op user_id (bestendig)
@@ -126,7 +142,7 @@ export async function claimNickname(nicknameRaw) {
     if (!base?.wallet_pk) return { ok: false, reason: 'no_wallet' };
 
     const nickname = String(nicknameRaw || '').trim();
-    if (!nickname) return { ok: false, reason: 'empty' };
+    if (!nickname || nickname.toLowerCase() === 'anon') return { ok: false, reason: 'empty' };
 
     // zet nickname lokaal (caller doet dat al meestal) + sync naar supabase
     await syncPlayerProfile({ nickname });

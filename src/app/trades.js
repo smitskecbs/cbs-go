@@ -5,7 +5,7 @@
 
 import { supabase } from './supabaseClient.js';
 import { getPublicKey } from './wallet.js';
-import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
+import { getPlayerName, getPlayerAvatar, normalizePlayerNickname } from './leaderboard.js';
 
 import {
   addTickets,
@@ -28,7 +28,9 @@ async function persistBagToRemote() {
   const wallet_pk = getPublicKey();
   if (!wallet_pk) return;
 
-  const nickname = (getPlayerName() || '').trim() || 'Anon';
+  const localNick = normalizePlayerNickname(getPlayerName());
+  const existingNick = normalizePlayerNickname(existing.nickname);
+  const nickname = localNick || existingNick || null;
   const avatar = getPlayerAvatar() || null;
 
   const inv = loadInventory(); // {tickets,cbs,cards}

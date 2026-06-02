@@ -3,7 +3,8 @@
 // Uses XP/level from state.js (single source of truth)
 //
 // ✅ Keep existing local behavior
-// ✅ Add remote leaderboard (Supabase) so you can show ALL players (also 0 xp)
+// ✅ Add remote leaderboard (Supabase) — only named players with saved XP
+// ✅ Country flag source comes from public.player_state.country_code
 
 import { getXp, getLevel } from './state.js';
 import { supabase } from './supabaseClient.js';
@@ -36,8 +37,22 @@ export function getPlayerName() {
   }
 }
 
+export function normalizePlayerNickname(raw) {
+  const n = String(raw ?? '').trim().slice(0, 24);
+  if (!n || n.toLowerCase() === 'anon') return '';
+  return n;
+}
+
+export function isValidLeaderboardEntry(row) {
+  if (!row || !String(row.user_id || '').trim()) return false;
+  if (!normalizePlayerNickname(row.nickname)) return false;
+  const xp = row.xp;
+  if (xp == null || !Number.isFinite(Number(xp))) return false;
+  return true;
+}
+
 export function setPlayerName(name) {
-  const n = String(name || '').trim().slice(0, 24);
+  const n = normalizePlayerNickname(name);
   try {
     if (n) localStorage.setItem(KEY_NAME, n);
     else localStorage.removeItem(KEY_NAME);
@@ -73,16 +88,17 @@ export function getTopScores(limit = 10) {
 }
 
 export function submitMyScore() {
-  const name = getPlayerName();
+  const name = normalizePlayerNickname(getPlayerName());
+  if (!name) return null;
+
   const avatar = getPlayerAvatar();
 
   const xp = getXp();
-  const level = getLevel(); // ✅ getLevel() heeft geen params
+  const level = getLevel();
 
   const list = readJSON(KEY, []);
   const arr = Array.isArray(list) ? list : [];
 
-  // upsert by name (simple local demo)
   const existing = arr.find((x) => x.name === name);
   if (existing) {
     existing.xp = xp;
@@ -93,7 +109,6 @@ export function submitMyScore() {
     arr.push({ name, xp, level, avatar, t: Date.now() });
   }
 
-  // sort highest XP first
   arr.sort((a, b) => Number(b.xp || 0) - Number(a.xp || 0));
 
   writeJSON(KEY, arr);
@@ -102,24 +117,61 @@ export function submitMyScore() {
 }
 
 /**
- * ✅ NEW: Remote leaderboard (ALL players, also 0 xp)
- * Reads from Supabase table: public.game_profiles
- * Expected columns: user_id, nickname, avatar, xp, level
+ * Remote leaderboard — only players with a saved nickname and XP score.
+ * Main source: public.game_profiles
+ * Country flag source: public.player_state.country_code
  */
-export async function loadLeaderboard(limit = 250) {
+export async function loadLeaderboard(limit = 100) {
   try {
-    const { data, error } = await supabase
+    const { data: profiles, error: profilesError } = await supabase
       .from('game_profiles')
       .select('user_id, nickname, avatar, xp, level, updated_at')
       .order('xp', { ascending: false })
       .limit(limit);
 
-    if (error) {
-      console.warn('CBS GO: loadLeaderboard failed', error);
+    if (profilesError) {
+      console.warn('CBS GO: loadLeaderboard failed', profilesError);
       return [];
     }
 
-    return Array.isArray(data) ? data : [];
+    const rows = Array.isArray(profiles) ? profiles : [];
+    if (!rows.length) return [];
+
+    const userIds = rows
+      .map((r) => String(r?.user_id || '').trim())
+      .filter(Boolean);
+
+    let countryByUserId = new Map();
+
+    if (userIds.length > 0) {
+      const { data: stateRows, error: stateError } = await supabase
+        .from('player_state')
+        .select('user_id, country_code, last_seen')
+        .in('user_id', userIds);
+
+      if (stateError) {
+        console.warn('CBS GO: player_state country lookup failed', stateError);
+      } else if (Array.isArray(stateRows)) {
+        for (const row of stateRows) {
+          const uid = String(row?.user_id || '').trim();
+          if (!uid) continue;
+
+          const code = String(row?.country_code || '').trim().toUpperCase();
+          countryByUserId.set(uid, code || '');
+        }
+      }
+    }
+
+    return rows
+      .map((r) => {
+        const uid = String(r?.user_id || '').trim();
+        return {
+          ...r,
+          nickname: normalizePlayerNickname(r?.nickname),
+          country_code: uid ? (countryByUserId.get(uid) || '') : '',
+        };
+      })
+      .filter(isValidLeaderboardEntry);
   } catch (e) {
     console.warn('CBS GO: loadLeaderboard exception', e);
     return [];
