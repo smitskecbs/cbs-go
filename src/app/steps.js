@@ -7,6 +7,7 @@
 
 import { addXp } from './state.js';
 import { addTickets, addCbsCoins } from './inventory.js';
+import { requireGameplayAllowed } from './playerNickname.js';
 
 const KEY = 'cbsgo_steps_v6';
 // 🔙 Probeer oude data te migreren als die nog bestaat
@@ -348,6 +349,7 @@ function maybeRewardStreak(s, lastDayKey) {
   if (!allFilled) return;
 
   if (s.lastStreakRewardDate === lastDayKey) return;
+  if (!requireGameplayAllowed()) return;
 
   addCbsCoins(STREAK_REWARD_CBS);
   notifyInventoryChanged();
@@ -590,6 +592,7 @@ function applyBoostTickets(s) {
 
   const tickets = Math.floor(delta / BOOST_STEP_CHUNK);
   if (tickets <= 0) return;
+  if (!requireGameplayAllowed()) return;
 
   addTickets(tickets);
   notifyInventoryChanged();
@@ -617,6 +620,8 @@ function applyChestProgress(s) {
     loops += 1;
 
     if (Math.random() < CHEST_BASE_CHANCE) {
+      if (!requireGameplayAllowed()) break;
+
       const isRare = Math.random() < CHEST_RARE_CHANCE;
 
       const xp = isRare ? 10 : 3;
@@ -670,6 +675,8 @@ function metersBetween(a, b) {
 
 // distance rewards (lifetime)
 function applyRewards(s) {
+  if (!requireGameplayAllowed()) return;
+
   const totalMeters = Number(
     (s.totalMeters != null ? s.totalMeters : s.meters) || 0,
   );
@@ -942,6 +949,8 @@ if (!window.__cbsgo_loot_reward_listener_v1) {
   window.__cbsgo_loot_reward_listener_v1 = true;
 
   window.addEventListener('cbsgo:lootReward', (ev) => {
+    if (!requireGameplayAllowed()) return;
+
     const d = ev?.detail || {};
     const xp = Number(d.xp || 0);
     const tickets = Number(d.tickets || 0);

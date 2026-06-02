@@ -16,7 +16,7 @@
 //   TABLE player_state (user_id uuid UNIQUE, wallet_pk text, nickname text, ...)
 
 import { supabase } from './supabaseClient.js';
-import { normalizePlayerNickname } from './playerNickname.js';
+import { NICKNAME_REQUIRED_MESSAGE, normalizePlayerNickname, requireGameplayAllowed } from './playerNickname.js';
 
 const FRIENDS_TABLE = 'friends_uid';
 const PLAYERS_TABLE = 'players';
@@ -274,6 +274,10 @@ async function enrichFriends(list) {
 // ------------------------------------------------------------
 
 export async function sendFriendRequest(otherInput) {
+  if (!requireGameplayAllowed()) {
+    throw new Error(NICKNAME_REQUIRED_MESSAGE);
+  }
+
   const meUid = await requireAuthUserId();
   const otherUid = await resolveTargetUserId(otherInput);
 
@@ -318,6 +322,10 @@ export async function sendFriendRequest(otherInput) {
 }
 
 export async function acceptFriendRequest(friendId) {
+  if (!requireGameplayAllowed()) {
+    throw new Error(NICKNAME_REQUIRED_MESSAGE);
+  }
+
   const meUid = await requireAuthUserId();
   const id = String(friendId || '').trim();
   if (!id) throw new Error('Invalid friend request id.');

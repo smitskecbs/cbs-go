@@ -6,6 +6,7 @@
 import { supabase } from './supabaseClient.js';
 import { getPublicKey } from './wallet.js';
 import { getPlayerName, getPlayerAvatar, normalizePlayerNickname } from './leaderboard.js';
+import { NICKNAME_REQUIRED_MESSAGE, requireGameplayAllowed } from './playerNickname.js';
 
 import {
   addTickets,
@@ -87,6 +88,10 @@ function schedulePersistBagToRemote() {
  * - Kaarten worden NIET hier aangepast (dat doet de Cards + Bag logica al goed).
  */
 export async function sendGiftToWallet(toWallet, payload) {
+  if (!requireGameplayAllowed()) {
+    throw new Error(NICKNAME_REQUIRED_MESSAGE);
+  }
+
   const fromWallet = getPublicKey();
   if (!fromWallet) {
     throw new Error('No local CBS-GO wallet available.');
@@ -181,6 +186,7 @@ export async function pullIncomingGifts() {
   const myWallet = getPublicKey();
   if (!myWallet) return;
   if (isPulling) return;
+  if (!requireGameplayAllowed()) return;
 
   isPulling = true;
   try {

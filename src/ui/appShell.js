@@ -29,9 +29,10 @@ import {
   getPlayerAvatar,
   setPlayerAvatar,
   clearPlayerAvatar,
-  hasValidPlayerNickname,
+  isGameplayAllowed,
   normalizePlayerNickname,
   NICKNAME_REQUIRED_MESSAGE,
+  sanitizeStoredNickname,
 } from '../app/leaderboard.js'; // alleen voor lokale profile-storage
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -402,7 +403,7 @@ function showNicknameRequiredMessage() {
 }
 
 function ensureNicknameOrProfile() {
-  if (hasValidPlayerNickname()) return true;
+  if (isGameplayAllowed()) return true;
   setSelectedTab('profile');
   updatePanel();
   showNicknameRequiredMessage();
@@ -463,7 +464,7 @@ function panelWrap(title, innerHtml) {
 function renderProfile() {
   const me = getPlayerName();
   const myAvatar = String(getPlayerAvatar() || '').trim();
-  const needsNickname = !hasValidPlayerNickname();
+  const needsNickname = !isGameplayAllowed();
 
   return `
     <section style="
@@ -679,7 +680,7 @@ function bindProfileEvents() {
   };
 
   if (nameInput) {
-    if (hasValidPlayerNickname(nameInput.value)) {
+    if (isGameplayAllowed(nameInput.value)) {
       setMsg(`✅ Profile loaded: ${normalizePlayerNickname(nameInput.value)}`);
     } else {
       setMsg(NICKNAME_REQUIRED_MESSAGE);
@@ -1060,6 +1061,11 @@ function bindProfileEvents() {
 
   if (friendSendBtn && friendInput) {
     friendSendBtn.addEventListener('click', async () => {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const value = friendInput.value.trim();
       if (!value) {
         setFriendsMsg('Enter a Friend Code or wallet first.');
@@ -1535,6 +1541,11 @@ function bindBagEvents() {
 
   if (claimMysteryBoxBtn) {
     claimMysteryBoxBtn.onclick = () => {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const ticketsNow = getTickets();
       if (ticketsNow < 1000) return;
 
@@ -1566,6 +1577,11 @@ function bindBagEvents() {
 
   if (claimCbsRewardBtn) {
     claimCbsRewardBtn.onclick = () => {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const cbsNow = getCbsCoins();
       if (cbsNow < 1000) return;
 
@@ -1608,6 +1624,11 @@ function bindBagEvents() {
 
   if (giftSendBtn && (giftWalletInput || giftFriendSelect)) {
     giftSendBtn.addEventListener('click', async () => {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       let toWallet = giftWalletInput && giftWalletInput.value ? giftWalletInput.value.trim() : '';
 
       if ((!toWallet || !toWallet.length) && giftFriendSelect) {
@@ -1701,13 +1722,18 @@ function bindBagEvents() {
     });
   }
 
-  pullIncomingGifts().catch(() => {});
+  if (isGameplayAllowed()) pullIncomingGifts().catch(() => {});
   // ✅ Treasure open request -> write claim to Supabase
   if (!window.__cbsgo_treasure_claim_listener) {
     window.__cbsgo_treasure_claim_listener = true;
 
     window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
       try {
+        if (!isGameplayAllowed()) {
+          ensureNicknameOrProfile();
+          return;
+        }
+
         const treasureId = String(ev?.detail?.treasure_id || '').trim();
 const lat = Number(ev?.detail?.center?.lat);
 const lng = Number(ev?.detail?.center?.lng);
@@ -2672,7 +2698,7 @@ function updatePanel() {
   const close = document.querySelector('#cbsgoClosePanel');
   if (close) {
     close.addEventListener('click', () => {
-      if (!hasValidPlayerNickname()) {
+      if (!isGameplayAllowed()) {
         showNicknameRequiredMessage();
         return;
       }
@@ -2689,13 +2715,13 @@ function bindUi() {
       const panel = b.getAttribute('data-panel');
       const current = getSelectedTab();
 
-      if (panel !== 'profile' && !hasValidPlayerNickname()) {
+      if (panel !== 'profile' && !isGameplayAllowed()) {
         ensureNicknameOrProfile();
         return;
       }
 
       if (current === panel) {
-        if (!hasValidPlayerNickname()) {
+        if (!isGameplayAllowed()) {
           ensureNicknameOrProfile();
           return;
         }
@@ -2714,7 +2740,7 @@ function bindUi() {
     xp.style.cursor = 'pointer';
     xp.title = 'Open leaderboard (XP)';
     xp.addEventListener('click', () => {
-      if (!hasValidPlayerNickname()) {
+      if (!isGameplayAllowed()) {
         ensureNicknameOrProfile();
         return;
       }
@@ -2893,6 +2919,8 @@ function showTradePopup(detail) {
 
 // ---------- Interne helper: hele app bootstrappen ----------
 function bootstrapApp() {
+  sanitizeStoredNickname();
+
   const app = document.querySelector('#app');
   if (!app) return;
 
@@ -2958,6 +2986,13 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
   bindMapView();
   bindTreasureClaimListener();
 
+  if (!window.__cbsgo_nickname_required_listener) {
+    window.__cbsgo_nickname_required_listener = true;
+    window.addEventListener('cbsgo:nicknameRequired', () => {
+      ensureNicknameOrProfile();
+    });
+  }
+
   tryAutoStart();
 
   if (!window.__cbsgo_xp_rerender_listener) {
@@ -3001,7 +3036,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
     window.__cbsgo_openNode_listener = true;
 
     window.addEventListener('cbsgo:openNode', (ev) => {
-      if (!hasValidPlayerNickname()) {
+      if (!isGameplayAllowed()) {
         ensureNicknameOrProfile();
         return;
       }
@@ -3026,6 +3061,11 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
   if (!window.__cbsgo_complete_listener_v1) {
     window.__cbsgo_complete_listener_v1 = true;
     window.addEventListener('cbsgo:completeNode', (ev) => {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const id = ev?.detail?.id;
       if (!id) return;
       import('../app/state.js').then(({ completeNode }) => {
@@ -3035,7 +3075,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
     });
   }
 
-  pullIncomingGifts().catch(() => {});
+  if (isGameplayAllowed()) pullIncomingGifts().catch(() => {});
 }
 
 // ---------- Mount + login/PIN flow ----------
@@ -3303,6 +3343,11 @@ function bindTreasureClaimListener() {
 
   window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
     try {
+      if (!isGameplayAllowed()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const detail = ev?.detail || {};
       const treasure_id = String(detail.treasure_id || '').trim();
       const claimant_wallet = String(detail.claimant_wallet || '').trim();

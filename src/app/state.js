@@ -4,6 +4,8 @@
 // - completed nodes
 // Exports used across UI: getXp/getLevel/getXpIntoLevel/addXp/isNodeCompleted/completeNode
 
+import { requireGameplayAllowed } from './playerNickname.js';
+
 const KEY = 'cbsgo_state_v6';
 
 function safeParse(raw, fallback) {
@@ -81,6 +83,7 @@ export function getXpNeededThisLevel() {
 export function addXp(amount) {
   const a = Number(amount || 0);
   if (!Number.isFinite(a) || a <= 0) return load();
+  if (!requireGameplayAllowed()) return load();
 
   const beforeLevel = getLevel();
 
@@ -163,6 +166,7 @@ export function isNodeCompleted(nodeId) {
 export function completeNode(nodeId) {
   const id = String(nodeId || '');
   if (!id) return;
+  if (!requireGameplayAllowed()) return;
 
   const s = load();
   if (!s.completed) s.completed = {};

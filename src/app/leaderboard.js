@@ -10,11 +10,22 @@ import { getXp, getLevel } from './state.js';
 import { supabase } from './supabaseClient.js';
 import {
   hasValidPlayerNickname,
+  isGameplayAllowed,
   normalizePlayerNickname,
   NICKNAME_REQUIRED_MESSAGE,
+  requireGameplayAllowed,
+  sanitizeStoredNickname,
+  LEADERBOARD_NICKNAME_BLOCKLIST_IN,
 } from './playerNickname.js';
 
-export { hasValidPlayerNickname, normalizePlayerNickname, NICKNAME_REQUIRED_MESSAGE };
+export {
+  hasValidPlayerNickname,
+  isGameplayAllowed,
+  normalizePlayerNickname,
+  NICKNAME_REQUIRED_MESSAGE,
+  requireGameplayAllowed,
+  sanitizeStoredNickname,
+};
 
 const KEY = 'cbsgo_leaderboard_v2';
 const KEY_NAME = 'cbsgo_player_name_v2';
@@ -89,6 +100,8 @@ export function getTopScores(limit = 10) {
 }
 
 export function submitMyScore() {
+  if (!isGameplayAllowed()) return null;
+
   const name = normalizePlayerNickname(getPlayerName());
   if (!name) return null;
 
@@ -124,11 +137,20 @@ export function submitMyScore() {
  */
 export async function loadLeaderboard(limit = 100) {
   try {
+    const fetchLimit = Math.max(limit * 4, 200);
+
     const { data: profiles, error: profilesError } = await supabase
       .from('game_profiles')
       .select('user_id, nickname, avatar, xp, level, updated_at')
+      .not('nickname', 'is', null)
+      .neq('nickname', '')
+      .not('nickname', 'in', LEADERBOARD_NICKNAME_BLOCKLIST_IN)
+      .not('nickname', 'ilike', 'anon%')
+      .not('nickname', 'ilike', 'anonymous%')
+      .not('nickname', 'ilike', 'guest%')
+      .not('nickname', 'ilike', 'player%')
       .order('xp', { ascending: false })
-      .limit(limit);
+      .limit(fetchLimit);
 
     if (profilesError) {
       console.warn('CBS GO: loadLeaderboard failed', profilesError);
@@ -172,7 +194,8 @@ export async function loadLeaderboard(limit = 100) {
           country_code: uid ? (countryByUserId.get(uid) || '') : '',
         };
       })
-      .filter(isValidLeaderboardEntry);
+      .filter(isValidLeaderboardEntry)
+      .slice(0, limit);
   } catch (e) {
     console.warn('CBS GO: loadLeaderboard exception', e);
     return [];

@@ -1,6 +1,6 @@
 // src/ui/leaderboardPanel.js
 import { sendFriendRequest, loadFriendsOverview } from '../app/friends.js';
-import { isValidLeaderboardEntry, loadLeaderboard } from '../app/leaderboard.js';
+import { isValidLeaderboardEntry, isGameplayAllowed, loadLeaderboard, NICKNAME_REQUIRED_MESSAGE } from '../app/leaderboard.js';
 
 function esc(s) {
   return String(s || '')
@@ -221,6 +221,13 @@ export function bindLeaderboardPanel() {
     if (!listEl) return;
     setMsg('');
     setStatus('Loading players…');
+
+    if (!isGameplayAllowed()) {
+      setStatus('');
+      setMsg(NICKNAME_REQUIRED_MESSAGE);
+      listEl.innerHTML = '';
+      return;
+    }
 
     try {
       const friendCodes = new Set();

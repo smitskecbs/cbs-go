@@ -8,7 +8,7 @@
 // - Nickname/avatar: remote alleen leidend als remote ook echt een waarde heeft
 
 import { loadRemoteProfile } from './remoteProfile.js';
-import { normalizePlayerNickname } from './playerNickname.js';
+import { normalizePlayerNickname, sanitizeStoredNickname } from './playerNickname.js';
 
 // storage keys (moeten matchen met je bestaande bestanden)
 const STATE_KEY = 'cbsgo_state_v6';
@@ -168,6 +168,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
   saveCardsV1FromCardsObj(mergedCards);
   setLocalNicknameAvatar(finalNickname, finalAvatar);
+  sanitizeStoredNickname();
 
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: mergedXp } }));
   window.dispatchEvent(
