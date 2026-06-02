@@ -32,6 +32,23 @@ function normalizeNickname(raw) {
   return n || null;
 }
 
+function normalizeEmail(raw) {
+  const e = String(raw ?? '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return null;
+  return e;
+}
+
+function resolveEmailForSave(existing, localProfile) {
+  const existingEmail = normalizeEmail(existing.email);
+  if (!hasOwn(localProfile, 'email')) return existingEmail;
+
+  const next = normalizeEmail(localProfile.email);
+  if (next) return next;
+
+  if (existingEmail) return existingEmail;
+  return null;
+}
+
 function resolveNicknameForSave(existing, localProfile) {
   const existingNick = normalizeNickname(existing.nickname);
   if (!hasOwn(localProfile, 'nickname')) return existingNick;
@@ -45,6 +62,7 @@ function resolveNicknameForSave(existing, localProfile) {
 
 function profileHasMeaningfulData(profile) {
   if (!profile || typeof profile !== 'object') return false;
+  if (normalizeEmail(profile.email)) return true;
   if (normalizeNickname(profile.nickname)) return true;
   if (profile.wallet_pk) return true;
   if (profile.xp != null && Number.isFinite(Number(profile.xp))) return true;
@@ -95,7 +113,7 @@ export async function loadRemoteProfile() {
  * Sla lokaal game-profiel op in Supabase.
  * localProfile voorbeeld:
  * {
- *   wallet_pk, nickname, avatar,
+ *   wallet_pk, email, nickname, avatar,
  *   xp, level, tickets, cbs_play,
  *   cards_json, friends_json
  * }
@@ -135,6 +153,7 @@ export async function saveRemoteProfile(localProfile = {}) {
     wallet_pk: hasOwn(localProfile, 'wallet_pk')
       ? localProfile.wallet_pk || null
       : existing.wallet_pk ?? null,
+    email: resolveEmailForSave(existing, localProfile),
     nickname: resolveNicknameForSave(existing, localProfile),
     avatar: hasOwn(localProfile, 'avatar')
       ? localProfile.avatar || null

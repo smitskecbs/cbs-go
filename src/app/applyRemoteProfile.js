@@ -8,7 +8,12 @@
 // - Nickname/avatar: remote alleen leidend als remote ook echt een waarde heeft
 
 import { loadRemoteProfile } from './remoteProfile.js';
-import { normalizePlayerNickname, sanitizeStoredNickname } from './playerNickname.js';
+import {
+  normalizePlayerEmail,
+  normalizePlayerNickname,
+  sanitizeStoredEmail,
+  sanitizeStoredNickname,
+} from './playerNickname.js';
 
 // storage keys (moeten matchen met je bestaande bestanden)
 const STATE_KEY = 'cbsgo_state_v6';
@@ -18,6 +23,7 @@ const CARDS_KEY = 'cbsgo_cards_v1';
 // leaderboard/profile keys
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
+const KEY_EMAIL = 'cbsgo_player_email_v1';
 
 function safeJsonParse(raw, fallback) {
   try {
@@ -95,10 +101,20 @@ function saveCardsV1FromCardsObj(cardsObj) {
   );
 }
 
-function setLocalNicknameAvatar(nickname, avatar) {
+function loadLocalEmail() {
+  try {
+    return localStorage.getItem(KEY_EMAIL) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setLocalNicknameAvatarEmail(nickname, avatar, email) {
   try {
     const validNick = normalizePlayerNickname(nickname);
     if (validNick) localStorage.setItem(KEY_NAME, validNick);
+    const validEmail = normalizePlayerEmail(email);
+    if (validEmail) localStorage.setItem(KEY_EMAIL, validEmail);
     if (typeof avatar === 'string' && avatar.trim()) {
       localStorage.setItem(KEY_AVATAR, String(avatar));
     }
@@ -112,6 +128,8 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
   const remoteCbs = Number(remote.cbs_play || 0);
+
+  const remoteEmail = normalizePlayerEmail(remote?.email);
 
   const remoteNicknameRaw =
     typeof remote.nickname === 'string' && remote.nickname.trim()
@@ -160,20 +178,23 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
   // Nickname/avatar: remote alleen toepassen als remote echt gevuld is
   const localNickname = loadLocalNickname();
   const localAvatar = loadLocalAvatar();
+  const localEmail = loadLocalEmail();
 
   const finalNickname = remoteNickname || localNickname || '';
   const finalAvatar = remoteAvatar || localAvatar || '';
+  const finalEmail = remoteEmail || normalizePlayerEmail(localEmail) || '';
 
   saveStateXp(mergedXp);
   saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
   saveCardsV1FromCardsObj(mergedCards);
-  setLocalNicknameAvatar(finalNickname, finalAvatar);
+  setLocalNicknameAvatarEmail(finalNickname, finalAvatar, finalEmail);
   sanitizeStoredNickname();
+  sanitizeStoredEmail();
 
   window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: mergedXp } }));
   window.dispatchEvent(
     new CustomEvent('cbsgo:profileChanged', {
-      detail: { nickname: finalNickname, avatar: finalAvatar },
+      detail: { nickname: finalNickname, avatar: finalAvatar, email: finalEmail },
     }),
   );
 
@@ -187,6 +208,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
       cardsCount: Object.keys(mergedCards || {}).length,
       nickname: !!finalNickname,
       avatar: !!finalAvatar,
+      email: !!finalEmail,
       remoteUpdatedAt,
       localInvUpdatedAt,
       remoteIsNewerForInventory,

@@ -31,9 +31,16 @@ import {
   clearPlayerAvatar,
   isGameplayAllowed,
   normalizePlayerNickname,
-  NICKNAME_REQUIRED_MESSAGE,
+  PROFILE_SETUP_MESSAGE,
   sanitizeStoredNickname,
-} from '../app/leaderboard.js'; // alleen voor lokale profile-storage
+} from '../app/leaderboard.js';
+import {
+  getPlayerEmail,
+  setPlayerEmail,
+  isValidEmail,
+  normalizePlayerEmail,
+  sanitizeStoredEmail,
+} from '../app/playerNickname.js';
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
 import * as mapView from './mapView.maplibre.js';
@@ -397,16 +404,16 @@ function setSelectedTab(tab) {
   } catch {}
 }
 
-function showNicknameRequiredMessage() {
+function showProfileSetupMessage() {
   const msg = document.querySelector('#profileMsg');
-  if (msg) msg.textContent = NICKNAME_REQUIRED_MESSAGE;
+  if (msg) msg.textContent = PROFILE_SETUP_MESSAGE;
 }
 
-function ensureNicknameOrProfile() {
+function ensureProfileSetup() {
   if (isGameplayAllowed()) return true;
   setSelectedTab('profile');
   updatePanel();
-  showNicknameRequiredMessage();
+  showProfileSetupMessage();
   return false;
 }
 
@@ -463,8 +470,9 @@ function panelWrap(title, innerHtml) {
 // ---------- Profile (zonder wallet blok) + Friends ----------
 function renderProfile() {
   const me = getPlayerName();
+  const myEmail = getPlayerEmail();
   const myAvatar = String(getPlayerAvatar() || '').trim();
-  const needsNickname = !isGameplayAllowed();
+  const needsProfileSetup = !isGameplayAllowed();
 
   return `
     <section style="
@@ -473,12 +481,12 @@ function renderProfile() {
       border:1px solid rgba(255,255,255,.12);
       background:rgba(8,10,16,.30);
     ">
-      <h3 style="margin:0 0 8px 0; font-size:16px;">Profile</h3>
+      <h3 style="margin:0 0 8px 0; font-size:16px;">Profile Setup</h3>
       <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
-        Your nickname and avatar are stored locally and synced to CBS-GO so friends can find you later.
+        Complete your profile before entering the game. Email and nickname are required; photo is optional.
       </p>
       ${
-        needsNickname
+        needsProfileSetup
           ? `
       <div style="
         margin:0 0 12px 0;
@@ -489,7 +497,7 @@ function renderProfile() {
         color:#fde68a;
         font-size:12px;
         font-weight:700;
-      ">${esc(NICKNAME_REQUIRED_MESSAGE)}</div>`
+      ">${esc(PROFILE_SETUP_MESSAGE)}</div>`
           : ''
       }
 
@@ -502,7 +510,25 @@ function renderProfile() {
         ${avatarCircle(myAvatar, 64)}
 
         <div style="flex:1; min-width:220px;">
-          <label for="profileName" style="font-size:12px; opacity:.8;">Nickname</label>
+          <label for="profileEmail" style="font-size:12px; opacity:.8;">Email <span style="opacity:.6;">(required)</span></label>
+          <input
+            id="profileEmail"
+            type="email"
+            value="${esc(myEmail)}"
+            autocomplete="email"
+            style="
+              width:100%;
+              margin-top:4px;
+              padding:10px 10px;
+              border-radius:12px;
+              border:1px solid rgba(255,255,255,.14);
+              background:rgba(255,255,255,.06);
+              color:#fff;
+            "
+            placeholder="you@email.com"
+          />
+
+          <label for="profileName" style="display:block;margin-top:12px;font-size:12px; opacity:.8;">Nickname <span style="opacity:.6;">(required)</span></label>
           <input
             id="profileName"
             value="${esc(me)}"
@@ -520,7 +546,7 @@ function renderProfile() {
           />
 
           <div style="margin-top:12px;">
-            <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Photo</div>
+            <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Photo <span style="opacity:.6;">(optional)</span></div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <input id="profileAvatar" type="file" accept="image/*" />
               <button
@@ -668,41 +694,109 @@ function renderProfile() {
 }
 
 function bindProfileEvents() {
+  const emailInput = document.querySelector('#profileEmail');
   const nameInput = document.querySelector('#profileName');
   const fileInput = document.querySelector('#profileAvatar');
   const shareLocBtn = document.querySelector('#profileShareLocBtn');
 
   let saveTimer = null;
+  let emailSaveTimer = null;
 
   const setMsg = (t) => {
     const msg = document.querySelector('#profileMsg');
     if (msg) msg.textContent = t || '';
   };
 
-  if (nameInput) {
-    if (isGameplayAllowed(nameInput.value)) {
-      setMsg(`✅ Profile loaded: ${normalizePlayerNickname(nameInput.value)}`);
+  const refreshProfileStatus = () => {
+    const emailOk = isValidEmail(emailInput?.value || getPlayerEmail());
+    const nickOk = isGameplayAllowed(undefined, nameInput?.value);
+    if (emailOk && nickOk) {
+      setMsg('✅ Profile complete. You can play now.');
+    } else if (!emailOk && !normalizePlayerNickname(nameInput?.value || '')) {
+      setMsg(PROFILE_SETUP_MESSAGE);
+    } else if (!emailOk) {
+      setMsg('⛔ Enter a valid email address.');
     } else {
-      setMsg(NICKNAME_REQUIRED_MESSAGE);
+      setMsg(PROFILE_SETUP_MESSAGE);
     }
-  }
+  };
+
+  (async () => {
+    try {
+      if (emailInput && !getPlayerEmail()) {
+        const { data } = await supabase.auth.getUser();
+        const authEmail = String(data?.user?.email || '').trim();
+        if (authEmail && isValidEmail(authEmail)) {
+          emailInput.value = authEmail;
+          setPlayerEmail(authEmail);
+        }
+      }
+    } catch {}
+    refreshProfileStatus();
+  })();
+
+  const saveEmailNow = () => {
+    if (!emailInput) return false;
+    const e = setPlayerEmail(emailInput.value);
+    if (!e) {
+      setMsg('⛔ Enter a valid email address.');
+      return false;
+    }
+    try {
+      syncRemoteProfileSafe('email-change', true);
+    } catch (err) {
+      console.warn('CBS GO: failed to sync email', err);
+    }
+    return true;
+  };
 
   // --- Name save ---
   const saveNameNow = () => {
-    if (!nameInput) return;
+    if (!nameInput) return false;
     const n = setPlayerName(nameInput.value);
     if (!n) {
-      setMsg(NICKNAME_REQUIRED_MESSAGE);
-      return;
+      setMsg(PROFILE_SETUP_MESSAGE);
+      return false;
     }
-    setMsg(`✅ Name saved: ${n}`);
     try {
       syncPlayerProfile();
-      syncRemoteProfileSafe('name-change');
+      syncRemoteProfileSafe('name-change', true);
     } catch (e) {
       console.warn('CBS GO: failed to sync profile after name change', e);
     }
+    return true;
   };
+
+  const saveProfileFields = () => {
+    const emailOk = saveEmailNow();
+    const nickOk = saveNameNow();
+    if (emailOk && nickOk) {
+      setMsg('✅ Profile saved. Welcome to CBS-GO!');
+    } else {
+      refreshProfileStatus();
+    }
+  };
+
+  if (emailInput) {
+    emailInput.addEventListener('input', () => {
+      setMsg('Saving…');
+      try {
+        if (emailSaveTimer) clearTimeout(emailSaveTimer);
+      } catch {}
+      emailSaveTimer = setTimeout(() => {
+        saveEmailNow();
+        refreshProfileStatus();
+      }, 300);
+    });
+
+    emailInput.addEventListener('blur', () => {
+      try {
+        if (emailSaveTimer) clearTimeout(emailSaveTimer);
+      } catch {}
+      saveEmailNow();
+      refreshProfileStatus();
+    });
+  }
 
   if (nameInput) {
     nameInput.addEventListener('input', () => {
@@ -710,14 +804,14 @@ function bindProfileEvents() {
       try {
         if (saveTimer) clearTimeout(saveTimer);
       } catch {}
-      saveTimer = setTimeout(saveNameNow, 300);
+      saveTimer = setTimeout(saveProfileFields, 300);
     });
 
     nameInput.addEventListener('blur', () => {
       try {
         if (saveTimer) clearTimeout(saveTimer);
       } catch {}
-      saveNameNow();
+      saveProfileFields();
     });
   }
 
@@ -1062,7 +1156,7 @@ function bindProfileEvents() {
   if (friendSendBtn && friendInput) {
     friendSendBtn.addEventListener('click', async () => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -1542,7 +1636,7 @@ function bindBagEvents() {
   if (claimMysteryBoxBtn) {
     claimMysteryBoxBtn.onclick = () => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -1578,7 +1672,7 @@ function bindBagEvents() {
   if (claimCbsRewardBtn) {
     claimCbsRewardBtn.onclick = () => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -1625,7 +1719,7 @@ function bindBagEvents() {
   if (giftSendBtn && (giftWalletInput || giftFriendSelect)) {
     giftSendBtn.addEventListener('click', async () => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -1730,7 +1824,7 @@ function bindBagEvents() {
     window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
       try {
         if (!isGameplayAllowed()) {
-          ensureNicknameOrProfile();
+          ensureProfileSetup();
           return;
         }
 
@@ -2461,6 +2555,17 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
     const localNick = normalizePlayerNickname(getPlayerName());
     const remoteNick = normalizePlayerNickname(remote?.nickname);
     const nickname = localNick || remoteNick || null;
+    const localEmail = normalizePlayerEmail(getPlayerEmail());
+    const remoteEmail =
+      remote?.email && isValidEmail(remote.email)
+        ? normalizePlayerEmail(remote.email)
+        : '';
+    let authEmail = '';
+    try {
+      const { data } = await supabase.auth.getUser();
+      authEmail = normalizePlayerEmail(data?.user?.email || '');
+    } catch {}
+    const email = localEmail || remoteEmail || authEmail || null;
     const avatar = getPlayerAvatar() || null;
 
     const xp = getXp();
@@ -2476,7 +2581,7 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
       }
     } catch {}
 
-    const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
+    const payload = { wallet_pk, email, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
 
     await saveRemoteProfile(payload);
 
@@ -2699,7 +2804,7 @@ function updatePanel() {
   if (close) {
     close.addEventListener('click', () => {
       if (!isGameplayAllowed()) {
-        showNicknameRequiredMessage();
+        showProfileSetupMessage();
         return;
       }
       setSelectedTab('map');
@@ -2716,13 +2821,13 @@ function bindUi() {
       const current = getSelectedTab();
 
       if (panel !== 'profile' && !isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
       if (current === panel) {
         if (!isGameplayAllowed()) {
-          ensureNicknameOrProfile();
+          ensureProfileSetup();
           return;
         }
         setSelectedTab('map');
@@ -2741,7 +2846,7 @@ function bindUi() {
     xp.title = 'Open leaderboard (XP)';
     xp.addEventListener('click', () => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -2920,6 +3025,7 @@ function showTradePopup(detail) {
 // ---------- Interne helper: hele app bootstrappen ----------
 function bootstrapApp() {
   sanitizeStoredNickname();
+  sanitizeStoredEmail();
 
   const app = document.querySelector('#app');
   if (!app) return;
@@ -2989,7 +3095,10 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
   if (!window.__cbsgo_nickname_required_listener) {
     window.__cbsgo_nickname_required_listener = true;
     window.addEventListener('cbsgo:nicknameRequired', () => {
-      ensureNicknameOrProfile();
+      ensureProfileSetup();
+    });
+    window.addEventListener('cbsgo:profileSetupRequired', () => {
+      ensureProfileSetup();
     });
   }
 
@@ -3025,7 +3134,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
   }
 
   updatePanel();
-  ensureNicknameOrProfile();
+  ensureProfileSetup();
 
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
@@ -3037,7 +3146,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
 
     window.addEventListener('cbsgo:openNode', (ev) => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -3062,7 +3171,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
     window.__cbsgo_complete_listener_v1 = true;
     window.addEventListener('cbsgo:completeNode', (ev) => {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 
@@ -3189,6 +3298,10 @@ export function mountApp() {
     window.removeEventListener('cbsgo:loginDone', onLoginDone);
 
     const pin = ev?.detail?.pin || '';
+    const loginEmail = String(ev?.detail?.email || '').trim();
+    if (loginEmail && isValidEmail(loginEmail)) {
+      setPlayerEmail(loginEmail);
+    }
 
     // ✅ show loader immediately after PIN submit
     showLoading('Unlocking wallet & syncing profile…');
@@ -3247,6 +3360,14 @@ export function mountApp() {
     try {
       setLoadingText('Binding your account…');
       await ensureSupabaseUserBound();
+    } catch {}
+
+    try {
+      const { data } = await supabase.auth.getUser();
+      const authEmail = String(data?.user?.email || '').trim();
+      if (authEmail && isValidEmail(authEmail) && !getPlayerEmail()) {
+        setPlayerEmail(authEmail);
+      }
     } catch {}
 
     // 3) apply remote profile to local (if available)
@@ -3344,7 +3465,7 @@ function bindTreasureClaimListener() {
   window.addEventListener('cbsgo:treasureOpenRequest', async (ev) => {
     try {
       if (!isGameplayAllowed()) {
-        ensureNicknameOrProfile();
+        ensureProfileSetup();
         return;
       }
 

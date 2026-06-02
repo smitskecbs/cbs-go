@@ -1,10 +1,6 @@
 // src/ui/leaderboardPanel.js
 import { sendFriendRequest, loadFriendsOverview } from '../app/friends.js';
-import { isValidLeaderboardEntry, isGameplayAllowed, loadLeaderboard, NICKNAME_REQUIRED_MESSAGE } from '../app/leaderboard.js';
-
-// TEMP DEBUG — remove after Anon investigation
-const LB_PANEL_DEBUG = true;
-const LB_PANEL_DEBUG_TAG = '[CBSGO LB PANEL DEBUG]';
+import { isValidLeaderboardEntry, isGameplayAllowed, loadLeaderboard, PROFILE_SETUP_MESSAGE } from '../app/leaderboard.js';
 
 function esc(s) {
   return String(s || '')
@@ -228,7 +224,7 @@ export function bindLeaderboardPanel() {
 
     if (!isGameplayAllowed()) {
       setStatus('');
-      setMsg(NICKNAME_REQUIRED_MESSAGE);
+      setMsg(PROFILE_SETUP_MESSAGE);
       listEl.innerHTML = '';
       return;
     }
@@ -252,50 +248,15 @@ export function bindLeaderboardPanel() {
 
       const rows = (Array.isArray(rowsRaw) ? rowsRaw : []).filter(isValidLeaderboardEntry);
 
-      if (LB_PANEL_DEBUG) {
-        console.log(LB_PANEL_DEBUG_TAG, '6. rowsRaw from loadLeaderboard() (leaderboardPanel.js ~240)', {
-          file: 'src/ui/leaderboardPanel.js',
-          line: '~240 loadLeaderboard(100)',
-          count: Array.isArray(rowsRaw) ? rowsRaw.length : 0,
-          top20: (rowsRaw || []).slice(0, 20).map((r, i) => ({
-            rank: i + 1,
-            user_id: r?.user_id,
-            nickname: r?.nickname,
-            xp: r?.xp,
-          })),
-        });
-        console.log(LB_PANEL_DEBUG_TAG, '7. After isValidLeaderboardEntry filter (leaderboardPanel.js ~249)', {
-          file: 'src/ui/leaderboardPanel.js',
-          line: '~249 .filter(isValidLeaderboardEntry)',
-          count: rows.length,
-          top20: rows.slice(0, 20).map((r, i) => ({
-            rank: i + 1,
-            user_id: r?.user_id,
-            nickname: r?.nickname,
-            xp: r?.xp,
-          })),
-        });
-      }
-
       rows.sort((a, b) => Number(b.xp || 0) - Number(a.xp || 0));
 
       setStatus(rows.length ? '' : 'No players found yet.');
 
-      const renderNames = [];
       listEl.innerHTML = rows.map((r, idx) => {
         const uid = String(r.user_id || '').trim();
         const friendCode = friendCodeFromUid(uid);
 
         const name = String(r.nickname || '').trim();
-        if (LB_PANEL_DEBUG && idx < 20) {
-          renderNames.push({
-            rank: idx + 1,
-            user_id: uid,
-            r_nickname: r.nickname,
-            finalRenderName: name,
-            renderWouldShowAnon: name === 'Anon',
-          });
-        }
         const xp = Number(r.xp || 0);
         const flag = flagEmojiFromCountryCode(r.country_code);
 
@@ -368,17 +329,6 @@ export function bindLeaderboardPanel() {
           </div>
         `;
       }).join('');
-
-      if (LB_PANEL_DEBUG) {
-        console.log(LB_PANEL_DEBUG_TAG, '8. Final nickname passed to render (leaderboardPanel.js ~259, ~318 esc(name))', {
-          file: 'src/ui/leaderboardPanel.js',
-          lines: '~259 const name = String(r.nickname || "").trim(); ~318 esc(name)',
-          transform: 'NO Anon fallback in current source — name comes directly from r.nickname',
-          top20: renderNames,
-          anyAnonInRender: renderNames.some((r) => r.finalRenderName === 'Anon'),
-        });
-        window.__cbsgo_lb_panel_debug = { renderNames };
-      }
 
       document.querySelectorAll('.lbAddFriendBtn').forEach((btn) => {
         btn.addEventListener('click', async () => {
