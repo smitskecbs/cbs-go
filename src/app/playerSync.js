@@ -8,6 +8,7 @@
 
 import { supabase } from './supabaseClient.js';
 import { getPlayerName } from './leaderboard.js';
+import { normalizePlayerNickname } from './playerNickname.js';
 import { getLocalPublicKey } from './solanaLocalWallet.js';
 
 const SEND_INTERVAL_MS = 15000; // elke 15s je eigen positie wegschrijven
@@ -116,8 +117,7 @@ async function pushMyState() {
   if (now - lastSentAt < 5000) return;
   lastSentAt = now;
 
-  const nicknameRaw = getPlayerName() || '';
-  const nickname = nicknameRaw.trim() || 'Anon';
+  const nickname = normalizePlayerNickname(getPlayerName());
 
   const wallet_pk = getWalletPkSafe();
 
@@ -129,12 +129,13 @@ async function pushMyState() {
   const payload = {
     user_id,
     wallet_pk, // mag null zijn
-    nickname,
     lat,
     lng,
     heading,
     last_seen: new Date().toISOString(),
   };
+
+  if (nickname) payload.nickname = nickname;
 
   try {
     const { error } = await supabase.from('player_state').upsert(payload, { onConflict: 'user_id' });

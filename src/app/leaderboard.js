@@ -8,6 +8,13 @@
 
 import { getXp, getLevel } from './state.js';
 import { supabase } from './supabaseClient.js';
+import {
+  hasValidPlayerNickname,
+  normalizePlayerNickname,
+  NICKNAME_REQUIRED_MESSAGE,
+} from './playerNickname.js';
+
+export { hasValidPlayerNickname, normalizePlayerNickname, NICKNAME_REQUIRED_MESSAGE };
 
 const KEY = 'cbsgo_leaderboard_v2';
 const KEY_NAME = 'cbsgo_player_name_v2';
@@ -35,12 +42,6 @@ export function getPlayerName() {
   } catch {
     return '';
   }
-}
-
-export function normalizePlayerNickname(raw) {
-  const n = String(raw ?? '').trim().slice(0, 24);
-  if (!n || n.toLowerCase() === 'anon') return '';
-  return n;
 }
 
 export function isValidLeaderboardEntry(row) {

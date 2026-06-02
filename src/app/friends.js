@@ -16,6 +16,7 @@
 //   TABLE player_state (user_id uuid UNIQUE, wallet_pk text, nickname text, ...)
 
 import { supabase } from './supabaseClient.js';
+import { normalizePlayerNickname } from './playerNickname.js';
 
 const FRIENDS_TABLE = 'friends_uid';
 const PLAYERS_TABLE = 'players';
@@ -111,7 +112,7 @@ function pickFirstNonEmpty(...vals) {
 }
 
 function normalizeNick(v) {
-  const s = String(v || '').trim();
+  const s = normalizePlayerNickname(v);
   return s || null;
 }
 

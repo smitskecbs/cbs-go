@@ -29,6 +29,9 @@ import {
   getPlayerAvatar,
   setPlayerAvatar,
   clearPlayerAvatar,
+  hasValidPlayerNickname,
+  normalizePlayerNickname,
+  NICKNAME_REQUIRED_MESSAGE,
 } from '../app/leaderboard.js'; // alleen voor lokale profile-storage
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -393,6 +396,19 @@ function setSelectedTab(tab) {
   } catch {}
 }
 
+function showNicknameRequiredMessage() {
+  const msg = document.querySelector('#profileMsg');
+  if (msg) msg.textContent = NICKNAME_REQUIRED_MESSAGE;
+}
+
+function ensureNicknameOrProfile() {
+  if (hasValidPlayerNickname()) return true;
+  setSelectedTab('profile');
+  updatePanel();
+  showNicknameRequiredMessage();
+  return false;
+}
+
 // ---------- Panel wrapper (onderin) ----------
 function panelWrap(title, innerHtml) {
   return `
@@ -447,6 +463,7 @@ function panelWrap(title, innerHtml) {
 function renderProfile() {
   const me = getPlayerName();
   const myAvatar = String(getPlayerAvatar() || '').trim();
+  const needsNickname = !hasValidPlayerNickname();
 
   return `
     <section style="
@@ -459,6 +476,21 @@ function renderProfile() {
       <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
         Your nickname and avatar are stored locally and synced to CBS-GO so friends can find you later.
       </p>
+      ${
+        needsNickname
+          ? `
+      <div style="
+        margin:0 0 12px 0;
+        padding:10px 12px;
+        border-radius:12px;
+        border:1px solid rgba(251,191,36,.45);
+        background:rgba(251,191,36,.12);
+        color:#fde68a;
+        font-size:12px;
+        font-weight:700;
+      ">${esc(NICKNAME_REQUIRED_MESSAGE)}</div>`
+          : ''
+      }
 
       <div style="
         display:flex;
@@ -647,13 +679,21 @@ function bindProfileEvents() {
   };
 
   if (nameInput) {
-    setMsg(nameInput.value ? `✅ Profile loaded: ${nameInput.value}` : '');
+    if (hasValidPlayerNickname(nameInput.value)) {
+      setMsg(`✅ Profile loaded: ${normalizePlayerNickname(nameInput.value)}`);
+    } else {
+      setMsg(NICKNAME_REQUIRED_MESSAGE);
+    }
   }
 
   // --- Name save ---
   const saveNameNow = () => {
     if (!nameInput) return;
     const n = setPlayerName(nameInput.value);
+    if (!n) {
+      setMsg(NICKNAME_REQUIRED_MESSAGE);
+      return;
+    }
     setMsg(`✅ Name saved: ${n}`);
     try {
       syncPlayerProfile();
@@ -2392,7 +2432,9 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
     // 3) Bouw payload vanuit local
     const wallet_pk = getLocalPublicKeySafe() || null;
 
-    const nickname = getPlayerName() || null;
+    const localNick = normalizePlayerNickname(getPlayerName());
+    const remoteNick = normalizePlayerNickname(remote?.nickname);
+    const nickname = localNick || remoteNick || null;
     const avatar = getPlayerAvatar() || null;
 
     const xp = getXp();
@@ -2630,6 +2672,10 @@ function updatePanel() {
   const close = document.querySelector('#cbsgoClosePanel');
   if (close) {
     close.addEventListener('click', () => {
+      if (!hasValidPlayerNickname()) {
+        showNicknameRequiredMessage();
+        return;
+      }
       setSelectedTab('map');
       updatePanel();
     });
@@ -2642,8 +2688,21 @@ function bindUi() {
     b.addEventListener('click', () => {
       const panel = b.getAttribute('data-panel');
       const current = getSelectedTab();
-      if (current === panel) setSelectedTab('map');
-      else setSelectedTab(panel || 'map');
+
+      if (panel !== 'profile' && !hasValidPlayerNickname()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
+      if (current === panel) {
+        if (!hasValidPlayerNickname()) {
+          ensureNicknameOrProfile();
+          return;
+        }
+        setSelectedTab('map');
+      } else {
+        setSelectedTab(panel || 'map');
+      }
       updatePanel();
     });
   });
@@ -2655,6 +2714,11 @@ function bindUi() {
     xp.style.cursor = 'pointer';
     xp.title = 'Open leaderboard (XP)';
     xp.addEventListener('click', () => {
+      if (!hasValidPlayerNickname()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const current = getSelectedTab();
       if (current === 'leaderboard') setSelectedTab('map');
       else setSelectedTab('leaderboard');
@@ -2926,6 +2990,7 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
   }
 
   updatePanel();
+  ensureNicknameOrProfile();
 
   if (isDev()) {
     const btn = document.querySelector('#resetBtn');
@@ -2936,6 +3001,11 @@ window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
     window.__cbsgo_openNode_listener = true;
 
     window.addEventListener('cbsgo:openNode', (ev) => {
+      if (!hasValidPlayerNickname()) {
+        ensureNicknameOrProfile();
+        return;
+      }
+
       const id = ev?.detail?.id;
       if (!id) return;
 

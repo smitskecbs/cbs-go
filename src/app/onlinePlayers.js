@@ -6,6 +6,7 @@
 import { getLocalPublicKey } from './solanaLocalWallet.js';
 import { getPublicKey } from './wallet.js';
 import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
+import { normalizePlayerNickname } from './playerNickname.js';
 import { supabase } from './supabaseClient.js';
 
 function safeWalletPk() {
@@ -35,11 +36,11 @@ function getBaseProfile() {
 }
 
 function resolveNickname(base, extra = {}) {
-  const extraNick = String(extra.nickname || '').trim();
-  if (extraNick && extraNick.toLowerCase() !== 'anon') return extraNick;
+  const extraNick = normalizePlayerNickname(extra.nickname);
+  if (extraNick) return extraNick;
 
-  const baseNick = String(base?.nickname || '').trim();
-  if (baseNick && baseNick.toLowerCase() !== 'anon') return baseNick;
+  const baseNick = normalizePlayerNickname(base?.nickname);
+  if (baseNick) return baseNick;
 
   return '';
 }
@@ -141,8 +142,8 @@ export async function claimNickname(nicknameRaw) {
     const base = getBaseProfile();
     if (!base?.wallet_pk) return { ok: false, reason: 'no_wallet' };
 
-    const nickname = String(nicknameRaw || '').trim();
-    if (!nickname || nickname.toLowerCase() === 'anon') return { ok: false, reason: 'empty' };
+    const nickname = normalizePlayerNickname(nicknameRaw);
+    if (!nickname) return { ok: false, reason: 'empty' };
 
     // zet nickname lokaal (caller doet dat al meestal) + sync naar supabase
     await syncPlayerProfile({ nickname });

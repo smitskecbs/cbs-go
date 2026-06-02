@@ -8,6 +8,7 @@
 // - Nickname/avatar: remote alleen leidend als remote ook echt een waarde heeft
 
 import { loadRemoteProfile } from './remoteProfile.js';
+import { normalizePlayerNickname } from './playerNickname.js';
 
 // storage keys (moeten matchen met je bestaande bestanden)
 const STATE_KEY = 'cbsgo_state_v6';
@@ -96,9 +97,8 @@ function saveCardsV1FromCardsObj(cardsObj) {
 
 function setLocalNicknameAvatar(nickname, avatar) {
   try {
-    if (typeof nickname === 'string' && nickname.trim()) {
-      localStorage.setItem(KEY_NAME, String(nickname));
-    }
+    const validNick = normalizePlayerNickname(nickname);
+    if (validNick) localStorage.setItem(KEY_NAME, validNick);
     if (typeof avatar === 'string' && avatar.trim()) {
       localStorage.setItem(KEY_AVATAR, String(avatar));
     }
@@ -117,10 +117,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
     typeof remote.nickname === 'string' && remote.nickname.trim()
       ? remote.nickname.trim()
       : '';
-  const remoteNickname =
-    remoteNicknameRaw && remoteNicknameRaw.toLowerCase() !== 'anon'
-      ? remoteNicknameRaw
-      : '';
+  const remoteNickname = normalizePlayerNickname(remoteNicknameRaw);
 
   const remoteAvatar =
     typeof remote.avatar === 'string' && remote.avatar.trim()

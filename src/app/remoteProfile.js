@@ -2,6 +2,7 @@
 // Opslaan & ophalen van game-profiel per Supabase user (email-login).
 // Let op: dit bestand doet GEEN directe game-logica, alleen praten met Supabase.
 
+import { normalizePlayerNickname } from './playerNickname.js';
 import { supabase } from './supabaseClient.js';
 
 /**
@@ -27,9 +28,19 @@ function hasOwn(obj, key) {
 }
 
 function normalizeNickname(raw) {
-  const n = String(raw ?? '').trim().slice(0, 24);
-  if (!n || n.toLowerCase() === 'anon') return null;
-  return n;
+  const n = normalizePlayerNickname(raw);
+  return n || null;
+}
+
+function resolveNicknameForSave(existing, localProfile) {
+  const existingNick = normalizeNickname(existing.nickname);
+  if (!hasOwn(localProfile, 'nickname')) return existingNick;
+
+  const next = normalizeNickname(localProfile.nickname);
+  if (next) return next;
+
+  if (existingNick) return existingNick;
+  return null;
 }
 
 function profileHasMeaningfulData(profile) {
@@ -124,9 +135,7 @@ export async function saveRemoteProfile(localProfile = {}) {
     wallet_pk: hasOwn(localProfile, 'wallet_pk')
       ? localProfile.wallet_pk || null
       : existing.wallet_pk ?? null,
-    nickname: hasOwn(localProfile, 'nickname')
-      ? normalizeNickname(localProfile.nickname)
-      : normalizeNickname(existing.nickname),
+    nickname: resolveNicknameForSave(existing, localProfile),
     avatar: hasOwn(localProfile, 'avatar')
       ? localProfile.avatar || null
       : existing.avatar ?? null,
