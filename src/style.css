@@ -1267,6 +1267,96 @@ body {
   min-width: 180px;
 }
 
+.cbsgo-bag-section--cards {
+  border-color: rgba(255, 159, 28, 0.28);
+}
+
+.cbsgo-bag-card-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.78;
+}
+
+.cbsgo-bag-card-scroll {
+  margin-top: 10px;
+  max-height: min(176px, 38vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+
+.cbsgo-bag-card-scroll--empty {
+  max-height: none;
+  overflow: visible;
+}
+
+.cbsgo-bag-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.cbsgo-bag-card-tile {
+  position: relative;
+  min-width: 0;
+  padding: 8px 6px 7px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 159, 28, 0.28);
+  background: linear-gradient(165deg, rgba(255, 159, 28, 0.08), rgba(10, 12, 18, 0.72));
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.cbsgo-bag-card-tile__art {
+  width: 38px;
+  height: 38px;
+  margin: 0 auto 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 159, 28, 0.25);
+  background: rgba(255, 159, 28, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cbs-gold);
+}
+
+.cbsgo-bag-card-tile__name {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+}
+
+.cbsgo-bag-card-tile__qty {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.35;
+  background: linear-gradient(145deg, #ffb347, #ff9f1c);
+  color: #111827;
+  box-shadow: 0 2px 8px rgba(255, 159, 28, 0.35);
+}
+
+.cbsgo-bag-section__actions--end {
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .cbsgo-bag-loot-list {
   margin-top: 10px;
   display: flex;

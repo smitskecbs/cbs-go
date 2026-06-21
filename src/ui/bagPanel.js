@@ -11,6 +11,24 @@ function esc(s) {
     .replaceAll("'", '&#039;');
 }
 
+function cardTileIcon(id) {
+  const key = String(id || '');
+  if (key.startsWith('cbs_')) return icon('coin', 20, { className: 'cbsgo-icon' });
+  if (key.startsWith('walk_')) return icon('compass', 20, { className: 'cbsgo-icon' });
+  return icon('cards', 20, { className: 'cbsgo-icon' });
+}
+
+function renderCardTile(c) {
+  const qty = Number(c.count || 0);
+  return `
+    <div class="cbsgo-bag-card-tile" title="${esc(c.label || c.id)}">
+      <span class="cbsgo-bag-card-tile__qty">x${qty}</span>
+      <div class="cbsgo-bag-card-tile__art">${cardTileIcon(c.id)}</div>
+      <div class="cbsgo-bag-card-tile__name">${esc(c.label || c.id)}</div>
+    </div>
+  `;
+}
+
 /**
  * @param {{
  *   tickets: number,
@@ -60,26 +78,23 @@ export function renderBagPanel(ctx) {
     `
     : `<div class="cbsgo-bag-empty-hint">You do not have any cards yet to send.</div>`;
 
-  const cardRowsHtml =
+  const cardCollectionHtml =
     sendable.length > 0
-      ? sendable
-          .map(
-            (c) => `
-          <div class="cbsgo-bag-loot-row">
-            <div class="cbsgo-bag-loot-row__icon">${icon('cards', 16, { className: 'cbsgo-icon' })}</div>
-            <div class="cbsgo-bag-loot-row__body">
-              <div class="cbsgo-bag-loot-row__title">${esc(c.label || c.id)}</div>
-              <div class="cbsgo-bag-loot-row__meta">Collectible card</div>
-            </div>
-            <div class="cbsgo-bag-loot-row__qty">×${c.count}</div>
+      ? `
+        <div class="cbsgo-bag-card-scroll">
+          <div class="cbsgo-bag-card-grid">
+            ${sendable.map(renderCardTile).join('')}
           </div>
-        `,
-          )
-          .join('')
-      : `<div class="cbsgo-bag-empty-state">
-          ${icon('cards', 28, { className: 'cbsgo-icon' })}
-          <div>No cards collected yet. Walk and open stars to find them.</div>
-        </div>`;
+        </div>
+      `
+      : `
+        <div class="cbsgo-bag-card-scroll cbsgo-bag-card-scroll--empty">
+          <div class="cbsgo-bag-empty-state">
+            ${icon('cards', 28, { className: 'cbsgo-icon' })}
+            <div>No cards collected yet. Open loot stars to find cards.</div>
+          </div>
+        </div>
+      `;
 
   const bagSectionHead = (iconName, title, desc) => `
     <div class="cbsgo-bag-section__head">
@@ -144,10 +159,13 @@ export function renderBagPanel(ctx) {
         </div>
       </div>
 
-      <div class="cbsgo-bag-section">
-        ${bagSectionHead('cards', 'Card collection', 'Walking and CBS cards from your journey.')}
-        <div class="cbsgo-bag-loot-list">${cardRowsHtml}</div>
-        <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+      <div class="cbsgo-bag-section cbsgo-bag-section--cards">
+        ${bagSectionHead('cards', 'Card collection', `${cardTypes} types · ${cardTotal} total`)}
+        <p class="cbsgo-bag-card-hint">
+          Cards can sometimes be found in loot stars. Collect and save them for future rewards.
+        </p>
+        ${cardCollectionHtml}
+        <div class="cbsgo-bag-section__actions cbsgo-bag-section__actions--end">
           <button id="cbsgoOpenCardsBtn" type="button" class="cbsgo-bag-action-btn cbsgo-bag-action-btn--primary">
             Open collection
           </button>
