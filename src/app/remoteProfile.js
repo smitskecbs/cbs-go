@@ -2,7 +2,7 @@
 // Opslaan & ophalen van game-profiel per Supabase user (email-login).
 // Let op: dit bestand doet GEEN directe game-logica, alleen praten met Supabase.
 
-import { normalizePlayerNickname } from './playerNickname.js';
+import { normalizePlayerNickname, isProfileComplete, getProfileGateContext } from './playerNickname.js';
 import { supabase } from './supabaseClient.js';
 
 /**
@@ -64,6 +64,7 @@ function profileHasMeaningfulData(profile) {
   if (!profile || typeof profile !== 'object') return false;
   if (normalizeEmail(profile.email)) return true;
   if (normalizeNickname(profile.nickname)) return true;
+  if (profile.avatar && String(profile.avatar).trim()) return true;
   if (profile.wallet_pk) return true;
   if (profile.xp != null && Number.isFinite(Number(profile.xp))) return true;
   if (profile.level != null && Number.isFinite(Number(profile.level))) return true;
@@ -121,9 +122,11 @@ export async function loadRemoteProfile() {
  * Partial updates merge with the existing row so XP sync cannot wipe nickname.
  *
  * @param {object} localProfile
+ * @param {object} [options]
+ * @param {boolean} [options.forceSave=false] - allow first insert during onboarding
  * @returns {Promise<object|null>} de opgeslagen row of null
  */
-export async function saveRemoteProfile(localProfile = {}) {
+export async function saveRemoteProfile(localProfile = {}, options = {}) {
   const userId = await getCurrentUserId();
   if (!userId) {
     // niet ingelogd met email
@@ -172,8 +175,22 @@ export async function saveRemoteProfile(localProfile = {}) {
     friends_json: friendsObj,
   };
 
-  if (!existing.user_id && !profileHasMeaningfulData(payload)) {
+  if (!existing.user_id && !profileHasMeaningfulData(payload) && !options.forceSave) {
     return null;
+  }
+
+  if (!options.forceSave) {
+    const { authUser, walletPk } = getProfileGateContext();
+    if (
+      !isProfileComplete({
+        authUser: authUser || { id: userId },
+        walletPk: payload.wallet_pk || walletPk,
+        nickname: payload.nickname,
+        avatar: payload.avatar,
+      })
+    ) {
+      return null;
+    }
   }
 
   try {

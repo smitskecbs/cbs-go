@@ -9,6 +9,7 @@
 import { getXp, getLevel } from './state.js';
 import { supabase } from './supabaseClient.js';
 import {
+  hasValidPlayerAvatar,
   hasValidPlayerNickname,
   isGameplayAllowed,
   normalizePlayerNickname,
@@ -20,6 +21,7 @@ import {
 } from './playerNickname.js';
 
 export {
+  hasValidPlayerAvatar,
   hasValidPlayerNickname,
   isGameplayAllowed,
   normalizePlayerNickname,
@@ -60,6 +62,7 @@ export function getPlayerName() {
 export function isValidLeaderboardEntry(row) {
   if (!row || !String(row.user_id || '').trim()) return false;
   if (!normalizePlayerNickname(row.nickname)) return false;
+  if (!hasValidPlayerAvatar(row.avatar)) return false;
   const xp = row.xp;
   if (xp == null || !Number.isFinite(Number(xp))) return false;
   return true;
@@ -108,6 +111,7 @@ export function submitMyScore() {
   if (!name) return null;
 
   const avatar = getPlayerAvatar();
+  if (!hasValidPlayerAvatar(avatar)) return null;
 
   const xp = getXp();
   const level = getLevel();
@@ -133,7 +137,7 @@ export function submitMyScore() {
 }
 
 /**
- * Remote leaderboard — only players with a saved nickname and XP score.
+ * Remote leaderboard — only complete profiles with nickname, avatar, and XP.
  * Main source: public.game_profiles
  * Country flag source: public.player_state.country_code
  */
@@ -146,6 +150,8 @@ export async function loadLeaderboard(limit = 100) {
       .select('user_id, nickname, avatar, xp, level, updated_at')
       .not('nickname', 'is', null)
       .neq('nickname', '')
+      .not('avatar', 'is', null)
+      .neq('avatar', '')
       .not('nickname', 'in', LEADERBOARD_NICKNAME_BLOCKLIST_IN)
       .not('nickname', 'ilike', 'anon%')
       .not('nickname', 'ilike', 'anonymous%')
@@ -194,6 +200,7 @@ export async function loadLeaderboard(limit = 100) {
         return {
           ...r,
           nickname: normalizePlayerNickname(r?.nickname),
+          avatar: String(r?.avatar || '').trim(),
           country_code: uid ? (countryByUserId.get(uid) || '') : '',
         };
       })

@@ -93,6 +93,7 @@ export function openEmailLoginModal() {
       <div style="padding:14px 16px;">
         <div style="opacity:.85; font-size:13px; line-height:1.35;">
           Login with your email and a <b>6-digit PIN</b>.
+          After login you will set your nickname and profile photo.
         </div>
 
         <div style="margin-top:12px;">

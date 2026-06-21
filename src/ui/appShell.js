@@ -40,6 +40,10 @@ import {
   isValidEmail,
   normalizePlayerEmail,
   sanitizeStoredEmail,
+  isProfileComplete,
+  hasValidPlayerNickname,
+  hasValidPlayerAvatar,
+  setProfileGateContext,
 } from '../app/playerNickname.js';
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -53,6 +57,7 @@ import { openCardsPanel } from './cardsPanel.js';
 
 // ✅ Login gate
 import { openLoginModal } from './loginModal.js';
+import { openProfileOnboardingModal } from './profileOnboardingModal.js';
 
 // ✅ Supabase helper (profile -> players tabel)
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
@@ -409,6 +414,64 @@ function showProfileSetupMessage() {
   if (msg) msg.textContent = PROFILE_SETUP_MESSAGE;
 }
 
+async function checkProfileComplete(overrides = {}) {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return isProfileComplete({
+      authUser: data?.user,
+      walletPk: getLocalPublicKeySafe(),
+      nickname: overrides.nickname ?? getPlayerName(),
+      avatar: overrides.avatar ?? getPlayerAvatar(),
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
+  const nick = setPlayerName(nickname);
+  if (!nick) throw new Error('Invalid nickname.');
+
+  const av = setPlayerAvatar(avatar);
+  if (!hasValidPlayerAvatar(av)) throw new Error('Profile photo is required.');
+
+  const localEmail = normalizePlayerEmail(getPlayerEmail());
+  let authEmail = '';
+  try {
+    const { data } = await supabase.auth.getUser();
+    authEmail = normalizePlayerEmail(data?.user?.email || '');
+  } catch {}
+  const email = localEmail || authEmail || null;
+
+  const saved = await saveRemoteProfile(
+    {
+      wallet_pk: walletPk || getLocalPublicKeySafe() || null,
+      email,
+      nickname: nick,
+      avatar: av,
+    },
+    { forceSave: true },
+  );
+
+  if (!saved) {
+    throw new Error('Could not save profile to cloud.');
+  }
+
+  try {
+    await syncPlayerProfile({ nickname: nick, avatar: av, forceSync: true });
+  } catch (e) {
+    console.warn('CBS GO: syncPlayerProfile after onboarding failed', e);
+  }
+
+  markRemoteApplied();
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:profileChanged', {
+      detail: { nickname: nick, avatar: av, email },
+    }),
+  );
+}
+
 function ensureProfileSetup() {
   if (isGameplayAllowed()) return true;
   setSelectedTab('profile');
@@ -472,7 +535,8 @@ function renderProfile() {
   const me = getPlayerName();
   const myEmail = getPlayerEmail();
   const myAvatar = String(getPlayerAvatar() || '').trim();
-  const needsProfileSetup = !isGameplayAllowed();
+  const needsProfileSetup =
+    !hasValidPlayerNickname(me) || !hasValidPlayerAvatar(myAvatar);
 
   return `
     <section style="
@@ -483,7 +547,7 @@ function renderProfile() {
     ">
       <h3 style="margin:0 0 8px 0; font-size:16px;">Profile Setup</h3>
       <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
-        Complete your profile before entering the game. Email and nickname are required; photo is optional.
+        Complete your profile before entering the game. Nickname and profile photo are required.
       </p>
       ${
         needsProfileSetup
@@ -546,7 +610,7 @@ function renderProfile() {
           />
 
           <div style="margin-top:12px;">
-            <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Photo <span style="opacity:.6;">(optional)</span></div>
+            <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Profile photo <span style="opacity:.6;">(required)</span></div>
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <input id="profileAvatar" type="file" accept="image/*" />
               <button
@@ -707,15 +771,16 @@ function bindProfileEvents() {
     if (msg) msg.textContent = t || '';
   };
 
-  const refreshProfileStatus = () => {
-    const emailOk = isValidEmail(emailInput?.value || getPlayerEmail());
-    const nickOk = isGameplayAllowed(undefined, nameInput?.value);
-    if (emailOk && nickOk) {
+  const refreshProfileStatus = async () => {
+    const complete = await checkProfileComplete({
+      nickname: nameInput?.value,
+    });
+    if (complete) {
       setMsg('✅ Profile complete. You can play now.');
-    } else if (!emailOk && !normalizePlayerNickname(nameInput?.value || '')) {
+    } else if (!hasValidPlayerNickname(nameInput?.value || '')) {
       setMsg(PROFILE_SETUP_MESSAGE);
-    } else if (!emailOk) {
-      setMsg('⛔ Enter a valid email address.');
+    } else if (!hasValidPlayerAvatar(getPlayerAvatar())) {
+      setMsg('⛔ Profile photo is required.');
     } else {
       setMsg(PROFILE_SETUP_MESSAGE);
     }
@@ -767,13 +832,14 @@ function bindProfileEvents() {
     return true;
   };
 
-  const saveProfileFields = () => {
-    const emailOk = saveEmailNow();
+  const saveProfileFields = async () => {
+    saveEmailNow();
     const nickOk = saveNameNow();
-    if (emailOk && nickOk) {
+    const complete = await checkProfileComplete({ nickname: nameInput?.value });
+    if (nickOk && complete) {
       setMsg('✅ Profile saved. Welcome to CBS-GO!');
     } else {
-      refreshProfileStatus();
+      await refreshProfileStatus();
     }
   };
 
@@ -2531,6 +2597,7 @@ let __remoteSyncBusy = false;
 // ---------- Remote profile sync ----------
 async function syncRemoteProfileSafe(source = 'unknown', force = false) {
   if (__remoteSyncBusy) return;
+  if (!force && !isGameplayAllowed()) return;
   __remoteSyncBusy = true;
 
   try {
@@ -3356,15 +3423,12 @@ export function mountApp() {
       return;
     }
 
-    // 2) ensure supabase player_state row exists
-    try {
-      setLoadingText('Binding your account…');
-      await ensureSupabaseUserBound();
-    } catch {}
-
+    // 2) auth user + email seed
+    let authUser = null;
     try {
       const { data } = await supabase.auth.getUser();
-      const authEmail = String(data?.user?.email || '').trim();
+      authUser = data?.user || null;
+      const authEmail = String(authUser?.email || '').trim();
       if (authEmail && isValidEmail(authEmail) && !getPlayerEmail()) {
         setPlayerEmail(authEmail);
       }
@@ -3377,10 +3441,48 @@ export function mountApp() {
     } catch (e) {
       console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
     }
-    // ✅ remote is now applied -> prevent other device overwriting it with old local
     markRemoteApplied();
 
-       // 4) start game
+    const walletPk = getLocalPublicKeySafe() || null;
+    setProfileGateContext({ authUser, walletPk });
+
+    // 4) profile onboarding when incomplete
+    const profileReady = isProfileComplete({
+      authUser,
+      walletPk,
+      nickname: getPlayerName(),
+      avatar: getPlayerAvatar(),
+    });
+
+    if (!profileReady) {
+      hideLoading();
+      try {
+        await openProfileOnboardingModal({
+          authUser,
+          walletPk,
+          initialNickname: getPlayerName(),
+          initialAvatar: getPlayerAvatar(),
+          onSave: saveOnboardingProfile,
+        });
+      } catch (e) {
+        console.warn('CBS-GO: profile onboarding failed', e);
+        hideLoading();
+        alert('Profile setup is required before playing.');
+        openLoginModal();
+        window.addEventListener('cbsgo:loginDone', onLoginDone);
+        return;
+      }
+      setProfileGateContext({ authUser, walletPk });
+      showLoading('Starting CBS-GO…');
+    }
+
+    // 5) bind account row (after profile complete)
+    try {
+      setLoadingText('Binding your account…');
+      await ensureSupabaseUserBound();
+    } catch {}
+
+    // 6) start game
     setLoadingText('Starting CBS-GO…');
     bootstrapApp();
 

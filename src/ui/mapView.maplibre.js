@@ -11,6 +11,7 @@
 
 import maplibregl from 'maplibre-gl';
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
+import { hasValidPlayerAvatar, normalizePlayerNickname } from '../app/playerNickname.js';
 
 /* -------------------- CONFIG -------------------- */
 
@@ -694,7 +695,36 @@ function playerSharesLocation(p) {
 
 function safeStr(v) { return String(v ?? '').trim(); }
 
+function avatarFromOnlinePlayer(p) {
+  return safeStr(
+    p?.avatar ??
+      p?.photo_url ??
+      p?.photoURL ??
+      p?.profile_picture ??
+      p?.profilePicture ??
+      p?.pfp ??
+      p?.pf ??
+      p?.image ??
+      p?.picture ??
+      p?.user_metadata?.avatar_url ??
+      p?.user_metadata?.picture,
+  );
+}
+
+function isCompleteOnlineMapPlayer(p) {
+  if (!p) return false;
+  const nick = normalizePlayerNickname(safeStr(p.nickname));
+  const avatar = avatarFromOnlinePlayer(p);
+  return !!nick && hasValidPlayerAvatar(avatar);
+}
+
 function buildFriendEl(nickname, avatar, lat, lng) {
+  const nick = normalizePlayerNickname(nickname);
+  if (!nick || !hasValidPlayerAvatar(avatar)) {
+    const root = document.createElement('div');
+    return { rootEl: root, scaleEl: root };
+  }
+
   const root = document.createElement('div');
   root.className = 'cbsgo-marker-root';
   root.style.pointerEvents = 'none';
@@ -707,20 +737,20 @@ function buildFriendEl(nickname, avatar, lat, lng) {
 
   const bubble = document.createElement('div');
   bubble.className = 'cbsgo-friend';
-  bubble.title = nickname ? String(nickname) : 'Player';
+  bubble.title = nick;
 
   const core = document.createElement('div');
   core.className = 'cbsgo-friend-core';
 
   const setInitialsFallback = () => {
     core.innerHTML = '';
-    core.textContent = initialsFromName(nickname);
+    core.textContent = initialsFromName(nick);
   };
 
   if (avatar) {
     const img = document.createElement('img');
     img.src = String(avatar);
-    img.alt = nickname || 'friend';
+    img.alt = nick;
     img.width = 42;
     img.height = 42;
     img.decoding = 'async';
@@ -741,7 +771,7 @@ function buildFriendEl(nickname, avatar, lat, lng) {
 
   const label = document.createElement('div');
   label.className = 'cbsgo-friend-label';
-  label.textContent = nickname ? String(nickname).slice(0, 18) : 'Player';
+  label.textContent = nick.slice(0, 18);
 
   bubble.appendChild(core);
   bubble.appendChild(label);
@@ -756,7 +786,7 @@ function upsertFriendMarkers(players) {
   if (!map) return;
   const now = Date.now();
 
-  const arr = Array.isArray(players) ? players : [];
+  const arr = (Array.isArray(players) ? players : []).filter(isCompleteOnlineMapPlayer);
   lastOnlinePlayers = arr;
 
   const seen = new Set();
@@ -788,23 +818,12 @@ function upsertFriendMarkers(players) {
     const id = safeStr(p.user_id || p.wallet_pk || p.uid || p.id);
     if (!id) continue;
 
-    seen.add(id);
+    const nick = normalizePlayerNickname(safeStr(p.nickname));
+    const avatar = avatarFromOnlinePlayer(p);
 
-    const nick = safeStr(p.nickname) || 'Player';
-    const avatar =
-  safeStr(
-    p.avatar ??
-    p.photo_url ??
-    p.photoURL ??
-    p.profile_picture ??
-    p.profilePicture ??
-    p.pfp ??
-    p.pf ??
-    p.image ??
-    p.picture ??
-    p.user_metadata?.avatar_url ??
-    p.user_metadata?.picture
-  ) || '';
+    if (!nick || !hasValidPlayerAvatar(avatar)) continue;
+
+    seen.add(id);
 
     let fm = friendMarkers.get(id);
 

@@ -281,7 +281,10 @@ export function bindLeaderboardPanel() {
                 ? 'linear-gradient(180deg, rgba(120,53,15,.30), rgba(15,23,42,.84))'
                 : 'rgba(15,23,42,.82)';
 
-        const rightBtn = isFriend
+        const rightBtn =
+          !isValidLeaderboardEntry(r) || !friendCode
+            ? ''
+            : isFriend
           ? `
             <button type="button" disabled style="
               padding:7px 10px;border-radius:999px;
@@ -334,6 +337,11 @@ export function bindLeaderboardPanel() {
         btn.addEventListener('click', async () => {
           const value = (btn.getAttribute('data-value') || '').trim();
           if (!value) return;
+
+          if (!isGameplayAllowed()) {
+            setMsg(PROFILE_SETUP_MESSAGE);
+            return;
+          }
 
           btn.disabled = true;
           const old = btn.textContent;

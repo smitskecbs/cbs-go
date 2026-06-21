@@ -7,8 +7,14 @@
 // - ✅ Privacy: shareLocation OFF => lat/lng/heading = null (wel online via last_seen)
 
 import { supabase } from './supabaseClient.js';
-import { getPlayerName } from './leaderboard.js';
-import { normalizePlayerNickname } from './playerNickname.js';
+import { getPlayerName, getPlayerAvatar } from './leaderboard.js';
+import {
+  getProfileGateContext,
+  hasValidPlayerAvatar,
+  hasValidPlayerNickname,
+  isProfileComplete,
+  normalizePlayerNickname,
+} from './playerNickname.js';
 import { getLocalPublicKey } from './solanaLocalWallet.js';
 
 const SEND_INTERVAL_MS = 15000; // elke 15s je eigen positie wegschrijven
@@ -86,6 +92,28 @@ if (typeof window !== 'undefined' && !window.__cbsgo_shareLocation_listener) {
 }
 
 // ---------- helpers ----------
+function canSyncOwnPlayerState(userId = null) {
+  const { authUser, walletPk: ctxWallet } = getProfileGateContext();
+  const walletPk = getWalletPkSafe() || ctxWallet || null;
+  const authCandidate = authUser || (userId ? { id: userId } : null);
+
+  return isProfileComplete({
+    authUser: authCandidate,
+    walletPk,
+    nickname: getPlayerName(),
+    avatar: getPlayerAvatar(),
+  });
+}
+
+function isCompleteOnlinePlayer({ user_id, wallet_pk, nickname, avatar }) {
+  const uid = user_id ? String(user_id).trim() : '';
+  const pk = wallet_pk ? String(wallet_pk).trim() : '';
+  if (!uid && !pk) return false;
+  if (!hasValidPlayerNickname(nickname)) return false;
+  if (!hasValidPlayerAvatar(avatar)) return false;
+  return true;
+}
+
 function getWalletPkSafe() {
   try {
     // 1) direct import
@@ -111,6 +139,8 @@ async function pushMyState() {
   const user_id = await ensureUserId();
   if (!user_id) return; // niet ingelogd
 
+  if (!canSyncOwnPlayerState(user_id)) return;
+
   if (!lastPos) return;
 
   const now = Date.now();
@@ -118,6 +148,7 @@ async function pushMyState() {
   lastSentAt = now;
 
   const nickname = normalizePlayerNickname(getPlayerName());
+  if (!nickname) return;
 
   const wallet_pk = getWalletPkSafe();
 
@@ -149,6 +180,13 @@ async function pushMyState() {
 async function fetchOnlinePlayers() {
   const user_id = await ensureUserId();
   if (!user_id) return;
+
+  if (!canSyncOwnPlayerState(user_id)) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cbsgo:onlinePlayers', { detail: { players: [] } }));
+    }
+    return;
+  }
 
   const now = Date.now();
   if (now - lastFetchAt < 3000) return;
@@ -268,15 +306,20 @@ async function fetchOnlinePlayers() {
           (pk && playersByWallet.get(pk)) ||
           null;
 
-        const nickname =
+        const nickname = normalizePlayerNickname(
           (gameProfile && gameProfile.nickname) ||
-          (playerProfile && playerProfile.nickname) ||
-          row.nickname ||
-          'Anon';
+            (playerProfile && playerProfile.nickname) ||
+            row.nickname ||
+            '',
+        );
 
         const avatar =
-          (gameProfile && gameProfile.avatar ? String(gameProfile.avatar) : '') ||
-          (playerProfile && playerProfile.avatar ? String(playerProfile.avatar) : '');
+          (gameProfile && gameProfile.avatar ? String(gameProfile.avatar).trim() : '') ||
+          (playerProfile && playerProfile.avatar ? String(playerProfile.avatar).trim() : '');
+
+        if (!isCompleteOnlinePlayer({ user_id: uid, wallet_pk: pk, nickname, avatar })) {
+          return null;
+        }
 
         return {
           user_id: row.user_id || '',
