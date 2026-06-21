@@ -79,6 +79,98 @@ import {
   getMyFriendCode,
 } from '../app/friends.js';
 import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
+import { showConfirmDialog } from './confirmDialog.js';
+
+let cbsgoFriendsSetMsg = () => {};
+let cbsgoFriendsRefresh = async () => {};
+
+function ensureFriendsActionDelegation() {
+  if (typeof window !== 'undefined' && window.__cbsgoFriendsActionsBound) return;
+  if (typeof window !== 'undefined') window.__cbsgoFriendsActionsBound = true;
+
+  document.addEventListener(
+    'click',
+    async (e) => {
+      const acceptBtn = e.target.closest?.('.friendAcceptBtn');
+      const copyBtn = e.target.closest?.('.friendCopyBtn');
+      const removeBtn = e.target.closest?.('.friendRemoveBtn');
+      const btn = acceptBtn || copyBtn || removeBtn;
+      if (!btn) return;
+
+      const host = btn.closest('#friendsIncomingList, #friendsAcceptedList');
+      if (!host) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (acceptBtn) {
+        const id = btn.getAttribute('data-friend-id');
+        if (!id) return;
+
+        cbsgoFriendsSetMsg('Accepting friend…');
+        btn.disabled = true;
+        try {
+          await acceptFriendRequest(id);
+          cbsgoFriendsSetMsg('Friend added.');
+          await cbsgoFriendsRefresh();
+        } catch (err) {
+          console.warn(err);
+          cbsgoFriendsSetMsg(err?.message || 'Could not accept friend.');
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      if (copyBtn) {
+        const w = (btn.getAttribute('data-wallet') || '').trim();
+        const code = (btn.getAttribute('data-code') || '').trim();
+        const value = w || code;
+        if (!value) return;
+
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(value);
+            cbsgoFriendsSetMsg(w ? 'Friend wallet copied.' : 'Friend Code copied.');
+          } else {
+            cbsgoFriendsSetMsg('Copy not supported in this browser.');
+          }
+        } catch (err) {
+          console.warn('CBS GO: copy friend failed', err);
+          cbsgoFriendsSetMsg('Could not copy.');
+        }
+        return;
+      }
+
+      if (removeBtn) {
+        const id = btn.getAttribute('data-friend-id');
+        const nick = btn.getAttribute('data-friend-nick') || 'this friend';
+        if (!id) return;
+
+        const ok = await showConfirmDialog({
+          title: 'Remove friend',
+          message: `Remove ${nick} from your friends? This only removes the friendship link.`,
+          confirmLabel: 'Remove',
+          cancelLabel: 'Cancel',
+          danger: true,
+        });
+        if (!ok) return;
+
+        cbsgoFriendsSetMsg('Removing friend…');
+        btn.disabled = true;
+        try {
+          await removeFriend(id);
+          cbsgoFriendsSetMsg('Friend removed.');
+          await cbsgoFriendsRefresh();
+        } catch (err) {
+          console.warn(err);
+          cbsgoFriendsSetMsg(err?.message || 'Could not remove friend.');
+          btn.disabled = false;
+        }
+      }
+    },
+    true,
+  );
+}
 
 // ✅ scherm wakker houden tijdens spelen
 import { enableWakeLock, bindWakeLockVisibilityHandler } from '../app/wakeLock.js';
@@ -969,7 +1061,7 @@ function bindProfileEvents() {
       try {
         updateShareLocProfileButton();
       } catch {}
-      setMsg(next ? '📍 Location sharing enabled' : '🙈 Location sharing disabled');
+      setMsg(next ? 'Location sharing enabled.' : 'Location sharing disabled.');
     };
   }
 
@@ -1153,7 +1245,7 @@ function bindProfileEvents() {
                 <button
                   type="button"
                   class="friendAcceptBtn"
-                  data-friend-id="${esc(fr.id)}"
+                  data-friend-id="${esc(String(fr.id || ''))}"
                   style="
                     padding:4px 8px;
                     border-radius:999px;
@@ -1200,7 +1292,7 @@ function bindProfileEvents() {
                 <button
                   type="button"
                   class="friendRemoveBtn cbsgo-btn-danger"
-                  data-friend-id="${esc(fr.id)}"
+                  data-friend-id="${esc(String(fr.id || ''))}"
                   data-friend-nick="${nickLabel}"
                 >Remove</button>
               </div>
@@ -1210,71 +1302,7 @@ function bindProfileEvents() {
           .join('');
       }
 
-      // Accept-knoppen
-      document.querySelectorAll('.friendAcceptBtn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const id = btn.getAttribute('data-friend-id');
-          if (!id) return;
-
-          setFriendsMsg('Accepting friend…');
-          btn.disabled = true;
-          try {
-            await acceptFriendRequest(id);
-            setFriendsMsg('✅ Friend added.');
-            await refreshFriends();
-          } catch (e) {
-            console.warn(e);
-            setFriendsMsg(`⛔ ${e.message || e}`);
-            btn.disabled = false;
-          }
-        });
-      });
-
-      // Copy-knoppen (wallet als die er is, anders Friend Code)
-      document.querySelectorAll('.friendCopyBtn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const w = (btn.getAttribute('data-wallet') || '').trim();
-          const code = (btn.getAttribute('data-code') || '').trim();
-          const value = w || code;
-          if (!value) return;
-
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(value);
-              setFriendsMsg(w ? '✅ Friend wallet copied.' : '✅ Friend Code copied.');
-            } else {
-              setFriendsMsg('📋 Copy not supported in this browser.');
-            }
-          } catch (err) {
-            console.warn('CBS GO: copy friend failed', err);
-            setFriendsMsg('⛔ Could not copy.');
-          }
-        });
-      });
-
-      // Remove friend (accepted only)
-      document.querySelectorAll('.friendRemoveBtn').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const id = btn.getAttribute('data-friend-id');
-          const nick = btn.getAttribute('data-friend-nick') || 'this friend';
-          if (!id) return;
-
-          const ok = window.confirm(`Remove ${nick} from your friends?\n\nThis only removes the friendship link.`);
-          if (!ok) return;
-
-          setFriendsMsg('Removing friend…');
-          btn.disabled = true;
-          try {
-            await removeFriend(id);
-            setFriendsMsg('Friend removed.');
-            await refreshFriends();
-          } catch (e) {
-            console.warn(e);
-            setFriendsMsg(e?.message || 'Could not remove friend.');
-            btn.disabled = false;
-          }
-        });
-      });
+      ensureFriendsActionDelegation();
     } catch (e) {
       console.warn('CBS GO: refreshFriends failed', e);
       incomingListEl.textContent = 'Could not load friends.';
@@ -1282,8 +1310,16 @@ function bindProfileEvents() {
     }
   }
 
+  cbsgoFriendsSetMsg = setFriendsMsg;
+  cbsgoFriendsRefresh = refreshFriends;
+  ensureFriendsActionDelegation();
+
   if (friendSendBtn && friendInput) {
-    friendSendBtn.addEventListener('click', async () => {
+    if (!friendSendBtn.__cbsgoBound) {
+      friendSendBtn.__cbsgoBound = true;
+      friendSendBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
       if (!isGameplayAllowed()) {
         ensureProfileSetup();
         return;
@@ -1308,6 +1344,7 @@ function bindProfileEvents() {
         friendSendBtn.disabled = false;
       }
     });
+    }
   }
 
   refreshFriends().catch(() => {});
@@ -2008,161 +2045,113 @@ const lng = Number(ev?.detail?.center?.lng);
   }
 }
 
-// ---------- Solana Wallet pagina met Token Overview (UI v1) ----------
+// ---------- Solana Wallet panel ----------
 function renderWalletPanel() {
   const localSolPk = getLocalPublicKeySafe();
+  const tickets = getTickets();
+  const cbsPlay = getCbsCoins();
 
   if (!localSolPk) {
     return `
-      <section style="
-        padding:14px;
-        border-radius:18px;
-        border:1px solid rgba(239,68,68,.65);
-        background:rgba(24,24,27,.9);
-      ">
-        <h3 style="margin:0 0 8px 0;font-size:16px;">Solana Wallet</h3>
-        <p style="margin:0;font-size:12px;opacity:.8;">
-          No local Solana wallet found. Finish login or create a wallet.
+      <section class="cbsgo-wallet-panel">
+        <div class="cbsgo-wallet-panel__header">
+          ${icon('wallet', 24, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+          <div>
+            <div class="cbsgo-wallet-panel__title">CBS-GO Wallet</div>
+            <div class="cbsgo-wallet-panel__subtitle">No wallet unlocked yet</div>
+          </div>
+        </div>
+        <p style="margin:0;font-size:12px;opacity:.85;">
+          Finish login to unlock your Solana wallet.
         </p>
       </section>
     `;
   }
 
-  const maskedDots = '•'.repeat(44);
+  const shortPk =
+    localSolPk.length > 16
+      ? `${localSolPk.slice(0, 6)}…${localSolPk.slice(-6)}`
+      : localSolPk;
 
-  // Small helpers for consistent cards
-  const cardStyle = `
-    padding:12px 12px;
-    border-radius:16px;
-    border:1px solid rgba(255,255,255,.14);
-    background:rgba(10,12,18,.65);
-    backdrop-filter: blur(10px);
-  `;
-
-  const titleRow = (icon, title, desc) => `
-    <div style="display:flex;gap:10px;align-items:flex-start;">
-      <div style="
-        width:34px;height:34px;border-radius:12px;
-        border:1px solid rgba(56,189,248,.35);
-        background:rgba(56,189,248,.10);
-        display:flex;align-items:center;justify-content:center;
-        font-size:18px;
-      ">${icon}</div>
+  const titleRow = (iconName, title, desc) => `
+    <div class="cbsgo-wallet-section__head">
+      <div class="cbsgo-wallet-section__icon">${icon(iconName, 18, { className: 'cbsgo-icon' })}</div>
       <div style="min-width:0;">
-        <div style="font-size:13px;font-weight:800;margin-bottom:2px;">${esc(title)}</div>
-        <div style="font-size:11px;opacity:.78;line-height:1.35;">${esc(desc)}</div>
+        <div class="cbsgo-wallet-section__title">${esc(title)}</div>
+        <div class="cbsgo-wallet-section__desc">${esc(desc)}</div>
       </div>
     </div>
   `;
 
   const pillBtn = (id, label, primary = false) => `
-    <button id="${id}" type="button" style="
-      padding:8px 12px;
-      border-radius:999px;
-      border:1px solid ${primary ? 'rgba(56,189,248,.9)' : 'rgba(255,255,255,.18)'};
-      background:${primary ? 'rgba(56,189,248,.18)' : 'rgba(255,255,255,.08)'};
-      color:${primary ? '#e0f2fe' : '#fff'};
-      font-size:12px;
-      font-weight:${primary ? '800' : '600'};
-      cursor:pointer;
-      white-space:nowrap;
-    ">${esc(label)}</button>
+    <button id="${id}" type="button" class="${primary ? 'cbsgo-btn-primary' : 'cbsgo-btn-secondary'}" style="padding:8px 12px;font-size:12px;white-space:nowrap;">
+      ${esc(label)}
+    </button>
   `;
 
   return `
-    <section style="
-      padding:14px;
-      border-radius:20px;
-      border:1px solid rgba(56,189,248,.65);
-      background:rgba(8,10,16,.78);
-      backdrop-filter: blur(12px);
-    ">
-      <!-- Header -->
-      <div style="
-        display:flex;align-items:flex-start;justify-content:space-between;
-        gap:10px;flex-wrap:wrap;
-        margin-bottom:12px;
-      ">
-        <div>
-          <div style="font-size:16px;font-weight:900;letter-spacing:.2px;display:flex;align-items:center;gap:8px;">
-            ${icon('wallet', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
-            Solana Wallet
-          </div>
-          <div style="font-size:11px;opacity:.78;max-width:520px;line-height:1.35;">
-            Your CBS-GO wallet is stored locally, and backed up encrypted via your Email + PIN (vault).
+    <section class="cbsgo-wallet-panel">
+      <div class="cbsgo-wallet-panel__header">
+        <div class="cbsgo-wallet-panel__brand">
+          <div class="cbsgo-wallet-panel__logo">${icon('wallet', 26, { className: 'cbsgo-icon' })}</div>
+          <div>
+            <div class="cbsgo-wallet-panel__title">CBS-GO Wallet</div>
+            <div class="cbsgo-wallet-panel__subtitle">Solana · local vault · ${esc(shortPk)}</div>
           </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="cbsgo-wallet-panel__header-actions">
           ${pillBtn('walletCopyAddressBtn', 'Copy address', true)}
-          ${pillBtn('walletRefreshOverviewBtn', 'Refresh balances', false)}
+          ${pillBtn('walletRefreshOverviewBtn', 'Refresh', false)}
         </div>
       </div>
 
-      <!-- Receive card -->
-      <div style="${cardStyle}; border-color: rgba(56,189,248,.45);">
-        ${titleRow('📥', 'Receive', 'Use this address to receive SOL or SPL tokens (CBS/BONK/USDC).')}
-        <div style="
-          margin-top:10px;
-          font-size:11px;
-          opacity:.95;
-          padding:8px 10px;
-          border-radius:12px;
-          border:1px solid rgba(56,189,248,.45);
-          background:rgba(15,23,42,.95);
-          word-break:break-all;
-          font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-        ">${esc(localSolPk)}</div>
-
-        <div id="walletReceiveMsg" style="margin-top:8px;font-size:11px;opacity:.82;">
-          Tip: you can paste this into Phantom / Solflare when you want to view the wallet there later.
+      <div class="cbsgo-wallet-asset-grid">
+        <div class="cbsgo-wallet-asset-card cbsgo-wallet-asset-card--sol">
+          <div class="cbsgo-wallet-asset-card__label">SOL</div>
+          <div id="walletAssetSol" class="cbsgo-wallet-asset-card__value">—</div>
+          <div class="cbsgo-wallet-asset-card__hint">On-chain</div>
+        </div>
+        <div class="cbsgo-wallet-asset-card">
+          <div class="cbsgo-wallet-asset-card__label">CBS Play</div>
+          <div class="cbsgo-wallet-asset-card__value">${esc(String(cbsPlay))}</div>
+          <div class="cbsgo-wallet-asset-card__hint">In-game</div>
+        </div>
+        <div class="cbsgo-wallet-asset-card">
+          <div class="cbsgo-wallet-asset-card__label">Tickets</div>
+          <div class="cbsgo-wallet-asset-card__value">${esc(String(tickets))}</div>
+          <div class="cbsgo-wallet-asset-card__hint">In-game</div>
         </div>
       </div>
 
-      <!-- Send card -->
-      <div style="${cardStyle}; margin-top:12px;">
-        ${titleRow('📤', 'Send', 'Send SOL or SPL tokens from your local wallet on-chain.')}
+      <div class="cbsgo-wallet-section cbsgo-wallet-section--receive">
+        ${titleRow('receive', 'Receive', 'Share this address to receive SOL or SPL tokens.')}
+        <div class="cbsgo-wallet-address-box">${esc(localSolPk)}</div>
+        <div class="cbsgo-wallet-qr-placeholder" aria-hidden="true">
+          <div class="cbsgo-wallet-qr-placeholder__frame">
+            ${icon('wallet', 28, { className: 'cbsgo-icon' })}
+          </div>
+          <div class="cbsgo-wallet-qr-placeholder__text">Scan or paste address in Phantom / Solflare</div>
+        </div>
+        <div id="walletReceiveMsg" style="margin-top:8px;font-size:11px;opacity:.82;"></div>
+      </div>
+
+      <div class="cbsgo-wallet-section">
+        ${titleRow('send', 'Send', 'Send SOL or SPL tokens from your local wallet on-chain.')}
         <div style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
           <div>
             <label for="walletSendToInput" style="font-size:11px;opacity:.8;">To address</label>
-            <input id="walletSendToInput" placeholder="Paste Solana address" style="
-              margin-top:4px;
-              width:100%;
-              padding:9px 10px;
-              border-radius:12px;
-              border:1px solid rgba(148,163,184,.55);
-              background:rgba(15,23,42,1);
-              color:#fff;
-              font-size:12px;
-            " />
+            <input id="walletSendToInput" placeholder="Paste Solana address" class="cbsgo-wallet-input" />
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <div style="flex:1;min-width:120px;">
               <label for="walletSendAmountInput" style="font-size:11px;opacity:.8;">Amount</label>
-              <input id="walletSendAmountInput" type="number" min="0" step="0.000000001" placeholder="0.01" style="
-                margin-top:4px;
-                width:100%;
-                padding:9px 10px;
-                border-radius:12px;
-                border:1px solid rgba(148,163,184,.55);
-                background:rgba(15,23,42,1);
-                color:#fff;
-                font-size:12px;
-              " />
+              <input id="walletSendAmountInput" type="number" min="0" step="0.000000001" placeholder="0.01" class="cbsgo-wallet-input" />
             </div>
 
             <div style="width:160px;">
               <label for="walletSendTokenSelect" style="font-size:11px;opacity:.8;">Token</label>
-              <select id="walletSendTokenSelect" style="
-                margin-top:4px;
-                width:100%;
-                padding:9px 10px;
-                border-radius:12px;
-                border:1px solid rgba(148,163,184,.55);
-                background:rgba(15,23,42,1);
-                color:#fff;
-                font-size:12px;
-              ">
+              <select id="walletSendTokenSelect" class="cbsgo-wallet-input">
                 <option value="SOL">SOL</option>
                 <option value="CBS">CBS</option>
                 <option value="BONK">BONK</option>
@@ -2174,150 +2163,60 @@ function renderWalletPanel() {
 
           <div id="walletCustomSplWrap" style="display:none; margin-top:2px;">
             <label style="font-size:11px;opacity:.8;">SPL Mint address</label>
-            <input id="walletSplMintInput" placeholder="Mint address" style="
-              margin-top:4px;
-              width:100%;
-              padding:9px 10px;
-              border-radius:12px;
-              border:1px solid rgba(148,163,184,.55);
-              background:rgba(15,23,42,1);
-              color:#fff;
-              font-size:12px;
-            " />
-
+            <input id="walletSplMintInput" placeholder="Mint address" class="cbsgo-wallet-input" />
             <label style="font-size:11px;opacity:.8; margin-top:6px;">Token decimals</label>
-            <input id="walletSplDecimalsInput" type="number" min="0" max="12" placeholder="e.g. 6" style="
-              margin-top:4px;
-              width:100%;
-              padding:9px 10px;
-              border-radius:12px;
-              border:1px solid rgba(148,163,184,.55);
-              background:rgba(15,23,42,1);
-              color:#fff;
-              font-size:12px;
-            " />
+            <input id="walletSplDecimalsInput" type="number" min="0" max="12" placeholder="e.g. 6" class="cbsgo-wallet-input" />
           </div>
 
           <div style="display:flex;justify-content:flex-end;">
-            <button id="walletSendBtn" type="button" style="
-              margin-top:2px;
-              padding:9px 14px;
-              border-radius:999px;
-              border:1px solid rgba(56,189,248,.9);
-              background:rgba(56,189,248,.2);
-              color:#e0f2fe;
-              font-size:12px;
-              font-weight:800;
-              cursor:pointer;
-            ">Send</button>
+            <button id="walletSendBtn" type="button" class="cbsgo-btn-primary" style="padding:9px 16px;font-size:12px;">Send</button>
           </div>
 
-          <!-- ✅ FIX: eigen message element voor SEND (niet dezelfde id als receive) -->
           <div id="walletSendMsg" style="font-size:11px;opacity:.82;">
-            Select SOL or an SPL token to send on-chain. For "Other SPL (mint)" fill in mint + decimals.
+            Select SOL or an SPL token to send on-chain.
           </div>
         </div>
       </div>
 
-      <!-- Overview card -->
-      <div style="${cardStyle}; margin-top:12px; border-color: rgba(74,222,128,.40);">
-        ${titleRow('💹', 'Token overview', 'Live on-chain balances for this wallet.')}
-        <div id="walletOverviewStatus" style="font-size:11px;opacity:.8;margin-top:8px;">
-          Loading balances…
-        </div>
+      <div class="cbsgo-wallet-section cbsgo-wallet-section--tokens">
+        ${titleRow('trophy', 'Assets', 'Live on-chain balances for this wallet.')}
+        <div id="walletOverviewStatus" style="font-size:11px;opacity:.8;margin-top:8px;">Loading balances…</div>
         <div id="walletOverviewTotals" style="font-size:12px;margin-top:6px;"></div>
 
         <div style="margin-top:10px;overflow-x:auto;">
-          <table style="
-            width:100%;
-            border-collapse:collapse;
-            font-size:11px;
-            min-width:260px;
-          ">
+          <table class="cbsgo-wallet-token-table">
             <thead>
               <tr>
-                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid rgba(148,163,184,.45);opacity:.8;">Token</th>
-                <th style="text-align:right;padding:6px 4px;border-bottom:1px solid rgba(148,163,184,.45);opacity:.8;">Balance</th>
-                <th style="text-align:left;padding:6px 4px;border-bottom:1px solid rgba(148,163,184,.45);opacity:.8;">Name</th>
+                <th>Token</th>
+                <th style="text-align:right;">Balance</th>
+                <th>Name</th>
               </tr>
             </thead>
             <tbody id="walletOverviewTableBody">
               <tr>
-                <td style="padding:6px 4px;opacity:.7;" colspan="3">
-                  Fetching SPL token accounts&hellip;
-                </td>
+                <td colspan="3" style="padding:6px 4px;opacity:.7;">Fetching token accounts…</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Private key card -->
-      <div style="${cardStyle}; margin-top:12px; border-color: rgba(239,68,68,.55); background:rgba(24,24,27,.92);">
-        ${titleRow('⚠️', 'Private key (advanced)', 'Never share this. Anyone with it can move your funds.')}
-        <div id="walletSecretMasked" style="
-          margin-top:10px;
-          font-size:12px;
-          padding:8px 10px;
-          border-radius:12px;
-          border:1px dashed rgba(248,250,252,.35);
-          background:rgba(15,23,42,1);
-          font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-          letter-spacing:3px;
-          color:#9ca3af;
-
-          max-width:100%;
-          overflow:hidden;
-          text-overflow:ellipsis;
-          white-space:nowrap;
-        ">${maskedDots}</div>
-
-        <div id="walletSecretRealWrap" style="display:none; margin-top:8px;">
-          <div style="font-size:11px;opacity:.9;margin-bottom:6px;color:#fee2e2;">
-            This is your actual Base58 private key:
+      <details class="cbsgo-wallet-advanced">
+        <summary>Advanced · private key</summary>
+        <div class="cbsgo-wallet-section cbsgo-wallet-section--danger">
+          ${titleRow('error', 'Private key', 'Never share this. Anyone with it can move your funds.')}
+          <div id="walletSecretMasked" class="cbsgo-wallet-secret-masked">${'•'.repeat(44)}</div>
+          <div id="walletSecretRealWrap" style="display:none; margin-top:8px;">
+            <div style="font-size:11px;opacity:.9;margin-bottom:6px;color:#fecaca;">Your Base58 private key:</div>
+            <div id="walletSecretReal" class="cbsgo-wallet-secret-real"></div>
           </div>
-          <div id="walletSecretReal" style="
-            font-size:11px;
-            padding:8px 10px;
-            border-radius:12px;
-            border:1px solid rgba(248,250,252,.6);
-            background:rgba(15,23,42,1);
-            font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-
-            max-width:100%;
-            overflow:auto;
-            white-space:nowrap;
-
-            color:#f9fafb;
-          "></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+            <button id="walletRevealSecretBtn" type="button" class="cbsgo-btn-danger">Reveal private key</button>
+            <button id="walletCopySecretBtn" type="button" class="cbsgo-btn-secondary" disabled>Copy private key</button>
+          </div>
+          <div id="walletSecretMsg" style="font-size:11px;opacity:.9;margin-top:8px;color:#fecaca;"></div>
         </div>
-
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
-          <button id="walletRevealSecretBtn" type="button" style="
-            padding:8px 12px;
-            border-radius:999px;
-            border:1px solid rgba(239,68,68,.9);
-            background:rgba(127,29,29,1);
-            color:#fee2e2;
-            font-size:12px;
-            font-weight:800;
-            cursor:pointer;
-          ">Reveal private key</button>
-
-          <button id="walletCopySecretBtn" type="button" style="
-            padding:8px 12px;
-            border-radius:999px;
-            border:1px solid rgba(248,250,252,.6);
-            background:rgba(15,23,42,1);
-            color:#e5e7eb;
-            font-size:12px;
-            font-weight:700;
-            cursor:pointer;
-          " disabled>Copy private key</button>
-        </div>
-
-        <div id="walletSecretMsg" style="font-size:11px;opacity:.9;margin-top:8px;color:#fee2e2;"></div>
-      </div>
+      </details>
     </section>
   `;
 }
@@ -2346,6 +2245,7 @@ function bindWalletEvents() {
   const overviewTotalsEl = document.querySelector('#walletOverviewTotals');
   const overviewTableBody = document.querySelector('#walletOverviewTableBody');
   const overviewRefreshBtn = document.querySelector('#walletRefreshOverviewBtn');
+  const walletAssetSolEl = document.querySelector('#walletAssetSol');
 
   const setSendMsg = (t, isError = false) => {
     if (!sendMsgEl) return;
@@ -2542,6 +2442,10 @@ function bindWalletEvents() {
       const { sol, tokens } = await fetchTokenOverview(owner);
       setOverviewStatus('');
 
+      if (walletAssetSolEl) {
+        walletAssetSolEl.textContent = formatAmount(sol, 4);
+      }
+
       if (overviewTotalsEl) {
         const tokenCount = tokens.length;
         overviewTotalsEl.textContent = `SOL: ${formatAmount(sol, 5)} · SPL tokens: ${tokenCount}`;
@@ -2731,7 +2635,7 @@ function renderPanel() {
   const t = getSelectedTab();
   if (t === 'profile') return panelWrap('Profile', `<div id="profileMount">${renderProfile()}</div>`);
   if (t === 'bag') return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
-  if (t === 'wallet') return panelWrap('Solana Wallet', `<div id="walletMount">${renderWalletPanel()}</div>`);
+  if (t === 'wallet') return panelWrap('CBS-GO Wallet', `<div id="walletMount">${renderWalletPanel()}</div>`);
   if (t === 'leaderboard') return panelWrap('Leaderboard', `<div id="lbMount">${renderLeaderboardPanel()}</div>`);
   return '';
 }
@@ -2777,15 +2681,15 @@ export function renderAppShell() {
         flex-direction:row;
         gap:10px;
       ">
-        <button type="button" data-panel="profile" class="cbsgo-hud-btn" title="Character profile">
+        <button type="button" data-panel="profile" class="cbsgo-hud-btn" title="Profile">
           ${icon('profile', 26, { className: 'cbsgo-icon' })}
         </button>
 
-        <button type="button" data-panel="bag" class="cbsgo-hud-btn" title="Inventory bag">
+        <button type="button" data-panel="bag" class="cbsgo-hud-btn" title="Bag">
           ${icon('bag', 26, { className: 'cbsgo-icon' })}
         </button>
 
-        <button type="button" data-panel="wallet" class="cbsgo-hud-btn cbsgo-hud-btn--wallet" title="Solana wallet">
+        <button type="button" data-panel="wallet" class="cbsgo-hud-btn cbsgo-hud-btn--wallet" title="Wallet">
           ${icon('wallet', 26, { className: 'cbsgo-icon' })}
         </button>
       </div>
@@ -3548,18 +3452,8 @@ export function mountApp() {
         return !!xp && (xp.textContent || '').trim().length > 0;
       }, 12000);
 
-      // 3) Weather loaded (optional) — wait for element to appear + get text
-try {
-  await waitForCondition(() => {
-    const w =
-      document.querySelector('#weatherMount') ||
-      document.querySelector('#weatherWidget') ||
-      document.querySelector('[data-weather]');
-
-    if (!w) return false; // ✅ WAIT until weather element exists
-    return (w.textContent || '').trim().length > 0; // ✅ and has content
-  }, 8000);
-} catch {}
+      // 3) Map controls mounted (top-left)
+      await waitForCondition(() => !!document.querySelector('#cbsgoWorldBtn'), 8000);
 
 // end waitForAppReady
 };

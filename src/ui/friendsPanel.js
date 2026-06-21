@@ -11,6 +11,7 @@ import {
   acceptFriendRequest,
 } from '../app/friends.js';
 import { getPublicKey } from '../app/wallet.js';
+import { avatarFallbackHtml } from './gameIcons.js';
 
 function esc(s) {
   return String(s || '')
@@ -71,7 +72,7 @@ function normalizeImageDataUrl(input) {
 function avatarBubble(dataUrl, size = 32) {
   const safeUrl = normalizeImageDataUrl(dataUrl);
   const bg = safeUrl ? `background-image:url('${safeUrl}');` : '';
-  const txt = safeUrl ? '' : '👤';
+  const inner = safeUrl ? '' : avatarFallbackHtml(size);
 
   return `
     <div style="
@@ -88,9 +89,8 @@ function avatarBubble(dataUrl, size = 32) {
       align-items:center;
       justify-content:center;
       overflow:hidden;
-      font-size:16px;
     ">
-      ${txt}
+      ${inner}
     </div>
   `;
 }
@@ -182,7 +182,7 @@ export function renderFriendsPanel() {
             font-weight:600;
             cursor:pointer;
           ">
-            ➕ Add friend
+            Add friend
           </button>
         </div>
         <div id="friendsStatusMsg" style="margin-top:6px;font-size:11px;opacity:.9;"></div>
@@ -227,7 +227,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<span style="font-size:11px;opacity:.8;">✔︎ Friends</span>`
+                      `<span style="font-size:11px;opacity:.8;">Friends</span>`
                     )
                   )
                   .join('')
@@ -278,7 +278,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<span style="font-size:11px;opacity:.8;">⏳ Pending</span>`
+                      `<span style="font-size:11px;opacity:.8;">Pending</span>`
                     )
                   )
                   .join('')

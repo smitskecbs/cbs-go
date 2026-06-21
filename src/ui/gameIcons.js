@@ -19,6 +19,16 @@ const ICON_PATHS = {
     <circle cx="16.5" cy="14.5" r="1.5" fill="currentColor"/>
     <path d="M7 7V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
   `,
+  receive: `
+    <path d="M12 4v10" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M8 10l4 4 4-4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5 18h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  `,
+  send: `
+    <path d="M12 20V10" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M8 14l4-4 4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5 6h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  `,
   back: `
     <path d="M14 6L8 12l6 6" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M8 12h10" stroke="currentColor" stroke-width="1.85" stroke-linecap="round"/>
@@ -110,6 +120,7 @@ const PANEL_ICON_MAP = {
   Profile: 'profile',
   Bag: 'bag',
   'Solana Wallet': 'wallet',
+  'CBS-GO Wallet': 'wallet',
   Leaderboard: 'trophy',
   Friends: 'friends',
 };

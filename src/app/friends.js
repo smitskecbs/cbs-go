@@ -454,7 +454,13 @@ export async function removeFriend(friendId) {
     throw new Error('This friend is not linked to your account.');
   }
 
-  const { error } = await supabase.from(FRIENDS_TABLE).delete().eq('id', id);
+  const { data: deleted, error } = await supabase
+    .from(FRIENDS_TABLE)
+    .delete()
+    .eq('id', id)
+    .eq('status', 'accepted')
+    .or(`a_user.eq.${meUid},b_user.eq.${meUid}`)
+    .select('id');
 
   if (error) {
     logError('removeFriend:delete', error);
@@ -463,6 +469,11 @@ export async function removeFriend(friendId) {
       throw new Error('Supabase RLS blocked removing the friend. Check policies for "friends_uid".');
     }
     throw new Error('Could not remove friend (permissions or network issue).');
+  }
+
+  const removed = Array.isArray(deleted) ? deleted : deleted ? [deleted] : [];
+  if (!removed.length) {
+    throw new Error('Could not remove friend. The friendship may already be gone or you lack permission.');
   }
 
   return { ok: true };

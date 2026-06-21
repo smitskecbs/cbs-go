@@ -2641,7 +2641,7 @@ export function renderMapView() {
       <div id="cbsgoTopLeftUi" style="
         position:absolute;
         left:12px;
-        top:calc(env(safe-area-inset-top, 0px) + 42px);
+        top:calc(env(safe-area-inset-top, 0px) + 12px);
         z-index:3000;
         display:flex;
         flex-direction:column;
@@ -2649,23 +2649,6 @@ export function renderMapView() {
         gap:10px;
         pointer-events:none;
       ">
-        <div id="cbsgoWeather" class="cbsgo-pill" style="
-          position:relative;
-          margin:0;
-          padding:6px 10px;
-          font-size:12px;
-          display:inline-flex;
-          align-items:center;
-          gap:6px;
-          text-align:left;
-          max-width:min(62vw, 240px);
-          cursor:pointer;
-          user-select:none;
-          pointer-events:auto;
-        " title="Tap for 5-day forecast">
-          <span id="cbsgoWeatherLabel">${esc(getWeatherLabel())}</span>
-        </div>
-
         <div id="cbsgoMapControls" style="
           position:relative;
           margin:0;
