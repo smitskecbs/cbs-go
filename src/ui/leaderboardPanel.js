@@ -242,7 +242,7 @@ export function bindLeaderboardPanel() {
               padding:7px 10px;border-radius:999px;
               border:1px solid rgba(255, 159, 28,.9);
               background:rgba(255, 159, 28,.18);
-              color:#ffe8b3;font-size:12px;font-weight:800;cursor:pointer;
+              color:#3d2a10;font-size:12px;font-weight:800;cursor:pointer;
             ">Add friend</button>
           `;
 

@@ -518,9 +518,9 @@ body {
 .cbsgo-btn-primary {
   padding: 12px 14px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 159, 28, 0.35);
-  background: linear-gradient(135deg, rgba(255, 159, 28, 0.35), rgba(255, 179, 71, 0.22));
-  color: var(--cbsgo-text);
+  border: 1px solid rgba(255, 159, 28, 0.55);
+  background: linear-gradient(135deg, #ff9f1c, #e87800);
+  color: #fff;
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 0 18px var(--cbs-glow);
@@ -803,7 +803,7 @@ body {
 
 .cbsgo-wallet-asset-card--sol {
   border-color: rgba(255, 159, 28, 0.35);
-  background: linear-gradient(145deg, rgba(255, 159, 28, 0.12), rgba(10, 12, 18, 0.8));
+  background: linear-gradient(145deg, rgba(255, 233, 184, 0.65), rgba(255, 248, 235, 0.98));
 }
 
 .cbsgo-wallet-asset-card__label {
@@ -1670,4 +1670,45 @@ body {
   padding: 12px 14px !important;
   font-size: 14px !important;
   color: #fff;
+}
+
+/* ---------- Readable pills / badges on light CBS surfaces ---------- */
+.cbsgo-pill,
+.cbsgo-xp-bar,
+.cbsgo-xp-bar__level,
+.cbsgo-xp-bar__km,
+.cbsgo-xp-bar__foot,
+.cbsgo-xp-bar__total,
+.cbsgo-bag-asset-card,
+.cbsgo-bag-asset-card__label,
+.cbsgo-bag-asset-card__value,
+.cbsgo-bag-asset-card__hint,
+.cbsgo-wallet-asset-card,
+.cbsgo-wallet-asset-card__label,
+.cbsgo-wallet-asset-card__value,
+.cbsgo-wallet-asset-card__hint,
+.cbsgo-bag-loot-row,
+.cbsgo-bag-loot-row__title,
+.cbsgo-bag-loot-row__meta,
+.cbsgo-bag-loot-row__qty,
+.cbsgo-bag-card-tile__name,
+.cbsgo-bag-action-btn:not(.cbsgo-bag-action-btn--primary),
+.cbsgo-btn-secondary {
+  color: var(--cbsgo-text);
+}
+
+.cbsgo-xp-bar__badge {
+  color: var(--cbsgo-accent-text);
+}
+
+.cbsgo-bag-card-tile__qty {
+  color: #fff;
+  background: linear-gradient(145deg, #e87800, #c86a00);
+  border-color: rgba(255, 255, 255, 0.55);
+}
+
+.cbsgo-bag-action-btn--primary:not(:disabled),
+.cbsgo-bag-reward-card--ready .cbsgo-bag-action-btn:not(:disabled) {
+  color: #fff;
+  background: linear-gradient(145deg, #ff9f1c, #e87800);
 }

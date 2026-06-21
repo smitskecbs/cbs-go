@@ -534,6 +534,52 @@ async function checkProfileComplete(overrides = {}) {
   }
 }
 
+async function persistProfileAvatar(avatarDataUrl) {
+  const av = setPlayerAvatar(String(avatarDataUrl || ''));
+  if (!hasValidPlayerAvatar(av)) {
+    throw new Error('Invalid profile photo.');
+  }
+
+  let userId = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    userId = data?.user?.id || null;
+  } catch {}
+  if (!userId) throw new Error('Not logged in.');
+
+  const walletPk = getLocalPublicKeySafe() || null;
+  setProfileOwner({ userId, walletPk });
+
+  const nick = normalizePlayerNickname(getPlayerName());
+  const profilePayload = {
+    wallet_pk: walletPk,
+    avatar: av,
+  };
+  if (nick) profilePayload.nickname = nick;
+
+  const saved = await saveRemoteProfile(profilePayload, { forceSave: true });
+
+  if (!saved) {
+    throw new Error('Could not save profile photo to cloud.');
+  }
+
+  markRemoteApplied();
+
+  try {
+    await syncPlayerProfile({ avatar: av, forceSync: true });
+  } catch (e) {
+    console.warn('CBS GO: syncPlayerProfile after avatar save failed', e);
+  }
+
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:profileChanged', {
+      detail: { nickname: nick, avatar: av, email: getPlayerEmail() },
+    }),
+  );
+
+  return av;
+}
+
 async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   const nick = normalizePlayerNickname(nickname);
   if (!nick) throw new Error('Invalid nickname.');
@@ -662,7 +708,7 @@ function renderProfile() {
         border-radius:12px;
         border:1px solid rgba(251,191,36,.45);
         background:rgba(251,191,36,.12);
-        color:#fde68a;
+        color:#3d2a10;
         font-size:12px;
         font-weight:700;
       ">${esc(PROFILE_SETUP_MESSAGE)}</div>`
@@ -783,9 +829,9 @@ function renderProfile() {
               style="
                 padding:7px 11px;
                 border-radius:999px;
-                border:1px solid rgba(255, 159, 28,.9);
+                border:1px solid rgba(255, 159, 28,.45);
                 background:rgba(255, 159, 28,.18);
-                color:#ffe8b3;
+                color:#3d2a10;
                 font-size:12px;
                 font-weight:700;
                 cursor:pointer;
@@ -1029,26 +1075,16 @@ function bindProfileEvents() {
       const reader = new FileReader();
       reader.onload = async () => {
         try {
-          setPlayerAvatar(String(reader.result || ''));
-          setMsg('Uploading photo…');
-          let userId = null;
-          try {
-            const { data } = await supabase.auth.getUser();
-            userId = data?.user?.id || null;
-          } catch {}
-          setProfileOwner({ userId, walletPk: getLocalPublicKeySafe() });
+          const av = String(reader.result || '');
+          setMsg('Saving photo…');
+          await persistProfileAvatar(av);
           setMsg('✅ Photo updated');
           updatePanel();
-
-          try {
-            await syncPlayerProfile();
-            syncRemoteProfileSafe('avatar-change');
-          } catch (e) {
-            console.warn('CBS GO: failed to sync profile after avatar change', e);
-          }
         } catch (e) {
           console.warn('Avatar update failed', e);
-          setMsg('⚠️ Failed to update photo');
+          setMsg(`⚠️ ${e.message || 'Failed to update photo'}`);
+        } finally {
+          fileInput.value = '';
         }
       };
       reader.onerror = () => setMsg('⛔ Failed to read image.');
@@ -1744,7 +1780,7 @@ function renderWalletPanel() {
         </div>
         <div class="cbsgo-wallet-panel__header-actions">
           ${pillBtn('walletCopyAddressBtn', 'Copy address', true)}
-          ${pillBtn('walletRefreshOverviewBtn', 'Refresh', false)}
+          ${pillBtn('walletRefreshOverviewBtn', 'Refresh balance', false)}
         </div>
       </div>
 
@@ -1823,7 +1859,7 @@ function renderWalletPanel() {
 
       <div class="cbsgo-wallet-section cbsgo-wallet-section--tokens">
         ${titleRow('trophy', 'Assets', 'Live on-chain balances for this wallet.')}
-        <div id="walletOverviewStatus" style="font-size:11px;opacity:.8;margin-top:8px;">Loading balances…</div>
+        <div id="walletOverviewStatus" style="font-size:11px;opacity:.8;margin-top:8px;">Loading wallet balances…</div>
         <div id="walletOverviewTotals" style="font-size:12px;margin-top:6px;"></div>
 
         <div style="margin-top:10px;overflow-x:auto;">
@@ -1893,7 +1929,7 @@ function bindWalletEvents() {
   const setSendMsg = (t, isError = false) => {
     if (!sendMsgEl) return;
     sendMsgEl.innerHTML = t || '';
-    sendMsgEl.style.color = isError ? '#fecaca' : '#e5e7eb';
+    sendMsgEl.style.color = isError ? '#b91c1c' : 'var(--cbsgo-text-muted, #6b5340)';
   };
 
   const setSecretMsg = (t) => {
@@ -2067,14 +2103,15 @@ function bindWalletEvents() {
     const owner = getLocalPublicKeySafe();
     if (!owner) {
       setOverviewStatus('No local wallet available.');
-      overviewTableBody.innerHTML = `<tr><td colspan="3" style="padding:4px 4px;opacity:.7;">No wallet.</td></tr>`;
+      if (walletAssetSolEl) walletAssetSolEl.textContent = '—';
+      overviewTableBody.innerHTML = `<tr><td colspan="3" style="padding:6px 4px;opacity:.7;">No wallet.</td></tr>`;
       return;
     }
 
-    setOverviewStatus('Loading balances…');
+    setOverviewStatus('Loading wallet balances…');
     overviewTableBody.innerHTML = `
       <tr>
-        <td style="padding:4px 4px;opacity:.7;" colspan="3">
+        <td style="padding:6px 4px;opacity:.7;" colspan="3">
           Fetching SOL + SPL token accounts…
         </td>
       </tr>
@@ -2097,8 +2134,8 @@ function bindWalletEvents() {
       if (!tokens.length) {
         overviewTableBody.innerHTML = `
           <tr>
-            <td style="padding:4px 4px;opacity:.7;" colspan="3">
-              No SPL tokens found for this wallet yet.
+            <td style="padding:6px 4px;opacity:.7;" colspan="3">
+              No SPL tokens found
             </td>
           </tr>
         `;
@@ -2128,11 +2165,13 @@ function bindWalletEvents() {
       }
     } catch (e) {
       console.warn('CBS GO: fetchTokenOverview failed', e);
-      setOverviewStatus('⛔ Could not fetch token balances.');
+      setOverviewStatus('Could not load wallet balances');
+      if (walletAssetSolEl) walletAssetSolEl.textContent = '—';
+      if (overviewTotalsEl) overviewTotalsEl.textContent = '';
       overviewTableBody.innerHTML = `
         <tr>
-          <td style="padding:4px 4px;opacity:.7;" colspan="3">
-            Error loading token accounts.
+          <td style="padding:6px 4px;opacity:.7;" colspan="3">
+            Could not load wallet balances. Tap Refresh balance to try again.
           </td>
         </tr>
       `;

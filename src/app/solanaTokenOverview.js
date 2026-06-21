@@ -1,26 +1,9 @@
 // src/app/solanaTokenOverview.js
 // Haalt SOL + SPL token balances op voor een owner (local Solana wallet).
 
-import {
-  Connection,
-  PublicKey,
-  LAMPORTS_PER_SOL,
-} from '@solana/web3.js';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
-
-// Zelfde RPC als voor je sends
-const RPC_URL =
-  import.meta.env.VITE_SOLANA_RPC_URL ||
-  'https://api.mainnet-beta.solana.com';
-
-let _connection = null;
-
-function getConnection() {
-  if (!_connection) {
-    _connection = new Connection(RPC_URL, 'confirmed');
-  }
-  return _connection;
-}
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
+import { getSolanaConnection } from './solanaConnection.js';
 
 // Bekende mints mooi weergeven (symbol + name)
 const KNOWN_MINTS = {
@@ -51,6 +34,43 @@ function formatAmount(uiAmount, decimals) {
   });
 }
 
+function parseTokenUiAmount(amountInfo) {
+  if (!amountInfo) return { uiAmount: 0, decimals: 0, uiAmountStr: '0' };
+
+  const decimals = Number(amountInfo.decimals || 0);
+  let uiAmount = Number(amountInfo.uiAmount);
+
+  if (!Number.isFinite(uiAmount) && amountInfo.uiAmountString != null) {
+    uiAmount = Number(amountInfo.uiAmountString);
+  }
+
+  if (!Number.isFinite(uiAmount) && amountInfo.amount != null) {
+    const raw = Number(amountInfo.amount);
+    if (Number.isFinite(raw)) {
+      uiAmount = raw / 10 ** decimals;
+    }
+  }
+
+  if (!Number.isFinite(uiAmount)) uiAmount = 0;
+
+  const uiAmountStr =
+    amountInfo.uiAmountString != null && String(amountInfo.uiAmountString).trim()
+      ? String(amountInfo.uiAmountString)
+      : formatAmount(uiAmount, decimals);
+
+  return { uiAmount, decimals, uiAmountStr };
+}
+
+async function fetchParsedTokenAccounts(connection, owner, programId) {
+  try {
+    const res = await connection.getParsedTokenAccountsByOwner(owner, { programId });
+    return res?.value || [];
+  } catch (err) {
+    console.warn('CBS GO: getParsedTokenAccountsByOwner failed', programId?.toBase58?.(), err);
+    return [];
+  }
+}
+
 /**
  * Haal on-chain balances op voor een owner
  * @param {string} ownerAddress - base58 public key
@@ -61,39 +81,39 @@ export async function fetchTokenOverview(ownerAddress) {
     throw new Error('Missing owner address');
   }
 
-  const owner = new PublicKey(ownerAddress);
-  const connection = getConnection();
+  let owner;
+  try {
+    owner = new PublicKey(ownerAddress);
+  } catch {
+    throw new Error('Invalid wallet address');
+  }
 
-  // SOL + alle SPL token accounts in één keer
-  const [lamports, parsedTokens] = await Promise.all([
+  const connection = getSolanaConnection();
+
+  const [lamports, legacyAccounts, token2022Accounts] = await Promise.all([
     connection.getBalance(owner, 'confirmed'),
-    connection.getParsedTokenAccountsByOwner(owner, {
-      programId: TOKEN_PROGRAM_ID,
-    }),
+    fetchParsedTokenAccounts(connection, owner, TOKEN_PROGRAM_ID),
+    fetchParsedTokenAccounts(connection, owner, TOKEN_2022_PROGRAM_ID),
   ]);
 
   const sol = lamports / LAMPORTS_PER_SOL;
-
-  // Per mint optellen
   const byMint = new Map();
 
-  for (const { account } of parsedTokens.value) {
+  for (const { account } of [...legacyAccounts, ...token2022Accounts]) {
     try {
-      const parsed = account.data.parsed?.info;
+      const parsed = account?.data?.parsed?.info;
       if (!parsed) continue;
 
       const mint = parsed.mint;
       const amountInfo = parsed.tokenAmount;
       if (!mint || !amountInfo) continue;
 
-      const uiAmount = Number(amountInfo.uiAmount || 0);
-      const decimals = Number(amountInfo.decimals || 0);
-
+      const { uiAmount, decimals } = parseTokenUiAmount(amountInfo);
       if (!Number.isFinite(uiAmount) || uiAmount <= 0) continue;
 
-      const existing =
-        byMint.get(mint) || { mint, uiAmount: 0, decimals };
+      const existing = byMint.get(mint) || { mint, uiAmount: 0, decimals };
       existing.uiAmount += uiAmount;
+      existing.decimals = decimals;
       byMint.set(mint, existing);
     } catch (err) {
       console.warn('CBS GO: parse token account failed', err);
