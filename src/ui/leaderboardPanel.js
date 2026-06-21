@@ -240,9 +240,9 @@ export function bindLeaderboardPanel() {
           : `
             <button class="lbAddFriendBtn" data-value="${esc(friendCode)}" type="button" style="
               padding:7px 10px;border-radius:999px;
-              border:1px solid rgba(56,189,248,.9);
-              background:rgba(56,189,248,.18);
-              color:#e0f2fe;font-size:12px;font-weight:800;cursor:pointer;
+              border:1px solid rgba(255, 159, 28,.9);
+              background:rgba(255, 159, 28,.18);
+              color:#ffe8b3;font-size:12px;font-weight:800;cursor:pointer;
             ">Add friend</button>
           `;
 

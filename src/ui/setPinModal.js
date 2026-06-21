@@ -59,7 +59,7 @@ function btnStyle(primary = true) {
     padding:12px 14px;
     border-radius:16px;
     border:1px solid rgba(255,255,255,.14);
-    background:${primary ? 'rgba(90,200,255,.22)' : 'rgba(255,255,255,.08)'};
+    background:${primary ? 'rgba(255, 159, 28,.22)' : 'rgba(255,255,255,.08)'};
     color:#fff;
     font-weight:900;
     cursor:pointer;
@@ -154,7 +154,7 @@ export function openSetPinModal() {
     <div style="
       width:min(780px, 96vw);
       border-radius:22px;
-      border:1px solid rgba(56,189,248,.7);
+      border:1px solid rgba(255, 159, 28,.7);
       background:rgba(10,12,18,.95);
       color:#fff;
       box-shadow:0 18px 60px rgba(0,0,0,.55);

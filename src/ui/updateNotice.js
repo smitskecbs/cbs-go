@@ -18,9 +18,10 @@ function mountNotice({
   onPrimary,
   secondaryLabel,
   onSecondary,
+  tertiaryLabel,
+  onTertiary,
 }) {
   removeNotice(id);
-  if (document.getElementById(id)) return;
 
   const wrap = document.createElement('div');
   wrap.id = id;
@@ -28,60 +29,78 @@ function mountNotice({
   wrap.setAttribute('role', 'dialog');
   wrap.setAttribute('aria-live', 'polite');
 
+  const tertiaryHtml = tertiaryLabel
+    ? `<button type="button" class="cbsgo-btn-secondary cbsgo-update-notice__tertiary">${tertiaryLabel}</button>`
+    : '';
+
   wrap.innerHTML = `
     <div class="cbsgo-update-notice__card">
       <div class="cbsgo-update-notice__icon">${icon('compass', 22, { className: 'cbsgo-icon' })}</div>
       <div class="cbsgo-update-notice__body">
         <div class="cbsgo-update-notice__title">${title}</div>
         <div class="cbsgo-update-notice__text">${text}</div>
+        <div class="cbsgo-update-notice__status" aria-live="polite"></div>
       </div>
       <div class="cbsgo-update-notice__actions">
         <button type="button" class="cbsgo-btn-primary cbsgo-update-notice__primary">${primaryLabel}</button>
         <button type="button" class="cbsgo-btn-secondary cbsgo-update-notice__secondary">${secondaryLabel}</button>
+        ${tertiaryHtml}
       </div>
     </div>
   `;
 
-  const primaryBtn = wrap.querySelector('.cbsgo-update-notice__primary');
-  const secondaryBtn = wrap.querySelector('.cbsgo-update-notice__secondary');
-
-  primaryBtn?.addEventListener('click', () => {
+  wrap.querySelector('.cbsgo-update-notice__primary')?.addEventListener('click', () => {
     if (typeof onPrimary === 'function') onPrimary();
   });
 
-  secondaryBtn?.addEventListener('click', () => {
+  wrap.querySelector('.cbsgo-update-notice__secondary')?.addEventListener('click', () => {
     removeNotice(id);
     if (typeof onSecondary === 'function') onSecondary();
+  });
+
+  wrap.querySelector('.cbsgo-update-notice__tertiary')?.addEventListener('click', () => {
+    if (typeof onTertiary === 'function') onTertiary();
   });
 
   document.body.appendChild(wrap);
 }
 
-export function showUpdateAvailable({ onUpdate, onLater } = {}) {
+export function setUpdateNoticeStatus(message) {
+  const el =
+    document.querySelector('#cbsgoUpdateNotice .cbsgo-update-notice__status') ||
+    document.querySelector('#cbsgoVersionNotice .cbsgo-update-notice__status');
+  if (el) el.textContent = message || '';
+}
+
+export function showUpdateAvailable({ onUpdate, onLater, onCheckUpdate } = {}) {
   mountNotice({
     id: UPDATE_NOTICE_ID,
     title: 'Update available',
-    text: 'A new CBS-GO version is ready. Update now to get the latest game UI and fixes.',
+    text: 'A new CBS-GO version is ready. Update now to load the latest UI and fixes.',
     primaryLabel: 'Update now',
     onPrimary: () => {
       if (typeof onUpdate === 'function') onUpdate();
     },
     secondaryLabel: 'Later',
     onSecondary: onLater,
+    tertiaryLabel: onCheckUpdate ? 'Check for update' : '',
+    onTertiary: onCheckUpdate,
   });
 }
 
-export function showAppUpdatedNotice({ onRefresh, onDismiss } = {}) {
+export function showAppUpdatedNotice({ onRefresh, onDismiss, onCheckUpdate } = {}) {
   mountNotice({
     id: VERSION_NOTICE_ID,
     title: 'Refresh recommended',
-    text: 'This device may still be running an older CBS-GO build. Refresh to load the latest game UI and fixes.',
+    text: 'This device may still be running an older CBS-GO build. Refresh to load the latest UI and fixes.',
     primaryLabel: 'Refresh now',
     onPrimary: () => {
       if (typeof onRefresh === 'function') onRefresh();
     },
     secondaryLabel: 'Later',
     onSecondary: onDismiss,
+    tertiaryLabel: onCheckUpdate ? 'Check for update' : '',
+    onTertiary: onCheckUpdate,
   });
 }
 

@@ -62,7 +62,7 @@ function removeOverlay() {
 function createConfetti(container) {
   const colors = [
     'rgba(244,114,182,1)', // pink
-    'rgba(56,189,248,1)',  // sky
+    'rgba(255, 159, 28,1)',  // sky
     'rgba(34,197,94,1)',   // green
     'rgba(234,179,8,1)',   // amber
     'rgba(129,140,248,1)'  // indigo

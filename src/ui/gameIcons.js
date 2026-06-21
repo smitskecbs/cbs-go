@@ -1,5 +1,5 @@
 // src/ui/gameIcons.js
-// Consistent inline SVG icons for CBS-GO (Solana adventure HUD style).
+// Consistent inline SVG icons for CBS-GO (CBS adventure HUD style).
 
 const ICON_PATHS = {
   profile: `

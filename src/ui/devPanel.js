@@ -157,8 +157,8 @@ export function renderDevPanelBody() {
           <button id="devAddXpBtn" type="button" style="
             padding:8px 10px;
             border-radius:10px;
-            border:1px solid rgba(56,189,248,.45);
-            background:rgba(56,189,248,.10);
+            border:1px solid rgba(255, 159, 28,.45);
+            background:rgba(255, 159, 28,.10);
             color:#e5e7eb;
             font-size:12px;
             font-weight:700;
@@ -168,8 +168,8 @@ export function renderDevPanelBody() {
           <button id="devAddTicketsBtn" type="button" style="
             padding:8px 10px;
             border-radius:10px;
-            border:1px solid rgba(56,189,248,.45);
-            background:rgba(56,189,248,.10);
+            border:1px solid rgba(255, 159, 28,.45);
+            background:rgba(255, 159, 28,.10);
             color:#e5e7eb;
             font-size:12px;
             font-weight:700;
@@ -179,8 +179,8 @@ export function renderDevPanelBody() {
           <button id="devAddCbsBtn" type="button" style="
             padding:8px 10px;
             border-radius:10px;
-            border:1px solid rgba(56,189,248,.45);
-            background:rgba(56,189,248,.10);
+            border:1px solid rgba(255, 159, 28,.45);
+            background:rgba(255, 159, 28,.10);
             color:#e5e7eb;
             font-size:12px;
             font-weight:700;

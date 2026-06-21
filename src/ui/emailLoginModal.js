@@ -50,7 +50,7 @@ function btnStyle(primary = true) {
     padding:12px 14px;
     border-radius:16px;
     border:1px solid rgba(255,255,255,.14);
-    background:${primary ? 'rgba(90,200,255,.22)' : 'rgba(255,255,255,.08)'};
+    background:${primary ? 'rgba(255, 159, 28,.22)' : 'rgba(255,255,255,.08)'};
     color:#fff;
     font-weight:900;
     cursor:pointer;

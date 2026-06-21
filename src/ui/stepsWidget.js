@@ -44,7 +44,7 @@ export function renderStepsWidget() {
           position:absolute;
           inset:0;
           width:${pct}%;
-          background:linear-gradient(90deg,#22c55e,#a855f7);
+          background:linear-gradient(90deg,#22c55e,#ff9f1c);
           box-shadow:0 0 8px rgba(168,85,247,.45);
           transition:width .25s ease-out;
         "></div>

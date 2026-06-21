@@ -1363,7 +1363,7 @@ function injectStylesOnce() {
     .cbsgo-player-glow{
       position:absolute; inset:0;
       border-radius:999px;
-      background: radial-gradient(circle, rgba(56,189,248,0.35), rgba(56,189,248,0.00) 70%);
+      background: radial-gradient(circle, rgba(255, 159, 28,0.35), rgba(255, 159, 28,0.00) 70%);
       transform: scale(1.2);
     }
     .cbsgo-player-core{
@@ -2097,9 +2097,9 @@ const ensureTreasureStyles = () => {
   bottom:-12px;
   font-size:10px;
   font-weight:800;
-  color:#e0f2fe;
+  color:#ffe8b3;
   background:rgba(2,6,23,.8);
-  border:1px solid rgba(56,189,248,.35);
+  border:1px solid rgba(255, 159, 28,.35);
   border-radius:999px;
   padding:2px 7px;
   pointer-events:none;
@@ -2191,7 +2191,7 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
   const card = document.createElement('div');
   card.style.width = 'min(430px, 92vw)';
   card.style.borderRadius = '28px';
-  card.style.border = '1px solid rgba(56,189,248,.45)';
+  card.style.border = '1px solid rgba(255, 159, 28,.45)';
   card.style.background = 'linear-gradient(180deg, rgba(8,15,28,.98) 0%, rgba(7,10,18,.98) 100%)';
   card.style.boxShadow = '0 30px 90px rgba(0,0,0,.58), 0 0 0 1px rgba(255,255,255,.03) inset, 0 0 40px rgba(34,211,238,.10)';
   card.style.padding = '18px';
@@ -2223,11 +2223,11 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       padding:12px;
       border-radius:20px;
       background:linear-gradient(180deg, rgba(15,23,42,.68), rgba(2,6,23,.5));
-      border:1px solid rgba(56,189,248,.18);
+      border:1px solid rgba(255, 159, 28,.18);
     ">
       <div style="
         width:58px;height:58px;border-radius:18px;
-        border:1px solid rgba(56,189,248,.38);
+        border:1px solid rgba(255, 159, 28,.38);
         background:
           radial-gradient(circle at 30% 25%, rgba(103,232,249,.18), rgba(34,211,238,.06) 45%, rgba(0,0,0,0) 72%),
           linear-gradient(180deg, rgba(15,23,42,.98), rgba(8,15,28,.98));
@@ -2279,7 +2279,7 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       padding:12px 13px;
       border-radius:18px;
       background:linear-gradient(180deg, rgba(8,47,73,.55), rgba(15,23,42,.78));
-      border:1px solid rgba(56,189,248,.28);
+      border:1px solid rgba(255, 159, 28,.28);
       box-shadow: 0 8px 28px rgba(2,132,199,.08) inset;
     ">
       <div style="font-size:10px;opacity:.72;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;">Reward</div>

@@ -72,7 +72,7 @@ export async function openLoginModal() {
       <div style="
         width:min(420px, 92vw);
         border-radius:22px;
-        border:1px solid rgba(56,189,248,.85);
+        border:1px solid rgba(255, 159, 28,.85);
         background:rgba(10,12,18,.98);
         box-shadow:0 24px 80px rgba(0,0,0,.88);
         padding:18px 16px 16px 16px;
@@ -108,9 +108,9 @@ export async function openLoginModal() {
           width:100%;
           padding:12px 14px;
           border-radius:999px;
-          border:1px solid rgba(56,189,248,.9);
-          background:rgba(56,189,248,.2);
-          color:#e0f2fe;
+          border:1px solid rgba(255, 159, 28,.9);
+          background:rgba(255, 159, 28,.2);
+          color:#ffe8b3;
           font-size:14px;
           font-weight:700;
           cursor:pointer;
@@ -192,7 +192,7 @@ export async function openLoginModal() {
     <div style="
       width:min(420px, 92vw);
       border-radius:22px;
-      border:1px solid rgba(56,189,248,.85);
+      border:1px solid rgba(255, 159, 28,.85);
       background:rgba(10,12,18,.98);
       box-shadow:0 24px 80px rgba(0,0,0,.88);
       padding:18px 16px 16px 16px;
@@ -208,9 +208,9 @@ export async function openLoginModal() {
         width:100%;
         padding:12px 14px;
         border-radius:999px;
-        border:1px solid rgba(56,189,248,.9);
-        background:rgba(56,189,248,.2);
-        color:#e0f2fe;
+        border:1px solid rgba(255, 159, 28,.9);
+        background:rgba(255, 159, 28,.2);
+        color:#ffe8b3;
         font-size:14px;
         font-weight:700;
         cursor:pointer;

@@ -97,7 +97,7 @@ body {
 }
 
 .node.group .badge {
-  background: #7c3aed;
+  background: #ff9f1c;
   color: #fff;
 }
 
@@ -337,13 +337,24 @@ body {
 /* ---------- CBS-GO game UI ---------- */
 :root {
   --cbsgo-bg-deep: #05070b;
+  --cbs-gold: #ffd36a;
+  --cbs-orange: #ff9f1c;
+  --cbs-amber: #ffb347;
+  --cbs-brown-deep: #1d1206;
+  --cbs-brown-dark: #211407;
+  --cbs-glow: rgba(255, 159, 28, 0.35);
+  --cbs-panel-bg: linear-gradient(165deg, rgba(29, 18, 6, 0.92) 0%, rgba(33, 20, 7, 0.88) 100%);
+
   --cbsgo-glass: rgba(10, 12, 18, 0.82);
-  --cbsgo-glass-border: rgba(255, 255, 255, 0.14);
-  --cbsgo-glow-purple: rgba(153, 69, 255, 0.35);
-  --cbsgo-glow-green: rgba(20, 241, 149, 0.28);
-  --cbsgo-glow-cyan: rgba(0, 209, 255, 0.28);
-  --cbsgo-gold: #fbbf24;
-  --cbsgo-gold-soft: rgba(251, 191, 36, 0.18);
+  --cbsgo-glass-border: rgba(255, 180, 80, 0.18);
+  --cbsgo-glow-accent: var(--cbs-glow);
+  --cbsgo-glow-green: rgba(34, 197, 94, 0.28);
+  --cbsgo-gold: var(--cbs-gold);
+  --cbsgo-gold-soft: rgba(255, 159, 28, 0.18);
+  --cbsgo-accent: var(--cbs-orange);
+  --cbsgo-accent-text: var(--cbs-gold);
+  --cbsgo-accent-border: rgba(255, 159, 28, 0.45);
+  --cbsgo-accent-soft: rgba(255, 159, 28, 0.12);
   --cbsgo-success: #86efac;
   --cbsgo-error: #fca5a5;
 }
@@ -355,15 +366,15 @@ body {
 }
 
 .cbsgo-icon--panel {
-  color: #c4b5fd;
-  filter: drop-shadow(0 0 6px var(--cbsgo-glow-purple));
+  color: var(--cbsgo-accent-text);
+  filter: drop-shadow(0 0 6px var(--cbs-glow));
 }
 
 .cbsgo-avatar-fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(196, 181, 253, 0.95);
+  color: var(--cbs-gold);
 }
 
 .cbsgo-hud-btn {
@@ -384,18 +395,18 @@ body {
 
 .cbsgo-hud-btn:hover {
   transform: translateY(-1px);
-  border-color: rgba(196, 181, 253, 0.45);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 18px var(--cbsgo-glow-purple);
+  border-color: rgba(255, 159, 28, 0.45);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 18px var(--cbs-glow);
 }
 
 .cbsgo-hud-btn--wallet {
-  border-color: rgba(56, 189, 248, 0.55);
-  color: #bae6fd;
+  border-color: rgba(255, 159, 28, 0.55);
+  color: #ffd36a;
 }
 
 .cbsgo-hud-btn--wallet:hover {
-  border-color: rgba(20, 241, 149, 0.55);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 18px var(--cbsgo-glow-cyan);
+  border-color: rgba(255, 179, 71, 0.55);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5), 0 0 18px var(--cbs-glow);
 }
 
 .cbsgo-game-panel {
@@ -404,11 +415,7 @@ body {
   margin: 0 auto;
   border-radius: 22px;
   border: 1px solid var(--cbsgo-glass-border);
-  background: linear-gradient(
-    145deg,
-    rgba(10, 12, 18, 0.92) 0%,
-    rgba(15, 23, 42, 0.78) 100%
-  );
+  background: var(--cbs-panel-bg);
   backdrop-filter: blur(16px);
   box-shadow:
     0 18px 60px rgba(0, 0, 0, 0.55),
@@ -425,9 +432,9 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: linear-gradient(
     90deg,
-    rgba(153, 69, 255, 0.08) 0%,
-    rgba(20, 241, 149, 0.06) 50%,
-    rgba(0, 209, 255, 0.05) 100%
+    rgba(255, 159, 28, 0.08) 0%,
+    rgba(255, 179, 71, 0.06) 50%,
+    rgba(255, 211, 106, 0.05) 100%
   );
 }
 
@@ -458,11 +465,11 @@ body {
   width: min(520px, 96vw);
   border-radius: 22px;
   border: 1px solid var(--cbsgo-glass-border);
-  background: linear-gradient(160deg, rgba(10, 12, 18, 0.97) 0%, rgba(17, 24, 39, 0.94) 100%);
+  background: linear-gradient(160deg, rgba(29, 18, 6, 0.97) 0%, rgba(33, 20, 7, 0.94) 100%);
   color: #fff;
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.65),
-    0 0 40px var(--cbsgo-glow-purple);
+    0 0 40px var(--cbs-glow);
   font-family: system-ui, sans-serif;
   overflow: hidden;
 }
@@ -475,8 +482,8 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: linear-gradient(
     90deg,
-    rgba(153, 69, 255, 0.12) 0%,
-    rgba(20, 241, 149, 0.08) 100%
+    rgba(255, 159, 28, 0.12) 0%,
+    rgba(255, 179, 71, 0.08) 100%
   );
   font-weight: 900;
   font-size: 16px;
@@ -486,24 +493,24 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
-  background: rgba(153, 69, 255, 0.12);
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: rgba(255, 159, 28, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c4b5fd;
+  color: #ffd36a;
   flex-shrink: 0;
 }
 
 .cbsgo-btn-primary {
   padding: 12px 14px;
   border-radius: 16px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
-  background: linear-gradient(135deg, rgba(153, 69, 255, 0.35), rgba(20, 241, 149, 0.22));
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: linear-gradient(135deg, rgba(255, 159, 28, 0.35), rgba(255, 179, 71, 0.22));
   color: #fff;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 0 18px var(--cbsgo-glow-purple);
+  box-shadow: 0 0 18px var(--cbs-glow);
 }
 
 .cbsgo-btn-secondary {
@@ -556,7 +563,7 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #c4b5fd;
+  color: var(--cbs-gold);
 }
 
 .cbsgo-update-notice {
@@ -579,11 +586,11 @@ body {
   gap: 10px 12px;
   padding: 14px 14px 12px;
   border-radius: 18px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
-  background: linear-gradient(160deg, rgba(10, 12, 18, 0.97) 0%, rgba(17, 24, 39, 0.94) 100%);
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: linear-gradient(160deg, rgba(29, 18, 6, 0.97) 0%, rgba(33, 20, 7, 0.94) 100%);
   box-shadow:
     0 18px 60px rgba(0, 0, 0, 0.55),
-    0 0 28px rgba(153, 69, 255, 0.18);
+    0 0 28px rgba(255, 159, 28, 0.18);
   backdrop-filter: blur(14px);
   color: #fff;
   font-family: system-ui, sans-serif;
@@ -593,12 +600,12 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
-  background: rgba(153, 69, 255, 0.12);
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: rgba(255, 159, 28, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c4b5fd;
+  color: #ffd36a;
   grid-row: span 2;
 }
 
@@ -615,6 +622,14 @@ body {
   margin-top: 2px;
 }
 
+.cbsgo-update-notice__status {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #fde68a;
+  min-height: 0;
+}
+
 .cbsgo-update-notice__actions {
   grid-column: 1 / -1;
   display: flex;
@@ -623,11 +638,21 @@ body {
 }
 
 .cbsgo-update-notice__primary,
-.cbsgo-update-notice__secondary {
+.cbsgo-update-notice__secondary,
+.cbsgo-update-notice__tertiary {
   flex: 1;
   min-width: 120px;
   padding: 10px 12px !important;
   font-size: 13px !important;
+}
+
+.cbsgo-app-version {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 10px;
+  opacity: 0.55;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
 
 .cbsgo-confirm-backdrop {
@@ -646,7 +671,7 @@ body {
   width: min(420px, 96vw);
   padding: 18px 16px 14px;
   border-radius: 20px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
+  border: 1px solid rgba(255, 159, 28, 0.35);
   background: linear-gradient(160deg, rgba(10, 12, 18, 0.98) 0%, rgba(17, 24, 39, 0.96) 100%);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
   color: #fff;
@@ -659,12 +684,12 @@ body {
   height: 44px;
   margin: 0 auto 10px;
   border-radius: 14px;
-  border: 1px solid rgba(196, 181, 253, 0.35);
-  background: rgba(153, 69, 255, 0.12);
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: rgba(255, 159, 28, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #c4b5fd;
+  color: #ffd36a;
 }
 
 .cbsgo-confirm-card__title {
@@ -694,8 +719,8 @@ body {
 .cbsgo-wallet-panel {
   padding: 14px;
   border-radius: 20px;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  background: linear-gradient(165deg, rgba(8, 10, 16, 0.92) 0%, rgba(15, 23, 42, 0.82) 100%);
+  border: 1px solid var(--cbsgo-accent-border);
+  background: var(--cbs-panel-bg);
   backdrop-filter: blur(14px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
@@ -719,13 +744,13 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 16px;
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  background: linear-gradient(145deg, rgba(153, 69, 255, 0.18), rgba(20, 241, 149, 0.12));
+  border: 1px solid rgba(255, 159, 28, 0.45);
+  background: linear-gradient(145deg, rgba(255, 159, 28, 0.18), rgba(255, 179, 71, 0.12));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #bae6fd;
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+  color: #ffd36a;
+  box-shadow: 0 0 20px rgba(255, 159, 28, 0.15);
 }
 
 .cbsgo-wallet-panel__title {
@@ -761,8 +786,8 @@ body {
 }
 
 .cbsgo-wallet-asset-card--sol {
-  border-color: rgba(56, 189, 248, 0.35);
-  background: linear-gradient(145deg, rgba(56, 189, 248, 0.12), rgba(10, 12, 18, 0.8));
+  border-color: rgba(255, 159, 28, 0.35);
+  background: linear-gradient(145deg, rgba(255, 159, 28, 0.12), rgba(10, 12, 18, 0.8));
 }
 
 .cbsgo-wallet-asset-card__label {
@@ -794,11 +819,11 @@ body {
 }
 
 .cbsgo-wallet-section--receive {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-color: rgba(255, 159, 28, 0.35);
 }
 
 .cbsgo-wallet-section--tokens {
-  border-color: rgba(20, 241, 149, 0.22);
+  border-color: rgba(255, 179, 71, 0.22);
 }
 
 .cbsgo-wallet-section--danger {
@@ -816,12 +841,12 @@ body {
   width: 34px;
   height: 34px;
   border-radius: 12px;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: rgba(255, 159, 28, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #bae6fd;
+  color: #ffd36a;
   flex-shrink: 0;
 }
 
@@ -842,7 +867,7 @@ body {
   font-size: 11px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+  border: 1px solid rgba(255, 159, 28, 0.4);
   background: rgba(15, 23, 42, 0.95);
   word-break: break-all;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
@@ -1443,6 +1468,26 @@ body {
   line-height: 1.5;
   opacity: 0.9;
   text-align: left;
+}
+
+.cbsgo-intro-card__list {
+  position: relative;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.cbsgo-intro-card__list li {
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 159, 28, 0.22);
+  background: rgba(255, 159, 28, 0.08);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .cbsgo-intro-card__btn {

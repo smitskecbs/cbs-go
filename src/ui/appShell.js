@@ -82,6 +82,7 @@ import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
 import { showConfirmDialog } from './confirmDialog.js';
 import { showGameIntroIfNeeded } from './gameIntroModal.js';
 import { renderBagPanel } from './bagPanel.js';
+import { CBSGO_APP_VERSION } from '../app/appVersion.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -751,7 +752,7 @@ function renderProfile() {
           margin:10px 0 12px 0;
           padding:10px 10px;
           border-radius:14px;
-          border:1px solid rgba(56,189,248,.55);
+          border:1px solid rgba(255, 159, 28,.55);
           background:rgba(15,23,42,.92);
         ">
           <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
@@ -765,7 +766,7 @@ function renderProfile() {
               opacity:.95;
               padding:6px 8px;
               border-radius:10px;
-              border:1px solid rgba(56,189,248,.45);
+              border:1px solid rgba(255, 159, 28,.45);
               background:rgba(10,12,18,.85);
               word-break:break-all;
               font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
@@ -782,9 +783,9 @@ function renderProfile() {
               style="
                 padding:7px 11px;
                 border-radius:999px;
-                border:1px solid rgba(56,189,248,.9);
-                background:rgba(56,189,248,.18);
-                color:#e0f2fe;
+                border:1px solid rgba(255, 159, 28,.9);
+                background:rgba(255, 159, 28,.18);
+                color:#ffe8b3;
                 font-size:12px;
                 font-weight:700;
                 cursor:pointer;
@@ -837,7 +838,7 @@ function renderProfile() {
               padding:8px 12px;
               border-radius:999px;
               border:1px solid rgba(255,255,255,.18);
-              background:rgba(56,189,248,.35);
+              background:rgba(255, 159, 28,.35);
               color:#fff;
               font-size:12px;
               font-weight:600;
@@ -859,6 +860,10 @@ function renderProfile() {
           <div style="font-size:12px; opacity:.85; margin-bottom:4px;">Your friends</div>
           <div id="friendsAcceptedList" style="font-size:11px; opacity:.9;"></div>
         </div>
+      </div>
+
+      <div class="cbsgo-app-version" title="Build version for support and update checks">
+        CBS-GO version: ${esc(CBSGO_APP_VERSION)}
       </div>
     </section>
   `;
@@ -2346,7 +2351,7 @@ export function renderAppShell() {
         display:none;
         width:min(360px, 92vw);
         border-radius:18px;
-        border:1px solid rgba(56,189,248,.45);
+        border:1px solid rgba(255, 159, 28,.45);
         background:rgba(10,12,18,.96);
         box-shadow:0 18px 60px rgba(0,0,0,.6);
         overflow:hidden;
@@ -2423,7 +2428,7 @@ ${
         z-index:6000;
         padding:10px 12px;
         border-radius:14px;
-        border:1px solid rgba(56,189,248,.6);
+        border:1px solid rgba(255, 159, 28,.6);
         background:rgba(15,23,42,.9);
         color:#7dd3fc;
         font-weight:700;
@@ -2557,7 +2562,7 @@ function showTradePopup(detail) {
   const card = document.createElement('div');
   card.style.width = 'min(320px, 90vw)';
   card.style.borderRadius = '22px';
-  card.style.border = '1px solid rgba(56,189,248,.85)';
+  card.style.border = '1px solid rgba(255, 159, 28,.85)';
   card.style.background = 'rgba(10,12,18,0.98)';
   card.style.boxShadow = '0 24px 80px rgba(0,0,0,.88)';
   card.style.padding = '18px 16px 14px 16px';
@@ -2595,8 +2600,8 @@ function showTradePopup(detail) {
     avatarHtml = `
       <div style="
         width:40px;height:40px;border-radius:999px;
-        border:1px solid rgba(196,181,253,.45);
-        background:rgba(153,69,255,.12);
+        border:1px solid rgba(255, 159, 28,.45);
+        background:rgba(255, 159, 28,.12);
         display:flex;align-items:center;justify-content:center;
       ">
         ${icon('chest', 22, { className: 'cbsgo-icon' })}
@@ -2854,7 +2859,7 @@ export function mountApp() {
       <div style="
         width:min(420px, 92vw);
         border-radius:22px;
-        border:1px solid rgba(56,189,248,.55);
+        border:1px solid rgba(255, 159, 28,.55);
         background:rgba(10,12,18,.75);
         box-shadow:0 24px 80px rgba(0,0,0,.75);
         padding:18px 16px;
@@ -2876,8 +2881,8 @@ export function mountApp() {
             height:100%;
             width:35%;
             border-radius:999px;
-            background:rgba(56,189,248,.75);
-            box-shadow:0 0 22px rgba(56,189,248,.45);
+            background:rgba(255, 159, 28,.75);
+            box-shadow:0 0 22px rgba(255, 159, 28,.45);
             animation:cbsgoLoadAnim 1.05s ease-in-out infinite alternate;
           "></div>
         </div>

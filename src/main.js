@@ -5,8 +5,7 @@ import './bufferPolyfill.js';
 
 import './style.css';
 import { mountApp } from './ui/appShell.js';
-import { CBSGO_APP_VERSION, checkAppVersionNotice, markAppVersionSeen } from './app/appVersion.js';
-import { showUpdateAvailable, showAppUpdatedNotice } from './ui/updateNotice.js';
+import { initPwaUpdates, consumeSwReloadGuard } from './app/pwaUpdate.js';
 
 // ✅ MapLibre CSS
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -16,8 +15,6 @@ import { bootstrapAuthWallet } from './app/bootstrapAuthWallet.js';
 if (typeof window !== 'undefined') {
   window.bootstrapAuthWallet = bootstrapAuthWallet;
 }
-
-const SW_RELOAD_GUARD = 'cbsgo_sw_reload_guard';
 
 // --- Mobile-friendly error HUD (so we can debug black screens on GitHub Pages) ---
 function ensureHud() {
@@ -60,68 +57,6 @@ window.addEventListener('unhandledrejection', (e) => {
   showHud(`❌ Unhandled promise rejection\n${e?.reason?.message || e?.reason || e}`);
 });
 
-function setupVersionFallbackNotice() {
-  checkAppVersionNotice({
-    onRefreshRecommended: () => {
-      if (document.getElementById('cbsgoUpdateNotice')) return;
-
-      showAppUpdatedNotice({
-        onRefresh: () => {
-          markAppVersionSeen();
-          try {
-            sessionStorage.setItem(SW_RELOAD_GUARD, '1');
-          } catch {}
-          window.location.reload();
-        },
-        onDismiss: () => {
-          markAppVersionSeen();
-        },
-      });
-    },
-  });
-}
-
-function setupPwaUpdates() {
-  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) {
-    setupVersionFallbackNotice();
-    return;
-  }
-
-  let updateSW = null;
-  let reloadRequested = false;
-
-  import('virtual:pwa-register')
-    .then(({ registerSW }) => {
-      updateSW = registerSW({
-        onNeedRefresh() {
-          showUpdateAvailable({
-            onUpdate: () => {
-              if (reloadRequested || typeof updateSW !== 'function') return;
-              reloadRequested = true;
-              markAppVersionSeen();
-              try {
-                sessionStorage.setItem(SW_RELOAD_GUARD, '1');
-              } catch {}
-              updateSW(true);
-            },
-            onLater: () => {},
-          });
-        },
-        onOfflineReady() {
-          // optional: app is ready for offline use
-        },
-      });
-    })
-    .catch((e) => {
-      console.warn('CBS-GO: PWA register unavailable', e);
-      setupVersionFallbackNotice();
-    });
-
-  // Version fallback when no SW update prompt is visible yet.
-  setupVersionFallbackNotice();
-}
-
-// --- Mount app safely ---
 function boot() {
   try {
     const app = document.getElementById('app');
@@ -131,13 +66,8 @@ function boot() {
     }
 
     mountApp();
-    setupPwaUpdates();
+    initPwaUpdates();
 
-    if (import.meta.env.DEV) {
-      console.info(`CBS-GO app version: ${CBSGO_APP_VERSION}`);
-    }
-
-    // tiny success ping (hidden after 1s)
     const hud = ensureHud();
     hud.textContent = '✅ boot ok';
     hud.style.display = 'block';
@@ -155,9 +85,4 @@ if (document.readyState === 'loading') {
   boot();
 }
 
-// Consume one-shot reload guard (prevents accidental reload loops).
-try {
-  if (sessionStorage.getItem(SW_RELOAD_GUARD)) {
-    sessionStorage.removeItem(SW_RELOAD_GUARD);
-  }
-} catch {}
+consumeSwReloadGuard();
