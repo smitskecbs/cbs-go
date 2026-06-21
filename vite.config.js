@@ -16,6 +16,8 @@ export default defineConfig(() => {
 
       VitePWA({
         registerType: "autoUpdate",
+        // Injects registerSW.js into index.html — single production SW registration path.
+        injectRegister: "script",
 
         includeAssets: [
           "favicon.svg",
