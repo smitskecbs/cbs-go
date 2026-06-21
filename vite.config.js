@@ -85,6 +85,16 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: false,
+          navigateFallbackDenylist: [/^\/api\//],
+          runtimeCaching: [
+            {
+              urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+              handler: 'NetworkOnly',
+              options: {
+                cacheName: 'cbsgo-api-bypass',
+              },
+            },
+          ],
         },
       }),
     ],

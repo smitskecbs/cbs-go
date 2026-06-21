@@ -3,7 +3,7 @@
 
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import { withSolanaRpc, describeRpcSource } from './solanaConnection.js';
+import { withSolanaRpc, describeRpcSource, userFacingRpcError } from './solanaConnection.js';
 
 const KNOWN_MINTS = {
   'B9z8cEWFmc7LvQtjKsaLoKqW5MJmGRCWqs1DPKupCfkk': {
@@ -67,6 +67,13 @@ async function fetchParsedTokenAccounts(connection, owner, programId) {
 }
 
 function classifyWalletError(err) {
+  const userMsg = userFacingRpcError(err);
+  if (userMsg) {
+    const e = new Error(userMsg);
+    e.code = err?.code || 'RPC_UNAVAILABLE';
+    return e;
+  }
+
   const msg = String(err?.message || err || '').toLowerCase();
   const code = String(err?.code || '');
 
@@ -178,6 +185,10 @@ export async function fetchTokenOverview(ownerAddress) {
       return { sol, tokens, rpcUrl, rpcSource: describeRpcSource(rpcUrl) };
     });
   } catch (err) {
-    throw classifyWalletError(err);
+    const mapped = classifyWalletError(err);
+    if (!userFacingRpcError(mapped) && userFacingRpcError(err)) {
+      mapped.message = userFacingRpcError(err);
+    }
+    throw mapped;
   }
 }

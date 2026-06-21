@@ -1794,6 +1794,383 @@ body {
   min-width: 0;
 }
 
+/* ---------- My Cards modal (light CBS orange/gold) ---------- */
+.cbsgo-mycards-host {
+  position: fixed;
+  inset: 0;
+  z-index: 8500;
+  pointer-events: none;
+}
+
+.cbsgo-mycards-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(74, 52, 32, 0.35);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.cbsgo-mycards-modal {
+  width: min(420px, 94vw);
+  max-height: 80vh;
+  border-radius: 22px;
+  border: 2px solid rgba(255, 179, 71, 0.45);
+  background: linear-gradient(165deg, #fffbf3 0%, #fff0d4 52%, #ffe9b8 100%);
+  box-shadow:
+    0 26px 80px rgba(74, 52, 32, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 0 24px rgba(255, 159, 28, 0.12);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  color: var(--cbsgo-text);
+  opacity: 0;
+  transform: translateY(14px) scale(0.96);
+  transition: opacity 0.22s ease-out, transform 0.22s ease-out;
+}
+
+.cbsgo-mycards-modal--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.cbsgo-mycards-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.cbsgo-mycards-modal__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cbsgo-mycards-modal__logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 159, 28, 0.4);
+  background: linear-gradient(145deg, rgba(255, 233, 184, 0.8), rgba(255, 255, 255, 0.95));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cbsgo-accent-text);
+  flex-shrink: 0;
+}
+
+.cbsgo-mycards-modal__title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--cbsgo-text);
+}
+
+.cbsgo-mycards-modal__subtitle {
+  font-size: 11px;
+  color: var(--cbsgo-text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.cbsgo-mycards-modal__close {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 159, 28, 0.45);
+  background: linear-gradient(145deg, #fff8eb, #ffe9b8);
+  color: var(--cbsgo-text);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cbsgo-mycards-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.cbsgo-mycards-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cbsgo-mycards-meta__hint {
+  font-size: 11px;
+  color: var(--cbsgo-text-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.cbsgo-mycards-meta__pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 159, 28, 0.4);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cbsgo-accent-text);
+  white-space: nowrap;
+}
+
+.cbsgo-mycards-progress {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 211, 106, 0.35);
+  overflow: hidden;
+  border: 1px solid rgba(255, 159, 28, 0.25);
+}
+
+.cbsgo-mycards-progress__bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff9f1c, #ffd36a, #e87800);
+  transition: width 0.25s ease-out;
+}
+
+.cbsgo-mycards-scroll {
+  flex: 1;
+  max-height: min(52vh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 179, 71, 0.28);
+  background: linear-gradient(180deg, #fffdf8 0%, #fff3dc 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.cbsgo-mycards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+}
+
+.cbsgo-mycards-tile {
+  position: relative;
+  min-height: 96px;
+  padding: 8px 6px 7px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 179, 71, 0.45);
+  background: linear-gradient(165deg, #ffffff 0%, #fff3dc 100%);
+  text-align: center;
+  cursor: pointer;
+  box-shadow:
+    0 6px 16px rgba(74, 52, 32, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cbsgo-mycards-tile:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 10px 22px rgba(74, 52, 32, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 14px rgba(255, 159, 28, 0.14);
+}
+
+.cbsgo-mycards-tile--locked {
+  border-style: dashed;
+  border-color: rgba(210, 170, 110, 0.55);
+  background: linear-gradient(165deg, #fff9ef 0%, #fff0d8 100%);
+  opacity: 0.92;
+}
+
+.cbsgo-mycards-tile--rare {
+  border-color: rgba(255, 159, 28, 0.62);
+  background: linear-gradient(165deg, #fff8eb 0%, #ffe9b8 100%);
+}
+
+.cbsgo-mycards-tile--epic {
+  border-color: rgba(234, 88, 12, 0.55);
+  background: linear-gradient(165deg, #fff4e6 0%, #ffd8a8 100%);
+}
+
+.cbsgo-mycards-tile--legendary {
+  border-color: rgba(202, 138, 4, 0.65);
+  background: linear-gradient(145deg, #fff9db 0%, #ffd36a 55%, #ffb347 100%);
+}
+
+.cbsgo-mycards-tile__qty {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.35;
+  color: #fff;
+  background: linear-gradient(145deg, #e87800, #c86a00);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 3px 10px rgba(255, 159, 28, 0.35);
+}
+
+.cbsgo-mycards-tile__emoji {
+  font-size: 26px;
+  margin: 4px 0;
+  line-height: 1;
+}
+
+.cbsgo-mycards-tile--locked .cbsgo-mycards-tile__emoji {
+  font-size: 28px;
+  margin-top: 8px;
+  opacity: 0.75;
+}
+
+.cbsgo-mycards-tile__name {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--cbsgo-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cbsgo-mycards-tile__unknown {
+  color: var(--cbsgo-text-muted);
+  font-weight: 600;
+}
+
+.cbsgo-mycards-tile__set {
+  font-size: 10px;
+  color: var(--cbsgo-text-muted);
+  margin-top: 2px;
+}
+
+.cbsgo-mycards-empty {
+  font-size: 12px;
+  color: var(--cbsgo-text-muted);
+  text-align: center;
+  padding: 12px;
+}
+
+.cbsgo-mycards-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(74, 52, 32, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.cbsgo-mycards-preview {
+  width: min(260px, 82vw);
+  border-radius: 20px;
+  border: 2px solid rgba(255, 179, 71, 0.55);
+  background: linear-gradient(165deg, #fffbf3 0%, #ffe9b8 100%);
+  box-shadow: 0 28px 90px rgba(74, 52, 32, 0.2);
+  padding: 16px 14px 14px;
+  text-align: center;
+  color: var(--cbsgo-text);
+  opacity: 0;
+  transform: translateY(14px) scale(0.96);
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.cbsgo-mycards-preview--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.cbsgo-mycards-preview--locked {
+  border-style: dashed;
+  background: linear-gradient(165deg, #fff9ef 0%, #fff0d8 100%);
+}
+
+.cbsgo-mycards-preview--rare {
+  border-color: rgba(255, 159, 28, 0.62);
+}
+
+.cbsgo-mycards-preview--epic {
+  border-color: rgba(234, 88, 12, 0.55);
+}
+
+.cbsgo-mycards-preview--legendary {
+  border-color: rgba(202, 138, 4, 0.65);
+}
+
+.cbsgo-mycards-preview__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cbsgo-mycards-preview__set,
+.cbsgo-mycards-preview__rarity {
+  font-size: 11px;
+  color: var(--cbsgo-text-muted);
+}
+
+.cbsgo-mycards-preview__rarity {
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 159, 28, 0.4);
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--cbsgo-accent-text);
+  font-weight: 700;
+}
+
+.cbsgo-mycards-preview__art {
+  margin: 6px auto 8px;
+  width: 90px;
+  height: 90px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: linear-gradient(145deg, rgba(255, 211, 106, 0.35), rgba(255, 255, 255, 0.95));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+}
+
+.cbsgo-mycards-preview__name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--cbsgo-text);
+}
+
+.cbsgo-mycards-preview__count,
+.cbsgo-mycards-preview__hint {
+  font-size: 11px;
+  color: var(--cbsgo-text-muted);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.cbsgo-mycards-preview__close {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 159, 28, 0.45);
+  background: linear-gradient(145deg, #fff8eb, #ffe9b8);
+  color: var(--cbsgo-text);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ---------- Login modal buttons ---------- */
 .cbsgo-login-btn {
   width: 100%;

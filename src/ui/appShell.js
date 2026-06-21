@@ -203,7 +203,7 @@ import { sendSplFromLocalWallet } from '../app/solanaSendSpl.js';
 
 // ✅ On-chain token overview (SOL + SPL)
 import { fetchTokenOverview } from '../app/solanaTokenOverview.js';
-import { logRpcEnvDiagnostics, describeRpcSource } from '../app/solanaConnection.js';
+import { logRpcEnvDiagnostics, describeRpcSource, resetSolanaConnectionCache } from '../app/solanaConnection.js';
 
 // ✅ state helpers
 import { isNodeCompleted, getXp, getLevel } from '../app/state.js';
@@ -2228,7 +2228,12 @@ function bindWalletEvents() {
     }
   }
 
-  if (overviewRefreshBtn) overviewRefreshBtn.onclick = () => loadTokenOverview().catch(() => {});
+  if (overviewRefreshBtn) {
+    overviewRefreshBtn.onclick = () => {
+      resetSolanaConnectionCache();
+      loadTokenOverview().catch(() => {});
+    };
+  }
   loadTokenOverview().catch(() => {});
 
   // Reveal private key
