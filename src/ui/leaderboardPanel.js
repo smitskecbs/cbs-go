@@ -229,21 +229,10 @@ export function bindLeaderboardPanel() {
             ? ''
             : isFriend
           ? `
-            <button type="button" disabled style="
-              padding:7px 10px;border-radius:999px;
-              border:1px solid rgba(34,197,94,.9);
-              background:rgba(34,197,94,.18);
-              color:#bbf7d0;font-size:12px;font-weight:900;
-              cursor:default;
-            ">✔ Friend</button>
+            <button type="button" disabled class="cbsgo-friend-pill cbsgo-friend-pill--accepted">✔ Friend</button>
           `
           : `
-            <button class="lbAddFriendBtn" data-value="${esc(friendCode)}" type="button" style="
-              padding:7px 10px;border-radius:999px;
-              border:1px solid rgba(255, 159, 28,.9);
-              background:rgba(255, 159, 28,.18);
-              color:#3d2a10;font-size:12px;font-weight:800;cursor:pointer;
-            ">Add friend</button>
+            <button class="lbAddFriendBtn cbsgo-friend-pill cbsgo-friend-pill--add" data-value="${esc(friendCode)}" type="button">Add friend</button>
           `;
 
         return `

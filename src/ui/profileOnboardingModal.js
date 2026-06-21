@@ -1,6 +1,7 @@
 // src/ui/profileOnboardingModal.js
 // Blocking profile onboarding after login: nickname + avatar required before game start.
 
+import { compressAvatarFile } from '../app/avatarImage.js';
 import {
   hasValidPlayerAvatar,
   hasValidPlayerNickname,
@@ -126,7 +127,7 @@ export function openProfileOnboardingModal(options = {}) {
           </div>
           <div style="margin-bottom:12px;">
             <label for="cbsgoOnboardAvatar" style="font-size:12px;opacity:.8;">Profile photo <span style="opacity:.6;">(required)</span></label>
-            <input id="cbsgoOnboardAvatar" type="file" accept="image/*" style="margin-top:6px;width:100%;color:#fff;font-size:13px;" />
+            <input id="cbsgoOnboardAvatar" type="file" accept="image/*" style="margin-top:6px;width:100%;color:#3d2a10;font-size:13px;" />
           </div>
           <div id="cbsgoOnboardMsg" style="min-height:18px;margin-bottom:10px;font-size:13px;opacity:.92;"></div>
           <button id="cbsgoOnboardSaveBtn" type="button" class="cbsgo-btn-primary" style="${btnStyle(false)}">Save profile &amp; continue</button>
@@ -187,18 +188,17 @@ export function openProfileOnboardingModal(options = {}) {
       }
 
       setMsg('Loading photo…');
-      const reader = new FileReader();
-      reader.onload = () => {
-        draftAvatar = String(reader.result || '').trim();
-        updatePreview();
-        setMsg('');
-        refreshSaveBtn();
-      };
-      reader.onerror = () => {
-        setMsg('Could not read that image.', true);
-        fileEl.value = '';
-      };
-      reader.readAsDataURL(f);
+      compressAvatarFile(f)
+        .then((dataUrl) => {
+          draftAvatar = String(dataUrl || '').trim();
+          updatePreview();
+          setMsg('');
+          refreshSaveBtn();
+        })
+        .catch((err) => {
+          setMsg(err?.message || 'Could not read that image.', true);
+          fileEl.value = '';
+        });
     });
 
     wrap.addEventListener('keydown', (ev) => {

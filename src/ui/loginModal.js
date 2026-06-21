@@ -104,30 +104,9 @@ export async function openLoginModal() {
           "
         />
 
-        <button id="cbsgoPinOnlyBtn" type="button" style="
-          width:100%;
-          padding:12px 14px;
-          border-radius:999px;
-          border:1px solid rgba(255, 159, 28,.9);
-          background:rgba(255, 159, 28,.2);
-          color:#ffe8b3;
-          font-size:14px;
-          font-weight:700;
-          cursor:pointer;
-        ">Unlock with PIN</button>
+        <button id="cbsgoPinOnlyBtn" type="button" class="cbsgo-login-btn cbsgo-login-btn--primary">Unlock with PIN</button>
 
-        <button id="cbsgoUseOtherAccountBtn" type="button" style="
-          width:100%;
-          margin-top:10px;
-          padding:10px 12px;
-          border-radius:999px;
-          border:1px solid rgba(255,159,28,.14);
-          background:rgba(255,255,255,.06);
-          color:#3d2a10;
-          font-size:12px;
-          font-weight:600;
-          cursor:pointer;
-        ">Use another account</button>
+        <button id="cbsgoUseOtherAccountBtn" type="button" class="cbsgo-login-btn cbsgo-login-btn--secondary">Use another account</button>
 
         <div id="cbsgoLoginMsg" style="margin-top:10px;font-size:12px;opacity:.9;"></div>
       </div>
@@ -204,17 +183,7 @@ export async function openLoginModal() {
         Login with email + PIN to unlock your wallet and continue your journey.
       </p>
 
-      <button id="cbsgoEmailBtn" type="button" style="
-        width:100%;
-        padding:12px 14px;
-        border-radius:999px;
-        border:1px solid rgba(255, 159, 28,.9);
-        background:rgba(255, 159, 28,.2);
-        color:#ffe8b3;
-        font-size:14px;
-        font-weight:700;
-        cursor:pointer;
-      ">Login with Email</button>
+      <button id="cbsgoEmailBtn" type="button" class="cbsgo-login-btn cbsgo-login-btn--primary">Login with Email</button>
 
       <div id="cbsgoLoginMsg" style="margin-top:10px;font-size:12px;opacity:.9;"></div>
     </div>

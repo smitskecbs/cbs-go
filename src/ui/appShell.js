@@ -64,7 +64,8 @@ import { openProfileOnboardingModal } from './profileOnboardingModal.js';
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
 
 // ✅ Supabase remote game profile (backup naar game_profiles)
-import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE } from '../app/remoteProfile.js';
+import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE, updateGameProfileAvatar } from '../app/remoteProfile.js';
+import { compressAvatarFile } from '../app/avatarImage.js';
 
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
@@ -551,16 +552,14 @@ async function persistProfileAvatar(avatarDataUrl) {
   setProfileOwner({ userId, walletPk });
 
   const nick = normalizePlayerNickname(getPlayerName());
-  const profilePayload = {
-    wallet_pk: walletPk,
-    avatar: av,
-  };
-  if (nick) profilePayload.nickname = nick;
+  const result = await updateGameProfileAvatar(av, {
+    userId,
+    walletPk,
+    nickname: nick || undefined,
+  });
 
-  const saved = await saveRemoteProfile(profilePayload, { forceSave: true });
-
-  if (!saved) {
-    throw new Error('Could not save profile photo to cloud.');
+  if (!result.ok) {
+    throw new Error(result.message || 'Could not save profile photo to cloud.');
   }
 
   markRemoteApplied();
@@ -615,7 +614,7 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   } catch {}
   const email = localEmail || authEmail || null;
 
-  const saved = await saveRemoteProfile(
+  const { data: saved, error: saveError } = await saveRemoteProfile(
     {
       wallet_pk: ownerWallet,
       email,
@@ -624,6 +623,14 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
     },
     { forceSave: true },
   );
+
+  if (saveError) {
+    const msg =
+      saveError.code === '42501' || String(saveError.message || '').toLowerCase().includes('row-level security')
+        ? 'Profile update is blocked by permissions.'
+        : saveError.message || 'Could not save profile to cloud.';
+    throw new Error(msg);
+  }
 
   if (!saved) {
     throw new Error('Could not save profile to cloud.');
@@ -1072,23 +1079,20 @@ function bindProfileEvents() {
       }
 
       setMsg('Uploading photo…');
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const av = String(reader.result || '');
+      compressAvatarFile(f)
+        .then(async (av) => {
           setMsg('Saving photo…');
           await persistProfileAvatar(av);
           setMsg('✅ Photo updated');
           updatePanel();
-        } catch (e) {
+        })
+        .catch((e) => {
           console.warn('Avatar update failed', e);
           setMsg(`⚠️ ${e.message || 'Failed to update photo'}`);
-        } finally {
+        })
+        .finally(() => {
           fileInput.value = '';
-        }
-      };
-      reader.onerror = () => setMsg('⛔ Failed to read image.');
-      reader.readAsDataURL(f);
+        });
     });
   }
 
@@ -2165,13 +2169,14 @@ function bindWalletEvents() {
       }
     } catch (e) {
       console.warn('CBS GO: fetchTokenOverview failed', e);
-      setOverviewStatus('Could not load wallet balances');
+      const reason = String(e?.message || 'Could not load wallet balances');
+      setOverviewStatus(reason);
       if (walletAssetSolEl) walletAssetSolEl.textContent = '—';
       if (overviewTotalsEl) overviewTotalsEl.textContent = '';
       overviewTableBody.innerHTML = `
         <tr>
           <td style="padding:6px 4px;opacity:.7;" colspan="3">
-            Could not load wallet balances. Tap Refresh balance to try again.
+            ${esc(reason)}. Tap Refresh balance to try again.
           </td>
         </tr>
       `;
@@ -2301,10 +2306,10 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
 
     const payload = { wallet_pk, email, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
 
-    await saveRemoteProfile(payload);
-
-    // 4) Markeer dat remote nu “door ons” bijgewerkt is
-    markRemoteApplied();
+    const { data: savedRemote } = await saveRemoteProfile(payload);
+    if (savedRemote) {
+      markRemoteApplied();
+    }
   } catch (e) {
     console.warn('CBS GO: syncRemoteProfileSafe failed from', source, e);
   } finally {

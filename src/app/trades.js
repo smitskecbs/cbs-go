@@ -60,7 +60,7 @@ async function persistBagToRemote() {
         : {},
   };
 
-  const saved = await saveRemoteProfile(merged);
+  const { data: saved } = await saveRemoteProfile(merged);
   if (!saved) {
     console.warn('CBS GO: persistBagToRemote failed (not logged in or blocked)');
   } else {

@@ -157,11 +157,133 @@ export async function loadRemoteProfile(userIdOverride = null) {
  * @param {boolean} [options.forceSave=false] - allow first insert during onboarding
  * @returns {Promise<object|null>} de opgeslagen row of null
  */
+function mapSupabaseSaveError(error) {
+  if (!error) {
+    return { ok: false, code: 'unknown', message: 'Could not save profile to cloud.' };
+  }
+
+  const code = String(error.code || '');
+  const message = String(error.message || '');
+  const combined = `${code} ${message}`.toLowerCase();
+
+  console.warn('[CBSGO profile save] supabase error', {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+  });
+
+  if (
+    code === '42501' ||
+    combined.includes('row-level security') ||
+    combined.includes('permission denied') ||
+    combined.includes('rls')
+  ) {
+    return {
+      ok: false,
+      code: 'rls',
+      message: 'Profile update is blocked by permissions.',
+      error,
+    };
+  }
+
+  if (
+    combined.includes('payload too large') ||
+    combined.includes('request entity too large') ||
+    combined.includes('value too long') ||
+    combined.includes('string too long')
+  ) {
+    return {
+      ok: false,
+      code: 'too_large',
+      message: 'Avatar image is too large.',
+      error,
+    };
+  }
+
+  return {
+    ok: false,
+    code: code || 'unknown',
+    message: message || 'Could not save profile to cloud.',
+    error,
+  };
+}
+
+/**
+ * Avatar-only update for the active user (does not require nickname change).
+ * @param {string} avatarDataUrl
+ * @param {object} [options]
+ * @param {string} [options.userId]
+ * @param {string} [options.walletPk]
+ * @param {string} [options.nickname]
+ */
+export async function updateGameProfileAvatar(avatarDataUrl, options = {}) {
+  const userId = options.userId || (await getCurrentUserId());
+  if (!userId) {
+    return { ok: false, code: 'no-auth', message: 'Not logged in.' };
+  }
+
+  const avatar = String(avatarDataUrl || '').trim();
+  if (!avatar) {
+    return { ok: false, code: 'invalid', message: 'Invalid profile photo.' };
+  }
+
+  const avatarLen = avatar.length;
+  console.log('[CBSGO avatar save] start', { userId, avatarLen });
+
+  if (avatarLen > 400_000) {
+    return {
+      ok: false,
+      code: 'too_large',
+      message: 'Avatar image is too large. Choose a smaller photo.',
+    };
+  }
+
+  const existing = (await loadRemoteProfile(userId)) || {};
+
+  if (existing.user_id) {
+    const { data, error } = await supabase
+      .from('game_profiles')
+      .update({ avatar })
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('[CBSGO avatar save] update failed', {
+        userId,
+        avatarLen,
+        code: error.code,
+        message: error.message,
+      });
+      return mapSupabaseSaveError(error);
+    }
+
+    console.log('[CBSGO avatar save] update ok', { userId, avatarLen });
+    return { ok: true, data };
+  }
+
+  const insertPayload = { avatar, wallet_pk: options.walletPk || null };
+  const nick = normalizeNickname(options.nickname);
+  if (nick) insertPayload.nickname = nick;
+
+  const { data, error } = await saveRemoteProfile(insertPayload, { forceSave: true });
+  if (error) return mapSupabaseSaveError(error);
+  if (!data) {
+    return { ok: false, code: 'unknown', message: 'Could not save profile photo to cloud.' };
+  }
+
+  console.log('[CBSGO avatar save] insert ok', { userId, avatarLen });
+  return { ok: true, data };
+}
+
+/**
+ * @returns {Promise<{ data: object|null, error: object|null }>}
+ */
 export async function saveRemoteProfile(localProfile = {}, options = {}) {
   const userId = await getCurrentUserId();
   if (!userId) {
-    // niet ingelogd met email
-    return null;
+    return { data: null, error: { code: 'no-auth', message: 'Not logged in.' } };
   }
 
   const existing = userId ? (await loadRemoteProfile(userId)) || {} : {};
@@ -207,7 +329,7 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
   };
 
   if (!existing.user_id && !profileHasMeaningfulData(payload) && !options.forceSave) {
-    return null;
+    return { data: null, error: null };
   }
 
   if (!options.forceSave) {
@@ -220,26 +342,31 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
         avatar: payload.avatar,
       })
     ) {
-      return null;
+      return { data: null, error: null };
     }
   }
 
   try {
     const { data, error } = await supabase
       .from('game_profiles')
-      .upsert(payload, { onConflict: 'user_id' }) // 1 profiel per user
+      .upsert(payload, { onConflict: 'user_id' })
       .select()
       .single();
 
     if (error) {
-      console.warn('CBS-GO: saveRemoteProfile error', error);
-      return null;
+      console.warn('CBS-GO: saveRemoteProfile error', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      return { data: null, error };
     }
 
-    return data || null;
+    return { data: data || null, error: null };
   } catch (e) {
     console.warn('CBS-GO: saveRemoteProfile crashed', e);
-    return null;
+    return { data: null, error: { code: 'crash', message: String(e?.message || e) } };
   }
 }
 
