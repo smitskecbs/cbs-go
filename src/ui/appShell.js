@@ -75,8 +75,10 @@ import {
   loadFriendsOverview,
   sendFriendRequest,
   acceptFriendRequest,
+  removeFriend,
   getMyFriendCode,
 } from '../app/friends.js';
+import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
 
 // ✅ scherm wakker houden tijdens spelen
 import { enableWakeLock, bindWakeLockVisibilityHandler } from '../app/wakeLock.js';
@@ -239,7 +241,7 @@ function avatarCircle(dataUrl, size = 30) {
 
   const safeUrl = normalizeImageDataUrl(dataUrl);
   const bg = safeUrl ? `background-image:url('${safeUrl}');` : '';
-  const txt = safeUrl ? '' : '👤';
+  const inner = safeUrl ? '' : avatarFallbackHtml(size);
 
   return `
     <div style="
@@ -251,8 +253,7 @@ function avatarCircle(dataUrl, size = 30) {
       background-position:center;
       display:flex;align-items:center;justify-content:center;
       overflow:hidden;
-      font-size:16px;
-    ">${txt}</div>
+    ">${inner}</div>
   `;
 }
 
@@ -283,7 +284,9 @@ function updateShareLocProfileButton() {
   if (!btn) return;
 
   const on = getShareLocation();
-  btn.textContent = on ? '📍 Location: ON' : '🙈 Location: Hidden';
+  btn.innerHTML = on
+    ? `${icon('location', 16, { className: 'cbsgo-icon' })} <span>Location: ON</span>`
+    : `${icon('locationOff', 16, { className: 'cbsgo-icon' })} <span>Location: Hidden</span>`;
   btn.title = on
     ? 'Other players can see your live location'
     : 'Other players cannot see your location';
@@ -519,38 +522,18 @@ function panelWrap(title, innerHtml) {
       padding:12px 12px calc(16px + env(safe-area-inset-bottom));
       pointer-events:none;
     ">
-      <div style="
-        pointer-events:auto;
-        width:min(860px, 96vw);
-        margin:0 auto;
-        border-radius:22px;
-        border:1px solid rgba(255,255,255,.30);
-        background:rgba(10,12,18,.30);
-        backdrop-filter: blur(14px);
-        box-shadow:0 18px 60px rgba(0,0,0,.55);
-        overflow:hidden;
-      ">
-        <div style="
-          display:flex; align-items:center; justify-content:space-between;
-          padding:12px 16px;
-          border-bottom:1px solid rgba(255,255,255,.10);
-        ">
-          <div style="font-weight:900; font-size:15px;">${esc(title)}</div>
-          <button type="button" id="cbsgoClosePanel" style="
-            border:0;
-            padding:6px 10px;
-            border-radius:999px;
-            background:rgba(255,255,255,.1);
-            color:#fff;
-            font-size:12px;
-          ">Close</button>
+      <div class="cbsgo-game-panel">
+        <div class="cbsgo-game-panel__header">
+          <div class="cbsgo-game-panel__title">
+            ${panelIconForTitle(title)}
+            <span>${esc(title)}</span>
+          </div>
+          <button type="button" id="cbsgoClosePanel" class="cbsgo-btn-secondary" style="padding:6px 12px;font-size:12px;">
+            ${icon('close', 14, { className: 'cbsgo-icon' })} Close
+          </button>
         </div>
 
-        <div style="
-          max-height: min(70vh, 560px);
-          overflow:auto;
-          padding:14px 16px 16px 16px;
-        ">
+        <div class="cbsgo-game-panel__body">
           ${innerHtml}
         </div>
       </div>
@@ -567,13 +550,11 @@ function renderProfile() {
     !hasValidPlayerNickname(me) || !hasValidPlayerAvatar(myAvatar);
 
   return `
-    <section style="
-      padding:14px;
-      border-radius:18px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(8,10,16,.30);
-    ">
-      <h3 style="margin:0 0 8px 0; font-size:16px;">Profile Setup</h3>
+    <section class="cbsgo-game-section">
+      <h3 style="margin:0 0 8px 0; font-size:16px; display:flex; align-items:center; gap:8px;">
+        ${icon('profile', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+        Character Profile
+      </h3>
       <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
         Complete your profile before entering the game. Nickname and profile photo are required.
       </p>
@@ -645,8 +626,9 @@ function renderProfile() {
                 class="btn secondary"
                 id="profileShareLocBtn"
                 type="button"
+                style="display:inline-flex;align-items:center;gap:6px;"
               >
-                📍 Location: ON
+                ${icon('location', 16, { className: 'cbsgo-icon' })} <span>Location: ON</span>
               </button>
             </div>
           </div>
@@ -661,7 +643,10 @@ function renderProfile() {
         padding-top:12px;
         border-top:1px solid rgba(255,255,255,.16);
       ">
-        <h4 style="margin:0 0 6px 0; font-size:14px;">Friends</h4>
+        <h4 style="margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px;">
+          ${icon('friends', 18, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+          Friends
+        </h4>
         <p style="margin:0 0 10px 0; font-size:11px; opacity:.75;">
           Friends are linked to your <b>email account</b> (Supabase user).
           Your wallet can change later, but your friends stay.
@@ -1194,31 +1179,30 @@ function bindProfileEvents() {
           .map((fr) => {
             const uid = fr.otherUserId || '';
             const code = uid ? `CBS-${uid}` : '';
+            const nickLabel = esc(fr.nickname || 'Friend');
             const btnHtml = `
-              <div style="display:flex;gap:6px;align-items:center;">
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
                 <span style="
-                  display:inline-block;
+                  display:inline-flex;align-items:center;gap:4px;
                   padding:3px 6px;
                   border-radius:999px;
-                  border:1px solid rgba(148,163,184,0.8);
+                  border:1px solid rgba(52,211,153,.45);
                   font-size:10px;
-                  opacity:.85;
-                ">✔ Friend</span>
+                  color:#bbf7d0;
+                ">${icon('check', 12, { className: 'cbsgo-icon' })} Friend</span>
                 <button
                   type="button"
-                  class="friendCopyBtn"
+                  class="friendCopyBtn cbsgo-btn-secondary"
                   data-wallet="${esc(fr.otherWallet || '')}"
                   data-code="${esc(code)}"
-                  style="
-                    padding:3px 7px;
-                    border-radius:999px;
-                    border:1px solid rgba(148,163,184,.8);
-                    background:rgba(15,23,42,.9);
-                    color:#e5e7eb;
-                    font-size:10px;
-                    cursor:pointer;
-                  "
+                  style="padding:3px 8px;font-size:10px;"
                 >Copy</button>
+                <button
+                  type="button"
+                  class="friendRemoveBtn cbsgo-btn-danger"
+                  data-friend-id="${esc(fr.id)}"
+                  data-friend-nick="${nickLabel}"
+                >Remove</button>
               </div>
             `;
             return renderFriendRow(fr, btnHtml);
@@ -1264,6 +1248,30 @@ function bindProfileEvents() {
           } catch (err) {
             console.warn('CBS GO: copy friend failed', err);
             setFriendsMsg('⛔ Could not copy.');
+          }
+        });
+      });
+
+      // Remove friend (accepted only)
+      document.querySelectorAll('.friendRemoveBtn').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-friend-id');
+          const nick = btn.getAttribute('data-friend-nick') || 'this friend';
+          if (!id) return;
+
+          const ok = window.confirm(`Remove ${nick} from your friends?\n\nThis only removes the friendship link.`);
+          if (!ok) return;
+
+          setFriendsMsg('Removing friend…');
+          btn.disabled = true;
+          try {
+            await removeFriend(id);
+            setFriendsMsg('Friend removed.');
+            await refreshFriends();
+          } catch (e) {
+            console.warn(e);
+            setFriendsMsg(e?.message || 'Could not remove friend.');
+            btn.disabled = false;
           }
         });
       });
@@ -1371,13 +1379,11 @@ function renderBag() {
     `;
 
   return `
-    <section style="
-      padding:14px;
-      border-radius:18px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(8,10,16,.30);
-    ">
-      <h3 style="margin:0 0 8px 0; font-size:16px;">Bag</h3>
+    <section class="cbsgo-game-section">
+      <h3 style="margin:0 0 8px 0; font-size:16px; display:flex; align-items:center; gap:8px;">
+        ${icon('bag', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+        Inventory Bag
+      </h3>
       <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
         Your collected items in the real world.
       </p>
@@ -1418,7 +1424,10 @@ function renderBag() {
         ">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
             <div>
-              <div style="font-size:13px;font-weight:800;">🎁 Mystery Box</div>
+              <div style="font-size:13px;font-weight:800;display:flex;align-items:center;gap:6px;">
+                ${icon('chest', 18, { className: 'cbsgo-icon' })}
+                Mystery Box
+              </div>
               <div style="font-size:11px;opacity:.8;margin-top:3px;">
                 Collect 1000 tickets to claim a mystery box with BONK, SOL or CBS rewards.
               </div>
@@ -2075,8 +2084,9 @@ function renderWalletPanel() {
         margin-bottom:12px;
       ">
         <div>
-          <div style="font-size:16px;font-weight:900;letter-spacing:.2px;">
-            💰 Wallet
+          <div style="font-size:16px;font-weight:900;letter-spacing:.2px;display:flex;align-items:center;gap:8px;">
+            ${icon('wallet', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+            Solana Wallet
           </div>
           <div style="font-size:11px;opacity:.78;max-width:520px;line-height:1.35;">
             Your CBS-GO wallet is stored locally, and backed up encrypted via your Email + PIN (vault).
@@ -2752,14 +2762,7 @@ export function renderAppShell() {
         gap:8px;
         pointer-events:none;
       ">
-        <div id="xpMount" style="
-          pointer-events:auto;
-          padding:10px 12px;
-          border-radius:18px;
-          border:1px solid rgba(255,255,255,.12);
-          background:rgba(10,12,18,.72);
-          backdrop-filter: blur(10px);
-        ">
+        <div id="xpMount" class="cbsgo-xp-hud">
           ${renderXpBar()}
         </div>
       </header>
@@ -2774,38 +2777,17 @@ export function renderAppShell() {
         flex-direction:row;
         gap:10px;
       ">
-        <button type="button" data-panel="profile" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-          color:#fff;
-        ">👤</button>
+        <button type="button" data-panel="profile" class="cbsgo-hud-btn" title="Character profile">
+          ${icon('profile', 26, { className: 'cbsgo-icon' })}
+        </button>
 
-        <button type="button" data-panel="bag" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-          color:#fff;
-        ">🎒</button>
+        <button type="button" data-panel="bag" class="cbsgo-hud-btn" title="Inventory bag">
+          ${icon('bag', 26, { className: 'cbsgo-icon' })}
+        </button>
 
-        <button type="button" data-panel="wallet" style="
-          width:52px;height:52px;
-          border-radius:999px;
-          border:1px solid rgba(56,189,248,.55);
-          background:rgba(10,12,18,.85);
-          backdrop-filter: blur(10px);
-          display:flex;align-items:center;justify-content:center;
-          font-size:22px;
-          color:#e0f2fe;
-        ">💰</button>
+        <button type="button" data-panel="wallet" class="cbsgo-hud-btn cbsgo-hud-btn--wallet" title="Solana wallet">
+          ${icon('wallet', 26, { className: 'cbsgo-icon' })}
+        </button>
       </div>
 
           <!-- Panel-root -->
@@ -3071,12 +3053,11 @@ function showTradePopup(detail) {
     avatarHtml = `
       <div style="
         width:40px;height:40px;border-radius:999px;
-        border:1px solid rgba(148,163,184,.5);
-        background:rgba(15,23,42,.9);
+        border:1px solid rgba(196,181,253,.45);
+        background:rgba(153,69,255,.12);
         display:flex;align-items:center;justify-content:center;
-        font-size:20px;
       ">
-        📤
+        ${icon('chest', 22, { className: 'cbsgo-icon' })}
       </div>
     `;
   } else {
@@ -3105,18 +3086,8 @@ function showTradePopup(detail) {
       ${esc(infoLine)}
     </div>
 
-    <button type="button" id="cbsgoTradePopupCloseBtn" style="
-      padding:8px 14px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.9);
-      background:rgba(15,23,42,.96);
-      color:#e5e7eb;
-      font-size:12px;
-      font-weight:600;
-      cursor:pointer;
-      margin-top:2px;
-    ">
-      Okay
+    <button type="button" id="cbsgoTradePopupCloseBtn" class="cbsgo-btn-primary" style="width:100%;margin-top:4px;">
+      Collect
     </button>
   `;
 
@@ -3347,13 +3318,7 @@ export function mountApp() {
         padding:18px 16px;
       ">
         <div style="display:flex;align-items:center;gap:12px;">
-          <div style="
-            width:44px;height:44px;border-radius:14px;
-            border:1px solid rgba(56,189,248,.55);
-            background:rgba(56,189,248,.10);
-            display:flex;align-items:center;justify-content:center;
-            font-size:22px;
-          ">🧭</div>
+          <div class="cbsgo-game-modal__icon">${icon('compass', 24, { className: 'cbsgo-icon' })}</div>
           <div style="min-width:0;">
             <div style="font-size:15px;font-weight:900;margin-bottom:2px;">
               Preparing CBS-GO…

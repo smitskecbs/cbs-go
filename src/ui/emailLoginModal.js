@@ -4,6 +4,7 @@
 // Emits: cbsgo:emailLoginDone { detail: { email, pin } }
 
 import { supabase } from '../app/supabaseClient.js';
+import { icon } from './gameIcons.js';
 
 const MODAL_ID = 'cbsgoEmailLogin';
 
@@ -73,25 +74,17 @@ function dispatchDone(email, pin) {
 
 export function openEmailLoginModal() {
   const body = `
-    <div style="
-      width:min(620px, 96vw);
-      border-radius:22px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(10,12,18,.92);
-      color:#fff;
-      box-shadow:0 18px 60px rgba(0,0,0,.55);
-      font-family:system-ui, sans-serif;
-      overflow:hidden;
-    ">
-      <div style="
-        padding:14px 16px;
-        border-bottom:1px solid rgba(255,255,255,.10);
-        font-weight:900;
-        font-size:16px;
-      ">Email + PIN</div>
+    <div class="cbsgo-game-modal" style="width:min(620px, 96vw);">
+      <div class="cbsgo-game-modal__header">
+        <div class="cbsgo-game-modal__icon">${icon('login', 22, { className: 'cbsgo-icon' })}</div>
+        <div>
+          <div>Enter the Realm</div>
+          <div style="font-size:12px;font-weight:500;opacity:.75;margin-top:2px;">Email + 6-digit PIN</div>
+        </div>
+      </div>
 
       <div style="padding:14px 16px;">
-        <div style="opacity:.85; font-size:13px; line-height:1.35;">
+        <div style="opacity:.85; font-size:13px; line-height:1.4;">
           Login with your email and a <b>6-digit PIN</b>.
           After login you will set your nickname and profile photo.
         </div>
@@ -117,14 +110,14 @@ export function openEmailLoginModal() {
         <div id="cbsgoEmailMsg" style="margin-top:10px; font-size:13px; opacity:.92;"></div>
 
         <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
-          <button id="cbsgoEmailLoginBtn" type="button" style="${btnStyle(true)}">Login</button>
-          <button id="cbsgoEmailCreateBtn" type="button" style="${btnStyle(false)}">Create account</button>
+          <button id="cbsgoEmailLoginBtn" type="button" class="cbsgo-btn-primary" style="flex:1;min-width:140px;">Login</button>
+          <button id="cbsgoEmailCreateBtn" type="button" class="cbsgo-btn-secondary" style="flex:1;min-width:140px;">Create account</button>
         </div>
 
         <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-          <button id="cbsgoEmailChangePinBtn" type="button" style="${btnStyle(false)}">Change PIN (keep wallet)</button>
-          <button id="cbsgoEmailResetBtn" type="button" style="${btnStyle(false)}">Forgot PIN (reset device)</button>
-          <button id="cbsgoEmailClose" type="button" style="${btnStyle(false)}">Cancel</button>
+          <button id="cbsgoEmailChangePinBtn" type="button" class="cbsgo-btn-secondary" style="flex:1;min-width:140px;">Change PIN</button>
+          <button id="cbsgoEmailResetBtn" type="button" class="cbsgo-btn-secondary" style="flex:1;min-width:140px;">Forgot PIN</button>
+          <button id="cbsgoEmailClose" type="button" class="cbsgo-btn-secondary" style="flex:1;min-width:100px;">Cancel</button>
         </div>
 
         <div style="margin-top:10px; font-size:11px; opacity:.75;">

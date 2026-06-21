@@ -422,6 +422,52 @@ export async function getMyFriendCode() {
   return `CBS-${uid}`;
 }
 
+/**
+ * Remove an accepted friendship (both a_user / b_user directions).
+ * Deletes only the row in friends_uid — never profiles, players, or wallets.
+ */
+export async function removeFriend(friendId) {
+  if (!requireGameplayAllowed()) {
+    throw new Error(NICKNAME_REQUIRED_MESSAGE);
+  }
+
+  const meUid = await requireAuthUserId();
+  const id = String(friendId || '').trim();
+  if (!id) throw new Error('Invalid friend id.');
+
+  const { data: row, error: fetchErr } = await supabase
+    .from(FRIENDS_TABLE)
+    .select('id,a_user,b_user,status')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (fetchErr) {
+    logError('removeFriend:fetch', fetchErr);
+    throw new Error('Could not load friendship (permissions or network).');
+  }
+
+  if (!row) throw new Error('Friendship not found.');
+  if (row.status !== 'accepted') {
+    throw new Error('Only accepted friends can be removed.');
+  }
+  if (row.a_user !== meUid && row.b_user !== meUid) {
+    throw new Error('This friend is not linked to your account.');
+  }
+
+  const { error } = await supabase.from(FRIENDS_TABLE).delete().eq('id', id);
+
+  if (error) {
+    logError('removeFriend:delete', error);
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('row level security') || msg.includes('rls')) {
+      throw new Error('Supabase RLS blocked removing the friend. Check policies for "friends_uid".');
+    }
+    throw new Error('Could not remove friend (permissions or network issue).');
+  }
+
+  return { ok: true };
+}
+
 // Debug helpers
 if (typeof window !== 'undefined') {
   window.cbsgoGetFriendCode = async () => {

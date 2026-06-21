@@ -1,6 +1,7 @@
 // src/ui/leaderboardPanel.js
 import { sendFriendRequest, loadFriendsOverview } from '../app/friends.js';
 import { isValidLeaderboardEntry, isGameplayAllowed, loadLeaderboard, PROFILE_SETUP_MESSAGE } from '../app/leaderboard.js';
+import { icon, avatarFallbackHtml, medalIcon } from './gameIcons.js';
 
 function esc(s) {
   return String(s || '')
@@ -43,7 +44,7 @@ function normalizeImageDataUrl(input) {
 function avatarCircle(dataUrl, size = 34) {
   const safeUrl = normalizeImageDataUrl(dataUrl);
   const bg = safeUrl ? `background-image:url('${safeUrl}');` : '';
-  const txt = safeUrl ? '' : '👤';
+  const inner = safeUrl ? '' : avatarFallbackHtml(size);
   return `
     <div style="
       width:${size}px;height:${size}px;border-radius:999px;
@@ -52,8 +53,8 @@ function avatarCircle(dataUrl, size = 34) {
       ${bg}
       background-size:cover;background-position:center;
       display:flex;align-items:center;justify-content:center;
-      overflow:hidden;font-size:16px;flex-shrink:0;
-    ">${txt}</div>
+      overflow:hidden;flex-shrink:0;
+    ">${inner}</div>
   `;
 }
 
@@ -62,37 +63,9 @@ function friendCodeFromUid(uid) {
 }
 
 function rankBadge(idx) {
-  if (idx === 0) {
-    return `
-      <div style="
-        width:26px;
-        text-align:right;
-        font-size:18px;
-        line-height:1;
-      ">🥇</div>
-    `;
-  }
-
-  if (idx === 1) {
-    return `
-      <div style="
-        width:26px;
-        text-align:right;
-        font-size:18px;
-        line-height:1;
-      ">🥈</div>
-    `;
-  }
-
-  if (idx === 2) {
-    return `
-      <div style="
-        width:26px;
-        text-align:right;
-        font-size:18px;
-        line-height:1;
-      ">🥉</div>
-    `;
+  const medal = medalIcon(idx, 24);
+  if (medal) {
+    return `<div style="width:26px;display:flex;justify-content:flex-end;">${medal}</div>`;
   }
 
   return `
@@ -106,40 +79,12 @@ function rankBadge(idx) {
 }
 
 function medalUnderAvatar(idx) {
-  if (idx === 0) {
-    return `
-      <div style="
-        margin-top:4px;
-        font-size:14px;
-        line-height:1;
-        filter:drop-shadow(0 0 6px rgba(250,204,21,.35));
-      ">🥇</div>
-    `;
+  const medal = medalIcon(idx, 18);
+  if (medal) {
+    return `<div style="margin-top:4px;display:flex;justify-content:center;">${medal}</div>`;
   }
 
-  if (idx === 1) {
-    return `
-      <div style="
-        margin-top:4px;
-        font-size:14px;
-        line-height:1;
-        filter:drop-shadow(0 0 6px rgba(226,232,240,.28));
-      ">🥈</div>
-    `;
-  }
-
-  if (idx === 2) {
-    return `
-      <div style="
-        margin-top:4px;
-        font-size:14px;
-        line-height:1;
-        filter:drop-shadow(0 0 6px rgba(180,83,9,.28));
-      ">🥉</div>
-    `;
-  }
-
-  return `<div style="margin-top:4px;height:14px;"></div>`;
+  return `<div style="margin-top:4px;height:18px;"></div>`;
 }
 
 function avatarWithMedal(dataUrl, idx) {
@@ -175,15 +120,13 @@ function flagEmojiFromCountryCode(code) {
 
 export function renderLeaderboardPanel() {
   return `
-    <section style="
-      padding:14px;
-      border-radius:18px;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(8,10,16,.30);
-    ">
+    <section class="cbsgo-game-section">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div>
-          <h3 style="margin:0 0 4px 0;font-size:16px;">Leaderboard</h3>
+          <h3 style="margin:0 0 4px 0;font-size:16px;display:flex;align-items:center;gap:8px;">
+            ${icon('trophy', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+            Leaderboard
+          </h3>
           <div style="font-size:12px;opacity:.75;">
             Sovereign focus: ranking is based on <b>XP only</b>.
           </div>

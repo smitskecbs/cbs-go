@@ -12,6 +12,7 @@
 import maplibregl from 'maplibre-gl';
 import { getPlayerAvatar, getPlayerName } from '../app/leaderboard.js';
 import { hasValidPlayerAvatar, normalizePlayerNickname } from '../app/playerNickname.js';
+import { icon } from './gameIcons.js';
 
 /* -------------------- CONFIG -------------------- */
 
@@ -141,6 +142,12 @@ let forecastState = {
 
 // UI
 let worldBtnEl = null;
+
+function setWorldBtnIcon(mode) {
+  if (!worldBtnEl) return;
+  const name = mode === 'world' ? 'globe' : 'compass';
+  worldBtnEl.innerHTML = icon(name, 26, { className: 'cbsgo-icon' });
+}
 
 // window listeners guard
 let resizeListenersOn = false;
@@ -1744,7 +1751,7 @@ function setWorldMode({ animate = true } = {}) {
   if (lastUserLatLng) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
   if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
-  if (worldBtnEl) worldBtnEl.textContent = '🌍';
+  if (worldBtnEl) setWorldBtnIcon('world');
   applyAllMarkerScales();
 }
 
@@ -1776,7 +1783,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
       });
     }
 
-    if (worldBtnEl) worldBtnEl.textContent = '🧭';
+    if (worldBtnEl) setWorldBtnIcon('compass');
 
     if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
     if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
@@ -1791,7 +1798,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
   if (animate) map.easeTo(cam);
   else map.jumpTo({ center: cam.center, zoom: cam.zoom });
 
-  if (worldBtnEl) worldBtnEl.textContent = '🧭';
+  if (worldBtnEl) setWorldBtnIcon('compass');
 
   if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
   if (has) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
@@ -2667,18 +2674,8 @@ export function renderMapView() {
           gap:10px;
           pointer-events:auto;
         ">
-          <button id="cbsgoWorldBtn" class="cbsgo-pill" type="button" aria-label="World / Player toggle"
-            style="
-              width:52px;
-              height:52px;
-              margin:0;
-              font-size:22px;
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              cursor:pointer;
-            ">
-            🌍
+          <button id="cbsgoWorldBtn" class="cbsgo-pill cbsgo-map-pill-btn" type="button" aria-label="World / Player toggle">
+            ${icon('globe', 26, { className: 'cbsgo-icon' })}
           </button>
         </div>
       </div>
