@@ -44,6 +44,8 @@ import {
   hasValidPlayerNickname,
   hasValidPlayerAvatar,
   setProfileGateContext,
+  setProfileOwner,
+  ensureLocalProfileForSession,
 } from '../app/playerNickname.js';
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -63,7 +65,7 @@ import { openProfileOnboardingModal } from './profileOnboardingModal.js';
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
 
 // ✅ Supabase remote game profile (backup naar game_profiles)
-import { saveRemoteProfile, loadRemoteProfile } from '../app/remoteProfile.js';
+import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE } from '../app/remoteProfile.js';
 
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
@@ -429,11 +431,31 @@ async function checkProfileComplete(overrides = {}) {
 }
 
 async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
-  const nick = setPlayerName(nickname);
+  const nick = normalizePlayerNickname(nickname);
   if (!nick) throw new Error('Invalid nickname.');
+
+  const userId = authUser?.id || null;
+  let resolvedUserId = userId;
+  if (!resolvedUserId) {
+    try {
+      const { data } = await supabase.auth.getUser();
+      resolvedUserId = data?.user?.id || null;
+    } catch {}
+  }
+
+  const nickCheck = await isNicknameAvailable(nick, resolvedUserId);
+  if (!nickCheck.available) {
+    if (nickCheck.reason === 'taken') throw new Error(NICKNAME_TAKEN_MESSAGE);
+    throw new Error('Could not verify nickname availability.');
+  }
+
+  setPlayerName(nick);
 
   const av = setPlayerAvatar(avatar);
   if (!hasValidPlayerAvatar(av)) throw new Error('Profile photo is required.');
+
+  const ownerWallet = walletPk || getLocalPublicKeySafe() || null;
+  setProfileOwner({ userId: resolvedUserId, walletPk: ownerWallet });
 
   const localEmail = normalizePlayerEmail(getPlayerEmail());
   let authEmail = '';
@@ -445,7 +467,7 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
 
   const saved = await saveRemoteProfile(
     {
-      wallet_pk: walletPk || getLocalPublicKeySafe() || null,
+      wallet_pk: ownerWallet,
       email,
       nickname: nick,
       avatar: av,
@@ -816,15 +838,35 @@ function bindProfileEvents() {
   };
 
   // --- Name save ---
-  const saveNameNow = () => {
+  const saveNameNow = async () => {
     if (!nameInput) return false;
-    const n = setPlayerName(nameInput.value);
+    const n = normalizePlayerNickname(nameInput.value);
     if (!n) {
       setMsg(PROFILE_SETUP_MESSAGE);
       return false;
     }
+
+    let userId = null;
     try {
-      syncPlayerProfile();
+      const { data } = await supabase.auth.getUser();
+      userId = data?.user?.id || null;
+    } catch {}
+
+    const nickCheck = await isNicknameAvailable(n, userId);
+    if (!nickCheck.available) {
+      if (nickCheck.reason === 'taken') {
+        setMsg(`⛔ ${NICKNAME_TAKEN_MESSAGE}`);
+      } else {
+        setMsg('⛔ Could not verify nickname availability.');
+      }
+      return false;
+    }
+
+    setPlayerName(n);
+    setProfileOwner({ userId, walletPk: getLocalPublicKeySafe() });
+
+    try {
+      await syncPlayerProfile({ nickname: n });
       syncRemoteProfileSafe('name-change', true);
     } catch (e) {
       console.warn('CBS GO: failed to sync profile after name change', e);
@@ -834,7 +876,7 @@ function bindProfileEvents() {
 
   const saveProfileFields = async () => {
     saveEmailNow();
-    const nickOk = saveNameNow();
+    const nickOk = await saveNameNow();
     const complete = await checkProfileComplete({ nickname: nameInput?.value });
     if (nickOk && complete) {
       setMsg('✅ Profile saved. Welcome to CBS-GO!');
@@ -895,14 +937,21 @@ function bindProfileEvents() {
 
       setMsg('Uploading photo…');
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         try {
           setPlayerAvatar(String(reader.result || ''));
+          setMsg('Uploading photo…');
+          let userId = null;
+          try {
+            const { data } = await supabase.auth.getUser();
+            userId = data?.user?.id || null;
+          } catch {}
+          setProfileOwner({ userId, walletPk: getLocalPublicKeySafe() });
           setMsg('✅ Photo updated');
           updatePanel();
 
           try {
-            syncPlayerProfile();
+            await syncPlayerProfile();
             syncRemoteProfileSafe('avatar-change');
           } catch (e) {
             console.warn('CBS GO: failed to sync profile after avatar change', e);
@@ -3434,6 +3483,9 @@ export function mountApp() {
       }
     } catch {}
 
+    const walletPk = getLocalPublicKeySafe() || null;
+    ensureLocalProfileForSession({ userId: authUser?.id, walletPk });
+
     // 3) apply remote profile to local (if available)
     try {
       setLoadingText('Applying cloud profile…');
@@ -3443,7 +3495,6 @@ export function mountApp() {
     }
     markRemoteApplied();
 
-    const walletPk = getLocalPublicKeySafe() || null;
     setProfileGateContext({ authUser, walletPk });
 
     // 4) profile onboarding when incomplete

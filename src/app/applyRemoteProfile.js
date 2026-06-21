@@ -13,6 +13,7 @@ import {
   normalizePlayerNickname,
   sanitizeStoredEmail,
   sanitizeStoredNickname,
+  setProfileOwner,
 } from './playerNickname.js';
 
 // storage keys (moeten matchen met je bestaande bestanden)
@@ -113,10 +114,14 @@ function setLocalNicknameAvatarEmail(nickname, avatar, email) {
   try {
     const validNick = normalizePlayerNickname(nickname);
     if (validNick) localStorage.setItem(KEY_NAME, validNick);
+    else localStorage.removeItem(KEY_NAME);
     const validEmail = normalizePlayerEmail(email);
     if (validEmail) localStorage.setItem(KEY_EMAIL, validEmail);
+    else localStorage.removeItem(KEY_EMAIL);
     if (typeof avatar === 'string' && avatar.trim()) {
       localStorage.setItem(KEY_AVATAR, String(avatar));
+    } else {
+      localStorage.removeItem(KEY_AVATAR);
     }
   } catch {}
 }
@@ -175,19 +180,19 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
 
   const inventoryStamp = remoteIsNewerForInventory ? remoteUpdatedAt : localInvUpdatedAt;
 
-  // Nickname/avatar: remote alleen toepassen als remote echt gevuld is
-  const localNickname = loadLocalNickname();
-  const localAvatar = loadLocalAvatar();
-  const localEmail = loadLocalEmail();
-
-  const finalNickname = remoteNickname || localNickname || '';
-  const finalAvatar = remoteAvatar || localAvatar || '';
-  const finalEmail = remoteEmail || normalizePlayerEmail(localEmail) || '';
+  // Nickname/avatar: remote only — never merge stale local profile from another account.
+  const finalNickname = remoteNickname || '';
+  const finalAvatar = remoteAvatar || '';
+  const finalEmail = remoteEmail || normalizePlayerEmail(loadLocalEmail()) || '';
 
   saveStateXp(mergedXp);
   saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
   saveCardsV1FromCardsObj(mergedCards);
   setLocalNicknameAvatarEmail(finalNickname, finalAvatar, finalEmail);
+  setProfileOwner({
+    userId: remote?.user_id || null,
+    walletPk: remote?.wallet_pk || null,
+  });
   sanitizeStoredNickname();
   sanitizeStoredEmail();
 

@@ -7,6 +7,78 @@ export const NICKNAME_REQUIRED_MESSAGE = PROFILE_SETUP_MESSAGE;
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_EMAIL = 'cbsgo_player_email_v1';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
+const KEY_OWNER_USER = 'cbsgo_profile_owner_user_id';
+const KEY_OWNER_WALLET = 'cbsgo_profile_owner_wallet_pk';
+
+export function getProfileOwner() {
+  try {
+    return {
+      userId: localStorage.getItem(KEY_OWNER_USER) || '',
+      walletPk: localStorage.getItem(KEY_OWNER_WALLET) || '',
+    };
+  } catch {
+    return { userId: '', walletPk: '' };
+  }
+}
+
+export function setProfileOwner({ userId, walletPk } = {}) {
+  try {
+    const uid = String(userId || '').trim();
+    const pk = String(walletPk || '').trim();
+    if (uid) localStorage.setItem(KEY_OWNER_USER, uid);
+    else localStorage.removeItem(KEY_OWNER_USER);
+    if (pk) localStorage.setItem(KEY_OWNER_WALLET, pk);
+    else localStorage.removeItem(KEY_OWNER_WALLET);
+  } catch {}
+}
+
+/** Clear nickname/avatar and owner keys (not email). */
+export function clearOwnedLocalProfile() {
+  try {
+    localStorage.removeItem(KEY_NAME);
+    localStorage.removeItem(KEY_AVATAR);
+    localStorage.removeItem(KEY_OWNER_USER);
+    localStorage.removeItem(KEY_OWNER_WALLET);
+  } catch {}
+}
+
+export function profileOwnerMatches({ userId, walletPk } = {}) {
+  const owner = getProfileOwner();
+  const uid = String(
+    userId ?? profileGateContext.authUser?.id ?? profileGateContext.authUser?.user?.id ?? '',
+  ).trim();
+  const pk = String(walletPk ?? profileGateContext.walletPk ?? '').trim();
+
+  if (!owner.userId && !owner.walletPk) return false;
+  if (uid && owner.userId && uid === owner.userId) return true;
+  if (pk && owner.walletPk && pk === owner.walletPk) return true;
+  return false;
+}
+
+/**
+ * On login/account switch: drop stale local nick/avatar unless bound to this session.
+ * Returns { cleared: true } when local owned profile was removed.
+ */
+export function ensureLocalProfileForSession({ userId, walletPk } = {}) {
+  const owner = getProfileOwner();
+  const hasOwner = !!(owner.userId || owner.walletPk);
+
+  if (!hasOwner || !profileOwnerMatches({ userId, walletPk })) {
+    clearOwnedLocalProfile();
+    return { cleared: true };
+  }
+  return { cleared: false };
+}
+
+function localProfileOwnedBySession(authUser, walletPk) {
+  const uid =
+    authUser?.id ??
+    authUser?.user?.id ??
+    profileGateContext.authUser?.id ??
+    profileGateContext.authUser?.user?.id ??
+    null;
+  return profileOwnerMatches({ userId: uid, walletPk });
+}
 
 /** Set after login/onboarding so sync gate checks can resolve auth + wallet. */
 let profileGateContext = {
@@ -190,11 +262,22 @@ export function isProfileComplete(input = {}) {
     profileGateContext.authUser ??
     (input.userId != null && String(input.userId).trim() ? { id: input.userId } : null);
 
+  const nickFromInput = input.nickname !== undefined && input.nickname !== null;
+  const avatarFromInput = input.avatar !== undefined && input.avatar !== null;
+
+  const nickOk = nickFromInput
+    ? hasValidPlayerNickname(input.nickname)
+    : localProfileOwnedBySession(authCandidate, walletPk) && hasValidPlayerNickname();
+
+  const avatarOk = avatarFromInput
+    ? hasValidPlayerAvatar(input.avatar)
+    : localProfileOwnedBySession(authCandidate, walletPk) && hasValidPlayerAvatar();
+
   return (
     hasAuthSession(authCandidate) &&
     hasWalletPk(walletPk) &&
-    hasValidPlayerNickname(input.nickname) &&
-    hasValidPlayerAvatar(input.avatar)
+    nickOk &&
+    avatarOk
   );
 }
 

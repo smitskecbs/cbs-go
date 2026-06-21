@@ -5,10 +5,6 @@
 import { normalizePlayerNickname, isProfileComplete, getProfileGateContext } from './playerNickname.js';
 import { supabase } from './supabaseClient.js';
 
-/**
- * Haal huidige Supabase user_id op (email-account).
- * @returns {Promise<string|null>}
- */
 export async function getCurrentUserId() {
   try {
     const { data, error } = await supabase.auth.getUser();
@@ -20,6 +16,41 @@ export async function getCurrentUserId() {
   } catch (e) {
     console.warn('CBS-GO: getCurrentUserId crashed', e);
     return null;
+  }
+}
+
+export const NICKNAME_TAKEN_MESSAGE = 'This nickname is already taken.';
+
+/**
+ * Case-insensitive nickname availability in game_profiles.
+ * Same user may keep their own nickname.
+ */
+export async function isNicknameAvailable(nickname, currentUserId) {
+  const nick = normalizePlayerNickname(nickname);
+  if (!nick) return { available: false, reason: 'invalid' };
+
+  const userId = currentUserId || (await getCurrentUserId());
+  if (!userId) return { available: false, reason: 'no-auth' };
+
+  try {
+    const { data, error } = await supabase
+      .from('game_profiles')
+      .select('user_id, nickname')
+      .ilike('nickname', nick)
+      .limit(1);
+
+    if (error) {
+      console.warn('CBS-GO: isNicknameAvailable error', error);
+      return { available: false, reason: 'error' };
+    }
+
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row?.user_id) return { available: true };
+    if (String(row.user_id) === String(userId)) return { available: true };
+    return { available: false, reason: 'taken' };
+  } catch (e) {
+    console.warn('CBS-GO: isNicknameAvailable crashed', e);
+    return { available: false, reason: 'error' };
   }
 }
 

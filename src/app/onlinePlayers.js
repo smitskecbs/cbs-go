@@ -12,6 +12,7 @@ import {
   isProfileComplete,
   normalizePlayerNickname,
 } from './playerNickname.js';
+import { isNicknameAvailable, NICKNAME_TAKEN_MESSAGE } from './remoteProfile.js';
 import { supabase } from './supabaseClient.js';
 
 function safeWalletPk() {
@@ -144,6 +145,15 @@ export async function claimNickname(nicknameRaw) {
 
     const nickname = normalizePlayerNickname(nicknameRaw);
     if (!nickname) return { ok: false, reason: 'empty' };
+
+    const user_id = await getAuthUserId();
+    const nickCheck = await isNicknameAvailable(nickname, user_id);
+    if (!nickCheck.available) {
+      if (nickCheck.reason === 'taken') {
+        return { ok: false, reason: 'taken', message: NICKNAME_TAKEN_MESSAGE };
+      }
+      return { ok: false, reason: nickCheck.reason || 'unavailable' };
+    }
 
     await syncPlayerProfile({ nickname });
     return { ok: true };
