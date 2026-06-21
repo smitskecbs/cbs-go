@@ -3,7 +3,7 @@
 
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from '@solana/spl-token';
-import { withSolanaRpc } from './solanaConnection.js';
+import { withSolanaRpc, describeRpcSource } from './solanaConnection.js';
 
 const KNOWN_MINTS = {
   'B9z8cEWFmc7LvQtjKsaLoKqW5MJmGRCWqs1DPKupCfkk': {
@@ -175,7 +175,7 @@ export async function fetchTokenOverview(ownerAddress) {
           };
         });
 
-      return { sol, tokens, rpcUrl };
+      return { sol, tokens, rpcUrl, rpcSource: describeRpcSource(rpcUrl) };
     });
   } catch (err) {
     throw classifyWalletError(err);

@@ -2,6 +2,7 @@
 import { sendFriendRequest, loadFriendsOverview } from '../app/friends.js';
 import { isValidLeaderboardEntry, isGameplayAllowed, loadLeaderboard, PROFILE_SETUP_MESSAGE } from '../app/leaderboard.js';
 import { icon, avatarFallbackHtml, medalIcon } from './gameIcons.js';
+import { showGameToast, friendSendToastFromError } from './gameToast.js';
 
 function esc(s) {
   return String(s || '')
@@ -281,11 +282,14 @@ export function bindLeaderboardPanel() {
 
           try {
             await sendFriendRequest(value);
-            setMsg('✅ Friend request sent.');
+            setMsg('');
+            showGameToast('Friend request sent.', { variant: 'success', iconName: 'friends' });
             loadAndRender().catch(() => {});
           } catch (e) {
             console.warn(e);
-            setMsg(`⛔ ${e?.message || 'Could not send friend request.'}`);
+            const toast = friendSendToastFromError(e);
+            setMsg('');
+            showGameToast(toast.text, { variant: toast.variant, iconName: 'friends' });
             btn.disabled = false;
             btn.textContent = old;
           }

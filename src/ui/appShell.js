@@ -84,6 +84,11 @@ import { showConfirmDialog } from './confirmDialog.js';
 import { showGameIntroIfNeeded } from './gameIntroModal.js';
 import { renderBagPanel } from './bagPanel.js';
 import { CBSGO_APP_VERSION } from '../app/appVersion.js';
+import {
+  showGameToast,
+  friendSendToastFromError,
+  initGameToastListener,
+} from './gameToast.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -115,11 +120,13 @@ function ensureFriendsActionDelegation() {
         btn.disabled = true;
         try {
           await acceptFriendRequest(id);
-          cbsgoFriendsSetMsg('Friend added.');
+          cbsgoFriendsSetMsg('');
+          showGameToast('Friend added.', { variant: 'success', iconName: 'friends' });
           await cbsgoFriendsRefresh();
         } catch (err) {
           console.warn(err);
-          cbsgoFriendsSetMsg(err?.message || 'Could not accept friend.');
+          cbsgoFriendsSetMsg('');
+          showGameToast('Could not accept friend request.', { variant: 'error' });
           btn.disabled = false;
         }
         return;
@@ -134,13 +141,17 @@ function ensureFriendsActionDelegation() {
         try {
           if (navigator.clipboard?.writeText) {
             await navigator.clipboard.writeText(value);
-            cbsgoFriendsSetMsg(w ? 'Friend wallet copied.' : 'Friend Code copied.');
+            cbsgoFriendsSetMsg('');
+            showGameToast(w ? 'Friend wallet copied.' : 'Friend Code copied.', {
+              variant: 'success',
+              iconName: 'receive',
+            });
           } else {
-            cbsgoFriendsSetMsg('Copy not supported in this browser.');
+            showGameToast('Copy not supported in this browser.', { variant: 'error' });
           }
         } catch (err) {
           console.warn('CBS GO: copy friend failed', err);
-          cbsgoFriendsSetMsg('Could not copy.');
+          showGameToast('Could not copy.', { variant: 'error' });
         }
         return;
       }
@@ -163,11 +174,13 @@ function ensureFriendsActionDelegation() {
         btn.disabled = true;
         try {
           await removeFriend(id);
-          cbsgoFriendsSetMsg('Friend removed.');
+          cbsgoFriendsSetMsg('');
+          showGameToast('Friend removed.', { variant: 'success', iconName: 'friends' });
           await cbsgoFriendsRefresh();
         } catch (err) {
           console.warn(err);
-          cbsgoFriendsSetMsg(err?.message || 'Could not remove friend.');
+          cbsgoFriendsSetMsg('');
+          showGameToast('Could not remove friend.', { variant: 'error' });
           btn.disabled = false;
         }
       }
@@ -190,6 +203,7 @@ import { sendSplFromLocalWallet } from '../app/solanaSendSpl.js';
 
 // ✅ On-chain token overview (SOL + SPL)
 import { fetchTokenOverview } from '../app/solanaTokenOverview.js';
+import { logRpcEnvDiagnostics, describeRpcSource } from '../app/solanaConnection.js';
 
 // ✅ state helpers
 import { isNodeCompleted, getXp, getLevel } from '../app/state.js';
@@ -1374,19 +1388,22 @@ function bindProfileEvents() {
 
       const value = friendInput.value.trim();
       if (!value) {
-        setFriendsMsg('Enter a Friend Code or wallet first.');
+        showGameToast('Enter a Friend Code or wallet first.', { variant: 'info', iconName: 'friends' });
         return;
       }
-      setFriendsMsg('Sending friend request…');
+      setFriendsMsg('');
       friendSendBtn.disabled = true;
       try {
         await sendFriendRequest(value);
-        setFriendsMsg('✅ Friend request sent.');
         friendInput.value = '';
+        setFriendsMsg('');
+        showGameToast('Friend request sent.', { variant: 'success', iconName: 'friends' });
         await refreshFriends();
       } catch (e) {
         console.warn(e);
-        setFriendsMsg(`⛔ ${e.message || e}`);
+        const toast = friendSendToastFromError(e);
+        setFriendsMsg('');
+        showGameToast(toast.text, { variant: toast.variant, iconName: 'friends' });
       } finally {
         friendSendBtn.disabled = false;
       }
@@ -1447,13 +1464,14 @@ function bindBagEvents() {
         if (!pk) return setMsg('⛔ No wallet address found.');
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(pk);
-          setMsg('✅ Address copied to clipboard.');
+          setMsg('');
+          showGameToast('Address copied to clipboard.', { variant: 'success', iconName: 'receive' });
         } else {
-          setMsg('📋 Copy not supported in this browser.');
+          showGameToast('Copy not supported in this browser.', { variant: 'error' });
         }
       } catch (e) {
         console.warn('CBS GO: copy sol wallet failed', e);
-        setMsg('⛔ Failed to copy address.');
+        showGameToast('Could not copy address.', { variant: 'error' });
       }
     };
   }
@@ -2102,15 +2120,28 @@ function bindWalletEvents() {
   }
 
   // Token Overview laden
+  let walletRpcDiagLogged = false;
+
   async function loadTokenOverview() {
     if (!overviewTableBody) return;
+
+    if (!walletRpcDiagLogged) {
+      logRpcEnvDiagnostics();
+      walletRpcDiagLogged = true;
+    }
+
     const owner = getLocalPublicKeySafe();
+    const pkShort = owner && owner.length > 8 ? `${owner.slice(0, 4)}…${owner.slice(-4)}` : owner || '';
+
     if (!owner) {
-      setOverviewStatus('No local wallet available.');
+      console.warn('[CBSGO wallet] load skipped — wallet public key missing');
+      setOverviewStatus('Wallet public key missing.');
       if (walletAssetSolEl) walletAssetSolEl.textContent = '—';
       overviewTableBody.innerHTML = `<tr><td colspan="3" style="padding:6px 4px;opacity:.7;">No wallet.</td></tr>`;
       return;
     }
+
+    console.info('[CBSGO wallet] load start', { walletPk: pkShort });
 
     setOverviewStatus('Loading wallet balances…');
     overviewTableBody.innerHTML = `
@@ -2123,7 +2154,14 @@ function bindWalletEvents() {
     if (overviewRefreshBtn) overviewRefreshBtn.disabled = true;
 
     try {
-      const { sol, tokens } = await fetchTokenOverview(owner);
+      const { sol, tokens, rpcUrl, rpcSource } = await fetchTokenOverview(owner);
+      const sourceLabel = rpcSource || describeRpcSource(rpcUrl);
+      console.info('[CBSGO wallet] load ok', {
+        walletPk: pkShort,
+        sol,
+        splCount: tokens.length,
+        rpcSource: sourceLabel,
+      });
       setOverviewStatus('');
 
       if (walletAssetSolEl) {
@@ -2168,8 +2206,13 @@ function bindWalletEvents() {
           .join('');
       }
     } catch (e) {
-      console.warn('CBS GO: fetchTokenOverview failed', e);
       const reason = String(e?.message || 'Could not load wallet balances');
+      console.error('[CBSGO wallet] load failed', {
+        walletPk: pkShort,
+        code: e?.code || '',
+        message: reason,
+        cause: e?.cause?.message || e?.cause || '',
+      });
       setOverviewStatus(reason);
       if (walletAssetSolEl) walletAssetSolEl.textContent = '—';
       if (overviewTotalsEl) overviewTotalsEl.textContent = '';
@@ -2710,6 +2753,7 @@ function showTradePopup(detail) {
 function bootstrapApp() {
   sanitizeStoredNickname();
   sanitizeStoredEmail();
+  initGameToastListener();
 
   const app = document.querySelector('#app');
   if (!app) return;

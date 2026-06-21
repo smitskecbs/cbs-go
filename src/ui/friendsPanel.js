@@ -12,6 +12,7 @@ import {
 } from '../app/friends.js';
 import { getPublicKey } from '../app/wallet.js';
 import { avatarFallbackHtml } from './gameIcons.js';
+import { showGameToast, friendSendToastFromError } from './gameToast.js';
 
 function esc(s) {
   return String(s || '')
@@ -301,11 +302,13 @@ export async function bindFriendsPanelEvents() {
             b.disabled = true;
             b.textContent = '…';
             await acceptFriendRequest(id);
+            setMsg('');
+            showGameToast('Friend added.', { variant: 'success', iconName: 'friends' });
             await refreshFriendsUI();
-            setMsg('✅ Friend request accepted');
           } catch (e) {
             console.warn(e);
-            setMsg(e?.message || 'Could not accept friend request.');
+            setMsg('');
+            showGameToast('Could not accept friend request.', { variant: 'error' });
             b.disabled = false;
             b.textContent = 'Accept';
           }
@@ -323,17 +326,24 @@ export async function bindFriendsPanelEvents() {
   if (btn) {
     btn.addEventListener('click', async () => {
       const value = (input?.value || '').trim();
-      if (!value) return setMsg('Enter a wallet address first.');
+      if (!value) {
+        showGameToast('Enter a wallet address first.', { variant: 'info', iconName: 'friends' });
+        return;
+      }
 
-      setMsg('Sending friend request…');
+      setMsg('');
+      btn.disabled = true;
       try {
         await sendFriendRequest(value);
         if (input) input.value = '';
-        setMsg('✅ Friend request sent');
+        showGameToast('Friend request sent.', { variant: 'success', iconName: 'friends' });
         await refreshFriendsUI();
       } catch (e) {
         console.warn(e);
-        setMsg(e?.message || 'Could not send friend request.');
+        const toast = friendSendToastFromError(e);
+        showGameToast(toast.text, { variant: toast.variant, iconName: 'friends' });
+      } finally {
+        btn.disabled = false;
       }
     });
   }
