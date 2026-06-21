@@ -108,6 +108,24 @@ const ICON_PATHS = {
     <path d="M9.5 7.5L12 4l2.5 3.5" stroke="#B45309" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
     <path d="M10 13.5l1.5 1.5 3-3" stroke="#78350F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
   `,
+  ticket: `
+    <path d="M5 8h14v3a2 2 0 0 0 0 4v3H5v-3a2 2 0 0 0 0-4V8z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M12 8v8" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2" opacity=".7"/>
+  `,
+  coin: `
+    <circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M12 7v10M9 9.5h4a2 2 0 0 1 0 3h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  `,
+  gift: `
+    <rect x="4" y="11" width="16" height="9" rx="1.5" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M12 11v9M4 15h16" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M12 11c-2-2.5-5-2-5 .5S10 11 12 11zM12 11c2-2.5 5-2 5 .5S14 11 12 11z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+  `,
+  cards: `
+    <rect x="5" y="7" width="11" height="14" rx="2" stroke="currentColor" stroke-width="1.75"/>
+    <rect x="8" y="5" width="11" height="14" rx="2" stroke="currentColor" stroke-width="1.75" opacity=".65"/>
+    <path d="M10 12h6M10 15h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".75"/>
+  `,
   login: `
     <rect x="4" y="10" width="16" height="10" rx="2.5" stroke="currentColor" stroke-width="1.75"/>
     <path d="M8 10V8a4 4 0 0 1 8 0v2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
@@ -119,6 +137,7 @@ const ICON_PATHS = {
 const PANEL_ICON_MAP = {
   Profile: 'profile',
   Bag: 'bag',
+  'Adventure Bag': 'bag',
   'Solana Wallet': 'wallet',
   'CBS-GO Wallet': 'wallet',
   Leaderboard: 'trophy',

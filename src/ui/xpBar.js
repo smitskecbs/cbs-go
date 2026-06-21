@@ -1,73 +1,44 @@
-// src/ui/xpBar.js
-// XP-balk + afstand in één kaartje.
+// XP bar + distance HUD (top-right).
 
 import {
   getXp,
   getLevel,
   getXpIntoLevel,
-  getXpNeededThisLevel
+  getXpNeededThisLevel,
 } from '../app/state.js';
 
-import {
-  getDistanceKm
-} from '../app/steps.js';
+import { getDistanceKm } from '../app/steps.js';
+
+import { icon } from './gameIcons.js';
 
 export function renderXpBar() {
   const total = getXp();
   const level = getLevel();
   const current = getXpIntoLevel();
   const needed = getXpNeededThisLevel();
-
   const km = getDistanceKm();
 
-  const pct = needed > 0
-    ? Math.min(100, Math.round((current / needed) * 100))
-    : 0;
+  const pct =
+    needed > 0 ? Math.min(100, Math.round((current / needed) * 100)) : 0;
 
   return `
-    <div id="cbsgoXpBarInner" style="
-      min-width:160px;
-      max-width:220px;
-      font-family:system-ui,sans-serif;
-      color:#fff;
-      font-size:11px;
-    ">
-      <!-- Level + balk -->
-      <div id="cbsgoXpLabel" style="
-        font-weight:700;
-        font-size:11px;
-        margin-bottom:4px;
-        text-align:right;
-      ">
-        Level ${level}
+    <div id="cbsgoXpBarInner" class="cbsgo-xp-bar">
+      <div class="cbsgo-xp-bar__head">
+        <div class="cbsgo-xp-bar__badge" aria-hidden="true">${level}</div>
+        <div class="cbsgo-xp-bar__meta">
+          <div id="cbsgoXpLabel" class="cbsgo-xp-bar__level">Level ${level}</div>
+          <div class="cbsgo-xp-bar__km">${km.toFixed(2)} km today</div>
+        </div>
+        <div class="cbsgo-xp-bar__trophy">${icon('trophy', 16, { className: 'cbsgo-icon' })}</div>
       </div>
 
-      <div style="
-        position:relative;
-        height:7px;
-        border-radius:999px;
-        background:rgba(255,255,255,.10);
-        overflow:hidden;
-      ">
-        <div id="cbsgoXpFill" style="
-          position:absolute;
-          inset:0;
-          width:${pct}%;
-          background:linear-gradient(90deg,#22c55e,#a855f7);
-          box-shadow:0 0 10px rgba(168,85,247,.65);
-          transition:width .25s ease-out;
-        "></div>
+      <div class="cbsgo-xp-bar__track" aria-hidden="true">
+        <div id="cbsgoXpFill" class="cbsgo-xp-bar__fill" style="width:${pct}%;"></div>
       </div>
 
-      <!-- Tekst onder de balk: XP + kilometers -->
-      <div id="cbsgoXpText" style="
-        margin-top:3px;
-        opacity:.9;
-        text-align:right;
-        line-height:1.3;
-      ">
-        <div>${current}/${needed} XP · total ${total}</div>
-        <div>${km.toFixed(2)} km walked</div>
+      <div id="cbsgoXpText" class="cbsgo-xp-bar__foot">
+        <span>${current}/${needed} XP</span>
+        <span class="cbsgo-xp-bar__total">${total} total</span>
       </div>
     </div>
   `;

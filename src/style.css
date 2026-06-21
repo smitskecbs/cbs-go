@@ -541,12 +541,11 @@ body {
 
 .cbsgo-xp-hud {
   pointer-events: auto;
-  padding: 10px 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: var(--cbsgo-glass);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  padding: 0;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 .cbsgo-map-pill-btn {
@@ -952,4 +951,503 @@ body {
   .cbsgo-wallet-asset-grid {
     grid-template-columns: 1fr;
   }
+
+  .cbsgo-bag-asset-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- XP HUD (top-right) ---------- */
+.cbsgo-xp-bar {
+  min-width: 168px;
+  max-width: 220px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(165deg, rgba(8, 10, 16, 0.92) 0%, rgba(24, 20, 12, 0.88) 100%);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+}
+
+.cbsgo-xp-bar__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.cbsgo-xp-bar__badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.55);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.28), rgba(234, 88, 12, 0.18));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 900;
+  color: #fde68a;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+  flex-shrink: 0;
+}
+
+.cbsgo-xp-bar__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.cbsgo-xp-bar__level {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.cbsgo-xp-bar__km {
+  font-size: 10px;
+  opacity: 0.78;
+  margin-top: 1px;
+}
+
+.cbsgo-xp-bar__trophy {
+  color: #fbbf24;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.cbsgo-xp-bar__track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.cbsgo-xp-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24, #fde68a);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.55);
+  transition: width 0.25s ease-out;
+}
+
+.cbsgo-xp-bar__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  opacity: 0.9;
+  line-height: 1.3;
+}
+
+.cbsgo-xp-bar__total {
+  opacity: 0.72;
+  font-size: 10px;
+}
+
+/* ---------- Adventure Bag panel (orange/gold) ---------- */
+.cbsgo-bag-panel {
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(165deg, rgba(8, 10, 16, 0.92) 0%, rgba(28, 20, 10, 0.82) 100%);
+  backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.cbsgo-bag-panel__header {
+  margin-bottom: 14px;
+}
+
+.cbsgo-bag-panel__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cbsgo-bag-panel__logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.22), rgba(234, 88, 12, 0.12));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fde68a;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.15);
+}
+
+.cbsgo-bag-panel__title {
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.cbsgo-bag-panel__subtitle {
+  font-size: 11px;
+  opacity: 0.78;
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+.cbsgo-bag-asset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cbsgo-bag-asset-card {
+  padding: 10px 10px 9px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 12, 18, 0.72);
+}
+
+.cbsgo-bag-asset-card--tickets {
+  border-color: rgba(251, 191, 36, 0.4);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.14), rgba(10, 12, 18, 0.8));
+}
+
+.cbsgo-bag-asset-card--cbs {
+  border-color: rgba(234, 179, 8, 0.35);
+}
+
+.cbsgo-bag-asset-card--cards {
+  border-color: rgba(249, 115, 22, 0.35);
+}
+
+.cbsgo-bag-asset-card__icon {
+  color: #fbbf24;
+  margin-bottom: 4px;
+}
+
+.cbsgo-bag-asset-card__label {
+  font-size: 10px;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cbsgo-bag-asset-card__value {
+  font-size: 18px;
+  font-weight: 900;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cbsgo-bag-asset-card__hint {
+  font-size: 10px;
+  opacity: 0.65;
+  margin-top: 2px;
+}
+
+.cbsgo-bag-section {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 12, 18, 0.62);
+}
+
+.cbsgo-bag-section--rewards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.cbsgo-bag-section--gift {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+.cbsgo-bag-section--wallet {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.cbsgo-bag-section--warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-color: rgba(239, 68, 68, 0.45);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fecaca;
+}
+
+.cbsgo-bag-section__head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.cbsgo-bag-section__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fde68a;
+  flex-shrink: 0;
+}
+
+.cbsgo-bag-section__title {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.cbsgo-bag-section__desc {
+  font-size: 11px;
+  opacity: 0.78;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.cbsgo-bag-section__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.cbsgo-bag-reward-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.cbsgo-bag-reward-card--ready {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(145deg, rgba(120, 53, 15, 0.22), rgba(15, 23, 42, 0.72));
+}
+
+.cbsgo-bag-reward-card__main {
+  flex: 1;
+  min-width: 180px;
+}
+
+.cbsgo-bag-loot-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cbsgo-bag-loot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 12, 18, 0.55);
+}
+
+.cbsgo-bag-loot-row__icon {
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.cbsgo-bag-loot-row__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cbsgo-bag-loot-row__title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cbsgo-bag-loot-row__meta {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.cbsgo-bag-loot-row__qty {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fde68a;
+}
+
+.cbsgo-bag-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 11px;
+  opacity: 0.78;
+  border-radius: 12px;
+  border: 1px dashed rgba(251, 191, 36, 0.3);
+}
+
+.cbsgo-bag-empty-hint {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+.cbsgo-bag-address-box {
+  margin-top: 10px;
+  font-size: 11px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(15, 23, 42, 0.95);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+.cbsgo-bag-label {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.cbsgo-bag-input {
+  margin-top: 4px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(15, 23, 42, 1);
+  color: #fff;
+  font-size: 12px;
+}
+
+.cbsgo-bag-gift-form {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cbsgo-bag-gift-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cbsgo-bag-action-btn {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.cbsgo-bag-action-btn:not(:disabled) {
+  cursor: pointer;
+}
+
+.cbsgo-bag-action-btn--primary:not(:disabled) {
+  border-color: rgba(251, 191, 36, 0.9);
+  background: linear-gradient(145deg, rgba(245, 158, 11, 0.95), rgba(234, 88, 12, 0.88));
+  color: #111827;
+}
+
+.cbsgo-bag-reward-card--ready .cbsgo-bag-action-btn:not(:disabled) {
+  border-color: rgba(251, 191, 36, 0.9);
+  background: rgba(245, 158, 11, 0.95);
+  color: #111827;
+  cursor: pointer;
+}
+
+.cbsgo-bag-msg {
+  font-size: 11px;
+  opacity: 0.88;
+  margin-top: 6px;
+}
+
+/* ---------- Game intro popup ---------- */
+.cbsgo-intro-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.cbsgo-intro-card {
+  position: relative;
+  width: min(440px, 96vw);
+  padding: 22px 18px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: linear-gradient(165deg, rgba(10, 12, 18, 0.98) 0%, rgba(28, 20, 10, 0.96) 100%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+
+.cbsgo-intro-card__glow {
+  position: absolute;
+  inset: -40% auto auto 50%;
+  width: 120%;
+  height: 60%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cbsgo-intro-card__icon {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fde68a;
+}
+
+.cbsgo-intro-card__title {
+  position: relative;
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.cbsgo-intro-card__body {
+  position: relative;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.9;
+  text-align: left;
+}
+
+.cbsgo-intro-card__btn {
+  position: relative;
+  width: 100%;
+  padding: 12px 14px !important;
+  font-size: 14px !important;
 }

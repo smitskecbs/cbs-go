@@ -80,6 +80,8 @@ import {
 } from '../app/friends.js';
 import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
 import { showConfirmDialog } from './confirmDialog.js';
+import { showGameIntroIfNeeded } from './gameIntroModal.js';
+import { renderBagPanel } from './bagPanel.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -1245,7 +1247,7 @@ function bindProfileEvents() {
                 <button
                   type="button"
                   class="friendAcceptBtn"
-                  data-friend-id="${esc(String(fr.id || ''))}"
+                  data-friend-id="${esc(String(fr.friendshipId || fr.id || ''))}"
                   style="
                     padding:4px 8px;
                     border-radius:999px;
@@ -1292,7 +1294,7 @@ function bindProfileEvents() {
                 <button
                   type="button"
                   class="friendRemoveBtn cbsgo-btn-danger"
-                  data-friend-id="${esc(String(fr.id || ''))}"
+                  data-friend-id="${esc(String(fr.friendshipId || fr.id || ''))}"
                   data-friend-nick="${nickLabel}"
                 >Remove</button>
               </div>
@@ -1354,382 +1356,18 @@ function bindProfileEvents() {
 function renderBag() {
   const tickets = getTickets();
   const cbs = getCbsCoins();
-
-  const canClaimMysteryBox = tickets >= 1000;
-  const canClaimCbsReward = cbs >= 1000;
-
-  // ✅ één adres overal: de echte Solana/SPL wallet
-  const solPk = getLocalPublicKeySafe();
-
   const { cardTypes, cardTotal, sendable } = getBagCardStats();
 
-  const cardsLine =
-    cardTotal > 0
-      ? `You own ${cardTotal} cards (${cardTypes} different). You can also send some to friends as gifts.`
-      : 'You don’t have any cards yet to send.';
-
-  const hasSendableCards = sendable.length > 0;
-
-  const cardSelectHtml = hasSendableCards
-    ? `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:140px;">
-          <label for="giftCardSelect" style="font-size:11px;opacity:.8;">Card (optional)</label>
-          <select id="giftCardSelect" style="
-            margin-top:4px;
-            width:100%;
-            padding:7px 9px;
-            border-radius:10px;
-            border:1px solid rgba(148,163,184,.7);
-            background:rgba(15,23,42,.95);
-            color:#fff;
-            font-size:12px;
-          ">
-            <option value="">No card</option>
-            ${sendable
-              .map(
-                (c) =>
-                  `<option value="${esc(c.id)}">${esc(c.label || c.id)} (x${c.count})</option>`,
-              )
-              .join('')}
-          </select>
-        </div>
-        <div style="width:80px;">
-          <label for="giftCardQtyInput" style="font-size:11px;opacity:.8;">Qty</label>
-          <input id="giftCardQtyInput" type="number" min="0" step="1" placeholder="0" style="
-            margin-top:4px;
-            width:100%;
-            padding:7px 9px;
-            border-radius:10px;
-            border:1px solid rgba(148,163,184,.7);
-            background:rgba(15,23,42,.95);
-            color:#fff;
-            font-size:12px;
-          " />
-        </div>
-      </div>
-    `
-    : `
-      <div style="font-size:11px;opacity:.7;margin-top:4px;">
-        You don’t have any cards yet to send.
-      </div>
-    `;
-
-  return `
-    <section class="cbsgo-game-section">
-      <h3 style="margin:0 0 8px 0; font-size:16px; display:flex; align-items:center; gap:8px;">
-        ${icon('bag', 20, { className: 'cbsgo-icon cbsgo-icon--panel' })}
-        Inventory Bag
-      </h3>
-      <p style="margin:0 0 14px 0; font-size:12px; opacity:.75;">
-        Your collected items in the real world.
-      </p>
-
-          <div style="display:flex;flex-wrap:wrap;gap:10px;">
-        <div style="
-          padding:8px 14px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.9);
-          font-size:13px;
-        ">
-          🎟️ Tickets: <b>${tickets}</b>
-        </div>
-
-        <div style="
-          padding:8px 14px;
-          border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
-          background:rgba(10,12,18,.9);
-          font-size:13px;
-        ">
-          🪙 CBS (play money): <b>${cbs}</b>
-        </div>
-      </div>
-
-      <div style="
-        margin-top:14px;
-        display:flex;
-        flex-direction:column;
-        gap:10px;
-      ">
-        <div style="
-          padding:12px;
-          border-radius:16px;
-          border:1px solid ${canClaimMysteryBox ? 'rgba(251,191,36,.55)' : 'rgba(255,255,255,.10)'};
-          background:${canClaimMysteryBox ? 'rgba(120,53,15,.22)' : 'rgba(15,23,42,.72)'};
-        ">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <div style="font-size:13px;font-weight:800;display:flex;align-items:center;gap:6px;">
-                ${icon('chest', 18, { className: 'cbsgo-icon' })}
-                Mystery Box
-              </div>
-              <div style="font-size:11px;opacity:.8;margin-top:3px;">
-                Collect 1000 tickets to claim a mystery box with BONK, SOL or CBS rewards.
-              </div>
-            </div>
-
-            <button
-              id="claimMysteryBoxBtn"
-              type="button"
-              ${canClaimMysteryBox ? '' : 'disabled'}
-              style="
-                padding:8px 12px;
-                border-radius:999px;
-                border:1px solid ${canClaimMysteryBox ? 'rgba(251,191,36,.95)' : 'rgba(255,255,255,.10)'};
-                background:${canClaimMysteryBox ? 'rgba(245,158,11,.95)' : 'rgba(255,255,255,.06)'};
-                color:${canClaimMysteryBox ? '#111827' : 'rgba(255,255,255,.45)'};
-                font-size:12px;
-                font-weight:800;
-                cursor:${canClaimMysteryBox ? 'pointer' : 'default'};
-              "
-            >
-              ${canClaimMysteryBox ? 'Claim box' : `${1000 - tickets} left`}
-            </button>
-          </div>
-        </div>
-
-        <div style="
-          padding:12px;
-          border-radius:16px;
-          border:1px solid ${canClaimCbsReward ? 'rgba(34,197,94,.55)' : 'rgba(255,255,255,.10)'};
-          background:${canClaimCbsReward ? 'rgba(20,83,45,.22)' : 'rgba(15,23,42,.72)'};
-        ">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
-            <div>
-              <div style="font-size:13px;font-weight:800;">🪙 CBS Reward</div>
-              <div style="font-size:11px;opacity:.8;margin-top:3px;">
-                Collect 1000 CBS play money to claim a CBS reward later.
-              </div>
-            </div>
-
-            <button
-              id="claimCbsRewardBtn"
-              type="button"
-              ${canClaimCbsReward ? '' : 'disabled'}
-              style="
-                padding:8px 12px;
-                border-radius:999px;
-                border:1px solid ${canClaimCbsReward ? 'rgba(34,197,94,.9)' : 'rgba(255,255,255,.10)'};
-                background:${canClaimCbsReward ? 'rgba(34,197,94,.95)' : 'rgba(255,255,255,.06)'};
-                color:${canClaimCbsReward ? '#052e16' : 'rgba(255,255,255,.45)'};
-                font-size:12px;
-                font-weight:800;
-                cursor:${canClaimCbsReward ? 'pointer' : 'default'};
-              "
-            >
-              ${canClaimCbsReward ? 'Claim reward' : `${1000 - cbs} left`}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      ${
-        solPk
-          ? `
-            <div style="
-              margin-top:16px;
-              padding:10px 12px;
-              border-radius:14px;
-              border:1px solid rgba(56,189,248,.85);
-              background:rgba(10,12,18,.92);
-            ">
-              <div style="font-size:12px; opacity:.9; margin-bottom:6px;">
-                Solana wallet address (SPL wallet)
-              </div>
-              <div style="
-                font-size:11px;
-                opacity:.95;
-                padding:6px 8px;
-                border-radius:10px;
-                border:1px solid rgba(56,189,248,.5);
-                background:rgba(15,23,42,.95);
-                word-break:break-all;
-                font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-                margin-bottom:8px;
-              ">${esc(solPk)}</div>
-
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <button id="cbsgoCopySolWalletBtn" type="button" style="
-                  padding:8px 10px;
-                  border-radius:999px;
-                  border:1px solid rgba(255,255,255,.18);
-                  background:rgba(90,200,255,.18);
-                  color:#fff;
-                  font-size:12px;
-                  font-weight:600;
-                  cursor:pointer;
-                ">Copy address</button>
-
-                <button id="cbsgoOpenSolanaWalletBtn" type="button" style="
-                  padding:8px 10px;
-                  border-radius:999px;
-                  border:1px solid rgba(56,189,248,.9);
-                  background:rgba(56,189,248,.18);
-                  color:#e0f2fe;
-                  font-size:12px;
-                  font-weight:700;
-                  cursor:pointer;
-                ">Open wallet</button>
-              </div>
-
-              <div id="bagMsg" style="margin-top:6px; font-size:11px; opacity:.85;"></div>
-            </div>
-          `
-          : `
-            <div style="
-              margin-top:16px;
-              padding:10px 12px;
-              border-radius:14px;
-              border:1px solid rgba(239,68,68,.65);
-              background:rgba(24,24,27,.9);
-              font-size:12px;
-              opacity:.9;
-            ">
-              ⛔ No local Solana wallet found yet. Finish login (PIN) to unlock or create your wallet.
-            </div>
-          `
-      }
-
-      <div style="
-        margin-top:16px;
-        padding:10px 12px;
-        border-radius:14px;
-        border:1px solid rgba(148,163,184,.7);
-        background:rgba(15,23,42,.9);
-      ">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
-              🃏 My Cards
-            </div>
-            <div style="font-size:11px;opacity:.8;max-width:260px;">
-              Walking & CBS cards you collect on your journey. You can also send some to friends as gifts.
-            </div>
-          </div>
-          <button id="cbsgoOpenCardsBtn" type="button" style="
-            margin-top:6px;
-            padding:7px 12px;
-            border-radius:999px;
-            border:1px solid rgba(251,191,36,.9);
-            background:rgba(245,158,11,.95);
-            color:#111827;
-            font-size:12px;
-            font-weight:700;
-            cursor:pointer;
-            white-space:nowrap;
-          ">
-            Open collection
-          </button>
-        </div>
-        <div style="font-size:11px;opacity:.8;margin-top:6px;">
-          ${esc(cardsLine)}
-        </div>
-      </div>
-
-      <!-- Send to friend blok -->
-      <div style="
-        margin-top:16px;
-        padding:10px 12px;
-        border-radius:14px;
-        border:1px solid rgba(56,189,248,.75);
-        background:rgba(15,23,42,.92);
-      ">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-          <div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:2px;">
-              🎁 Send a gift to a friend
-            </div>
-            <div style="font-size:11px;opacity:.8;max-width:260px;">
-              Send tickets, CBS (play money) and optional cards to another CBS-GO wallet. Off-chain via Supabase.
-            </div>
-          </div>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          <div>
-            <label for="giftWalletInput" style="font-size:11px;opacity:.8;">Friend wallet address</label>
-            <input id="giftWalletInput" placeholder="Paste wallet address" style="
-              margin-top:4px;
-              width:100%;
-              padding:8px 9px;
-              border-radius:10px;
-              border:1px solid rgba(148,163,184,.7);
-              background:rgba(15,23,42,.95);
-              color:#fff;
-              font-size:12px;
-            " />
-          </div>
-
-          <div style="margin-top:2px;">
-            <label for="giftFriendSelect" style="font-size:11px;opacity:.8;">Or pick a friend</label>
-            <select id="giftFriendSelect" style="
-              margin-top:4px;
-              width:100%;
-              padding:7px 9px;
-              border-radius:10px;
-              border:1px solid rgba(148,163,184,.7);
-              background:rgba(15,23,42,.95);
-              color:#fff;
-              font-size:12px;
-            ">
-              <option value="">-- No friend selected --</option>
-            </select>
-          </div>
-
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <div style="flex:1;min-width:90px;">
-              <label for="giftTicketsInput" style="font-size:11px;opacity:.8;">Tickets</label>
-              <input id="giftTicketsInput" type="number" min="0" step="1" placeholder="0" style="
-                margin-top:4px;
-                width:100%;
-                padding:7px 9px;
-                border-radius:10px;
-                border:1px solid rgba(148,163,184,.7);
-                background:rgba(15,23,42,.95);
-                color:#fff;
-                font-size:12px;
-              " />
-            </div>
-
-            <div style="flex:1;min-width:90px;">
-              <label for="giftCbsInput" style="font-size:11px;opacity:.8;">CBS (play money)</label>
-              <input id="giftCbsInput" type="number" min="0" step="1" placeholder="0" style="
-                margin-top:4px;
-                width:100%;
-                padding:7px 9px;
-                border-radius:10px;
-                border:1px solid rgba(148,163,184,.7);
-                background:rgba(15,23,42,.95);
-                color:#fff;
-                font-size:12px;
-              " />
-            </div>
-          </div>
-
-          ${cardSelectHtml}
-
-          <div style="display:flex;justify-content:flex-end;margin-top:4px;">
-            <button id="giftSendBtn" type="button" style="
-              padding:8px 14px;
-              border-radius:999px;
-              border:1px solid rgba(56,189,248,.9);
-              background:rgba(56,189,248,.2);
-              color:#e0f2fe;
-              font-size:12px;
-              font-weight:700;
-              cursor:pointer;
-            ">
-              Send gift
-            </button>
-          </div>
-
-          <div id="giftMsg" style="font-size:11px;opacity:.9;margin-top:2px;"></div>
-        </div>
-      </div>
-    </section>
-  `;
+  return renderBagPanel({
+    tickets,
+    cbs,
+    cardTypes,
+    cardTotal,
+    sendable,
+    canClaimMysteryBox: tickets >= 1000,
+    canClaimCbsReward: cbs >= 1000,
+    solPk: getLocalPublicKeySafe(),
+  });
 }
 
 function bindBagEvents() {
@@ -2634,7 +2272,7 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
 function renderPanel() {
   const t = getSelectedTab();
   if (t === 'profile') return panelWrap('Profile', `<div id="profileMount">${renderProfile()}</div>`);
-  if (t === 'bag') return panelWrap('Bag', `<div id="bagMount">${renderBag()}</div>`);
+  if (t === 'bag') return panelWrap('Adventure Bag', `<div id="bagMount">${renderBag()}</div>`);
   if (t === 'wallet') return panelWrap('CBS-GO Wallet', `<div id="walletMount">${renderWalletPanel()}</div>`);
   if (t === 'leaderboard') return panelWrap('Leaderboard', `<div id="lbMount">${renderLeaderboardPanel()}</div>`);
   return '';
@@ -3466,6 +3104,7 @@ try {
 }
 
 hideLoading();
+showGameIntroIfNeeded();
 }; // ✅ end onLoginDone
 
 window.addEventListener('cbsgo:loginDone', onLoginDone);

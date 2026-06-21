@@ -26,6 +26,20 @@ function logError(ctx, err) {
   console.warn(`CBS GO friends(uid): ${ctx} failed`, err);
 }
 
+function isPermissionOrRlsError(err) {
+  const msg = String(err?.message || '').toLowerCase();
+  const code = String(err?.code || '').toLowerCase();
+  return (
+    msg.includes('row level security') ||
+    msg.includes('rls') ||
+    msg.includes('permission denied') ||
+    msg.includes('policy') ||
+    code === '42501' ||
+    code === 'pgrst301' ||
+    code === 'pgrst116'
+  );
+}
+
 async function ensureSupabaseSessionLoaded() {
   try {
     await supabase.auth.getSession();
@@ -397,13 +411,14 @@ export async function loadFriendsOverview() {
 
     const base = {
       id: fr.id,
+      friendshipId: fr.id,
       status: fr.status,
       created_at: fr.created_at,
       otherUserId,
       friendCode: otherUserId ? `CBS-${otherUserId}` : '',
       nickname: null,
       avatar: '',
-      otherWallet: '', // ✅ wallet address for copy/gifts
+      otherWallet: '', // wallet address for copy/gifts
     };
 
     if (isIncoming) incoming.push(base);
@@ -454,26 +469,37 @@ export async function removeFriend(friendId) {
     throw new Error('This friend is not linked to your account.');
   }
 
-  const { data: deleted, error } = await supabase
+  // Delete by primary key only — membership/status already validated above.
+  // Avoid .or() filters on DELETE (PostgREST parsing issues) and avoid .select()
+  // after delete (can fail when SELECT policies differ from DELETE policies).
+  const { error, count } = await supabase
     .from(FRIENDS_TABLE)
-    .delete()
-    .eq('id', id)
-    .eq('status', 'accepted')
-    .or(`a_user.eq.${meUid},b_user.eq.${meUid}`)
-    .select('id');
+    .delete({ count: 'exact' })
+    .eq('id', id);
 
   if (error) {
     logError('removeFriend:delete', error);
-    const msg = String(error.message || '').toLowerCase();
-    if (msg.includes('row level security') || msg.includes('rls')) {
-      throw new Error('Supabase RLS blocked removing the friend. Check policies for "friends_uid".');
+    if (isPermissionOrRlsError(error)) {
+      throw new Error(
+        'Supabase RLS blocked removing the friend. A DELETE policy on friends_uid is required (see scripts/supabase-friends_uid-delete-policy.sql).',
+      );
     }
-    throw new Error('Could not remove friend (permissions or network issue).');
+    throw new Error(error.message || 'Could not remove friend (permissions or network issue).');
   }
 
-  const removed = Array.isArray(deleted) ? deleted : deleted ? [deleted] : [];
-  if (!removed.length) {
-    throw new Error('Could not remove friend. The friendship may already be gone or you lack permission.');
+  const removedCount = Number(count);
+  if (!Number.isFinite(removedCount) || removedCount < 1) {
+    const { data: stillThere } = await supabase
+      .from(FRIENDS_TABLE)
+      .select('id')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (stillThere) {
+      throw new Error(
+        'Could not remove friend. Supabase RLS is likely blocking DELETE on friends_uid for your account.',
+      );
+    }
   }
 
   return { ok: true };

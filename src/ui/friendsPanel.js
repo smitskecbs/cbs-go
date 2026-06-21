@@ -290,10 +290,12 @@ export async function bindFriendsPanelEvents() {
 
       // Accept-buttons koppelen
       document.querySelectorAll('.friends-accept-btn').forEach((b) => {
-        b.addEventListener('click', async () => {
+        b.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
           const idRaw = b.getAttribute('data-id');
-          const id = Number(idRaw);
-          if (!Number.isFinite(id) || id <= 0) return;
+          const id = String(idRaw || '').trim();
+          if (!id) return;
 
           try {
             b.disabled = true;
