@@ -11,6 +11,14 @@ function esc(s) {
     .replaceAll("'", '&#039;');
 }
 
+function cardTileRarity(id) {
+  const key = String(id || '');
+  if (/legend|go_1/.test(key)) return 'legendary';
+  if (/fire|chain|team/.test(key)) return 'epic';
+  if (/beach|nature|star|glow|cbs_/.test(key) && !/placeholder/.test(key)) return 'rare';
+  return 'common';
+}
+
 function cardTileIcon(id) {
   const key = String(id || '');
   if (key.startsWith('cbs_')) return icon('coin', 20, { className: 'cbsgo-icon' });
@@ -20,8 +28,9 @@ function cardTileIcon(id) {
 
 function renderCardTile(c) {
   const qty = Number(c.count || 0);
+  const rarity = cardTileRarity(c.id);
   return `
-    <div class="cbsgo-bag-card-tile" title="${esc(c.label || c.id)}">
+    <div class="cbsgo-bag-card-tile cbsgo-bag-card-tile--${rarity}" title="${esc(c.label || c.id)}">
       <span class="cbsgo-bag-card-tile__qty">x${qty}</span>
       <div class="cbsgo-bag-card-tile__art">${cardTileIcon(c.id)}</div>
       <div class="cbsgo-bag-card-tile__name">${esc(c.label || c.id)}</div>

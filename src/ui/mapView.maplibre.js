@@ -1053,8 +1053,8 @@ function openForecastModal() {
       <div class="cbsgo-pill" style="
         display:flex; align-items:center; justify-content:space-between; gap:10px;
         padding:10px 12px; margin-top:10px;
-        background:rgba(10,12,18,0.78);
-        border:1px solid rgba(255,255,255,0.14);
+        background:rgba(255,251,243,0.94);
+        border:1px solid rgba(255,159,28,0.28);
       ">
         <div style="display:flex; align-items:center; gap:10px;">
           <div style="font-size:20px;">${esc(d.iconEmoji || '⛅')}</div>
@@ -1083,10 +1083,10 @@ function openForecastModal() {
     <div class="cbsgo-pill" style="
       border-radius:18px;
       padding:14px;
-      background:rgba(0,0,0,0.88);
-      border:1px solid rgba(120,190,255,0.25);
-      box-shadow: 0 18px 40px rgba(0,0,0,0.60);
-      color:#fff;
+      background:linear-gradient(165deg,#fffbf3,#ffe9b8);
+      border:1px solid rgba(255,159,28,0.35);
+      box-shadow: 0 18px 40px rgba(74,52,32,0.12);
+      color:#3d2a10;
       font-family: system-ui;
     ">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
@@ -1351,12 +1351,12 @@ function injectStylesOnce() {
       content:"";
       position:absolute; inset:0;
       pointer-events:none;
-      background: radial-gradient(ellipse at center, rgba(0,0,0,0.10), rgba(0,0,0,0.55));
+      background: radial-gradient(ellipse at center, rgba(255,248,235,0.08), rgba(61,42,16,0.28));
       mix-blend-mode:multiply;
       z-index: 800;
     }
     #cbsgoMapHost[data-night="1"]::after{
-      background: radial-gradient(ellipse at center, rgba(0,0,0,0.22), rgba(0,0,0,0.78));
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.12), rgba(0,0,0,0.52));
     }
 
     .cbsgo-player{ position:relative; width:54px; height:54px; }
@@ -1408,9 +1408,9 @@ function injectStylesOnce() {
       width: 46px;
       height: 46px;
       border-radius: 14px;
-      background: rgba(8,10,16,0.88);
-      border: 1px solid rgba(255,255,255,0.16);
-      box-shadow: 0 10px 24px rgba(0,0,0,0.55);
+      background: linear-gradient(180deg, rgba(255,251,243,0.96), rgba(255,233,184,0.92));
+      border: 2px solid rgba(255, 159, 28, 0.55);
+      box-shadow: 0 8px 20px rgba(74,52,32,0.18), 0 0 14px rgba(255,159,28,0.22);
       display:flex;
       align-items:center;
       justify-content:center;
@@ -1446,10 +1446,11 @@ function injectStylesOnce() {
       font-size: 11px;
       padding: 4px 8px;
       border-radius: 999px;
-      color:#fff;
-      background: rgba(10,12,18,0.70);
-      border: 1px solid rgba(255,255,255,0.14);
+      color:#3d2a10;
+      background: rgba(255,251,243,0.92);
+      border: 1px solid rgba(255, 159, 28, 0.35);
       backdrop-filter: blur(10px);
+      box-shadow: 0 6px 16px rgba(74,52,32,0.12);
       max-width: 140px;
       overflow:hidden;
       text-overflow: ellipsis;
@@ -1458,12 +1459,12 @@ function injectStylesOnce() {
 
     .cbsgo-pill{
       border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
-      background:rgba(10,12,18,.82);
-      backdrop-filter: blur(10px);
-      color:#fff;
+      border:1px solid rgba(255,159,28,.38);
+      background:rgba(255,251,243,.94);
+      backdrop-filter: blur(12px);
+      color:#3d2a10;
       font-family:system-ui,sans-serif;
-      box-shadow:0 10px 22px rgba(0,0,0,.28);
+      box-shadow:0 8px 22px rgba(74,52,32,.12), 0 0 14px rgba(255,159,28,.12);
     }
 
     .cbsgo-marker-player { z-index:2000 !important; }
@@ -2183,7 +2184,7 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
   wrap.style.display = 'flex';
   wrap.style.alignItems = 'center';
   wrap.style.justifyContent = 'center';
-  wrap.style.background = 'rgba(2,6,23,.74)';
+  wrap.style.background = 'rgba(61, 42, 16, 0.42)';
   wrap.style.backdropFilter = 'blur(8px)';
   wrap.style.webkitBackdropFilter = 'blur(8px)';
   wrap.style.pointerEvents = 'auto';
@@ -2192,10 +2193,10 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
   card.style.width = 'min(430px, 92vw)';
   card.style.borderRadius = '28px';
   card.style.border = '1px solid rgba(255, 159, 28,.45)';
-  card.style.background = 'linear-gradient(180deg, rgba(8,15,28,.98) 0%, rgba(7,10,18,.98) 100%)';
-  card.style.boxShadow = '0 30px 90px rgba(0,0,0,.58), 0 0 0 1px rgba(255,255,255,.03) inset, 0 0 40px rgba(34,211,238,.10)';
+  card.style.background = 'linear-gradient(180deg, #fffbf3 0%, #fff0d4 100%)';
+  card.style.boxShadow = '0 24px 60px rgba(74,52,32,0.18), 0 0 32px rgba(255,159,28,0.15)';
   card.style.padding = '18px';
-  card.style.color = '#fff';
+  card.style.color = '#3d2a10';
   card.style.fontFamily = 'system-ui,sans-serif';
   card.style.opacity = '0';
   card.style.transform = 'translateY(18px) scale(0.96)';
@@ -2222,15 +2223,15 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       margin-bottom:14px;
       padding:12px;
       border-radius:20px;
-      background:linear-gradient(180deg, rgba(15,23,42,.68), rgba(2,6,23,.5));
-      border:1px solid rgba(255, 159, 28,.18);
+      background:linear-gradient(180deg, #fff8eb, #ffe9b8);
+      border:1px solid rgba(255, 159, 28, 0.28);
     ">
       <div style="
         width:58px;height:58px;border-radius:18px;
-        border:1px solid rgba(255, 159, 28,.38);
+        border:1px solid rgba(255, 159, 28, 0.45);
         background:
-          radial-gradient(circle at 30% 25%, rgba(103,232,249,.18), rgba(34,211,238,.06) 45%, rgba(0,0,0,0) 72%),
-          linear-gradient(180deg, rgba(15,23,42,.98), rgba(8,15,28,.98));
+          radial-gradient(circle at 30% 25%, rgba(255,211,106,.45), rgba(255,159,28,.12) 45%, rgba(0,0,0,0) 72%),
+          linear-gradient(180deg, #ffffff, #fff3dc);
         display:flex;align-items:center;justify-content:center;
         font-size:28px;
         box-shadow: 0 10px 30px rgba(34,211,238,.12);
@@ -2253,8 +2254,8 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       <div style="
         padding:11px 12px;
         border-radius:16px;
-        background:rgba(15,23,42,.72);
-        border:1px solid rgba(148,163,184,.18);
+        background:rgba(255,251,243,.95);
+        border:1px solid rgba(255,159,28,.22);
       ">
         <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.08em;">Distance</div>
         <div style="font-size:18px;font-weight:900;margin-top:2px;">${d}m</div>
@@ -2263,8 +2264,8 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       <div style="
         padding:11px 12px;
         border-radius:16px;
-        background:rgba(15,23,42,.72);
-        border:1px solid rgba(148,163,184,.18);
+        background:rgba(255,251,243,.95);
+        border:1px solid rgba(255,159,28,.22);
       ">
         <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.08em;">GPS accuracy</div>
         <div style="font-size:18px;font-weight:900;margin-top:2px;">${acc !== null ? `±${acc}m` : '—'}</div>
@@ -2278,9 +2279,9 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       margin-bottom:12px;
       padding:12px 13px;
       border-radius:18px;
-      background:linear-gradient(180deg, rgba(8,47,73,.55), rgba(15,23,42,.78));
-      border:1px solid rgba(255, 159, 28,.28);
-      box-shadow: 0 8px 28px rgba(2,132,199,.08) inset;
+      background:linear-gradient(180deg, rgba(255,233,184,.75), rgba(255,248,235,.98));
+      border:1px solid rgba(255, 159, 28,.35);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.85);
     ">
       <div style="font-size:10px;opacity:.72;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;">Reward</div>
       <div style="font-size:13px;font-weight:800;line-height:1.6;">${rewardParts.join(' · ')}</div>
@@ -2291,8 +2292,8 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
     <div style="
       padding:11px 12px;
       border-radius:16px;
-      border:1px solid rgba(148,163,184,.22);
-      background:rgba(15,23,42,.68);
+      border:1px solid rgba(255,159,28,.22);
+      background:rgba(255,248,235,.92);
       font-size:11px;
       opacity:.9;
       line-height:1.5;
@@ -2306,9 +2307,9 @@ const showTreasurePopup = ({ treasure, distanceM, accuracyM }) => {
       <button id="cbsgoTreasureCancelBtn" type="button" style="
         padding:10px 14px;
         border-radius:999px;
-        border:1px solid rgba(255,255,255,.14);
-        background:rgba(255,255,255,.06);
-        color:#fff;
+        border:1px solid rgba(255,159,28,.28);
+        background:rgba(255,251,243,.95);
+        color:#3d2a10;
         font-size:12px;
         font-weight:800;
         cursor:pointer;

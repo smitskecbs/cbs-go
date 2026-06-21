@@ -36,9 +36,9 @@ function inputStyle() {
     width:100%;
     padding:12px 12px;
     border-radius:14px;
-    border:1px solid rgba(255,255,255,.14);
+    border:1px solid rgba(255,159,28,.14);
     background:rgba(255,255,255,.06);
-    color:#fff;
+    color:#3d2a10;
     outline:none;
     font-size:14px;
   `;
@@ -49,9 +49,9 @@ function btnStyle(primary = true) {
     width:100%;
     padding:12px 14px;
     border-radius:16px;
-    border:1px solid rgba(255,255,255,.14);
+    border:1px solid rgba(255,159,28,.14);
     background:${primary ? 'rgba(255, 159, 28,.22)' : 'rgba(255,255,255,.08)'};
-    color:#fff;
+    color:#3d2a10;
     font-weight:900;
     cursor:pointer;
   `;

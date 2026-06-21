@@ -48,8 +48,8 @@ function avatarCircle(dataUrl, size = 34) {
   return `
     <div style="
       width:${size}px;height:${size}px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.22);
-      background:rgba(15,23,42,.85);
+      border:1px solid rgba(255,159,28,.22);
+      background:rgba(255,248,235,.9); border:1px solid rgba(255,159,28,0.28);
       ${bg}
       background-size:cover;background-position:center;
       display:flex;align-items:center;justify-content:center;
@@ -133,9 +133,9 @@ export function renderLeaderboardPanel() {
         </div>
         <button id="lbRefreshBtn" type="button" style="
           padding:7px 12px;border-radius:999px;
-          border:1px solid rgba(255,255,255,.18);
+          border:1px solid rgba(255,159,28,.18);
           background:rgba(255,255,255,.08);
-          color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+          color:#3d2a10;font-size:12px;font-weight:700;cursor:pointer;
         ">Refresh</button>
       </div>
 
@@ -217,12 +217,12 @@ export function bindLeaderboardPanel() {
 
         const rowBackground =
           idx === 0
-            ? 'linear-gradient(180deg, rgba(71,52,8,.42), rgba(15,23,42,.88))'
+            ? 'linear-gradient(180deg, rgba(255,233,184,.95), rgba(255,248,235,.98))'
             : idx === 1
-              ? 'linear-gradient(180deg, rgba(51,65,85,.34), rgba(15,23,42,.84))'
+              ? 'linear-gradient(180deg, rgba(245,230,200,.92), rgba(255,251,243,.98))'
               : idx === 2
-                ? 'linear-gradient(180deg, rgba(120,53,15,.30), rgba(15,23,42,.84))'
-                : 'rgba(15,23,42,.82)';
+                ? 'linear-gradient(180deg, rgba(255,220,170,.88), rgba(255,248,235,.98))'
+                : 'rgba(255,251,243,.96)';
 
         const rightBtn =
           !isValidLeaderboardEntry(r) || !friendCode

@@ -73,10 +73,10 @@ export async function openLoginModal() {
         width:min(420px, 92vw);
         border-radius:22px;
         border:1px solid rgba(255, 159, 28,.85);
-        background:rgba(10,12,18,.98);
-        box-shadow:0 24px 80px rgba(0,0,0,.88);
+        background:linear-gradient(165deg,#fffbf3 0%,#ffe9b8 100%);
+        box-shadow:0 24px 80px rgba(74,52,32,.18);
         padding:18px 16px 16px 16px;
-        color:#fff;
+        color:#3d2a10;
         font-family:system-ui,sans-serif;
       ">
         <h2 style="margin:0 0 6px 0;font-size:18px;">Welcome back</h2>
@@ -95,9 +95,9 @@ export async function openLoginModal() {
             width:100%;
             padding:12px 14px;
             border-radius:14px;
-            border:1px solid rgba(255,255,255,.14);
-            background:rgba(255,255,255,.06);
-            color:#fff;
+            border:1px solid rgba(255,159,28,.14);
+            background:#fff8eb;
+            color:#3d2a10;
             font-size:14px;
             outline:none;
             margin-bottom:10px;
@@ -121,9 +121,9 @@ export async function openLoginModal() {
           margin-top:10px;
           padding:10px 12px;
           border-radius:999px;
-          border:1px solid rgba(255,255,255,.14);
+          border:1px solid rgba(255,159,28,.14);
           background:rgba(255,255,255,.06);
-          color:#fff;
+          color:#3d2a10;
           font-size:12px;
           font-weight:600;
           cursor:pointer;
@@ -193,10 +193,10 @@ export async function openLoginModal() {
       width:min(420px, 92vw);
       border-radius:22px;
       border:1px solid rgba(255, 159, 28,.85);
-      background:rgba(10,12,18,.98);
-      box-shadow:0 24px 80px rgba(0,0,0,.88);
+      background:linear-gradient(165deg,#fffbf3 0%,#ffe9b8 100%);
+      box-shadow:0 24px 80px rgba(74,52,32,.18);
       padding:18px 16px 16px 16px;
-      color:#fff;
+      color:#3d2a10;
       font-family:system-ui,sans-serif;
     ">
       <h2 style="margin:0 0 6px 0;font-size:18px;">Welcome to CBS-GO</h2>

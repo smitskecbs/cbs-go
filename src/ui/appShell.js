@@ -212,7 +212,7 @@ const renderMapView =
   typeof mapView.renderMapView === 'function'
     ? mapView.renderMapView
     : () =>
-        `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;opacity:.6;">MapView missing export</div>`;
+        `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3d2a10;opacity:.6;">MapView missing export</div>`;
 
 const bindMapView = typeof mapView.bindMapView === 'function' ? mapView.bindMapView : () => {};
 
@@ -341,7 +341,7 @@ function avatarCircle(dataUrl, size = 30) {
   return `
     <div style="
       width:${size}px;height:${size}px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.18);
+      border:1px solid rgba(255,159,28,.18);
       background:rgba(255,255,255,.06);
       ${bg}
       background-size:cover;
@@ -689,9 +689,9 @@ function renderProfile() {
               margin-top:4px;
               padding:10px 10px;
               border-radius:12px;
-              border:1px solid rgba(255,255,255,.14);
+              border:1px solid rgba(255,159,28,.14);
               background:rgba(255,255,255,.06);
-              color:#fff;
+              color:#3d2a10;
             "
             placeholder="you@email.com"
           />
@@ -706,9 +706,9 @@ function renderProfile() {
               margin-top:4px;
               padding:10px 10px;
               border-radius:12px;
-              border:1px solid rgba(255,255,255,.14);
+              border:1px solid rgba(255,159,28,.14);
               background:rgba(255,255,255,.06);
-              color:#fff;
+              color:#3d2a10;
             "
             placeholder="Your nickname"
           />
@@ -753,7 +753,7 @@ function renderProfile() {
           padding:10px 10px;
           border-radius:14px;
           border:1px solid rgba(255, 159, 28,.55);
-          background:rgba(15,23,42,.92);
+          background:rgba(255,248,235,.92); border:1px solid rgba(255,159,28,0.28);
         ">
           <div style="font-size:11px;opacity:.8;margin-bottom:6px;">
             Your Friend Code (share this)
@@ -767,7 +767,7 @@ function renderProfile() {
               padding:6px 8px;
               border-radius:10px;
               border:1px solid rgba(255, 159, 28,.45);
-              background:rgba(10,12,18,.85);
+              background:rgba(255,248,235,.95); color:#3d2a10;
               word-break:break-all;
               font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
               margin-bottom:8px;
@@ -800,9 +800,9 @@ function renderProfile() {
               style="
                 padding:7px 11px;
                 border-radius:999px;
-                border:1px solid rgba(255,255,255,.18);
+                border:1px solid rgba(255,159,28,.18);
                 background:rgba(255,255,255,.08);
-                color:#fff;
+                color:#3d2a10;
                 font-size:12px;
                 font-weight:600;
                 cursor:pointer;
@@ -825,9 +825,9 @@ function renderProfile() {
               min-width:180px;
               padding:8px 9px;
               border-radius:12px;
-              border:1px solid rgba(255,255,255,.16);
+              border:1px solid rgba(255,159,28,.16);
               background:rgba(255,255,255,.06);
-              color:#fff;
+              color:#3d2a10;
               font-size:12px;
             "
           />
@@ -837,9 +837,9 @@ function renderProfile() {
             style="
               padding:8px 12px;
               border-radius:999px;
-              border:1px solid rgba(255,255,255,.18);
+              border:1px solid rgba(255,159,28,.18);
               background:rgba(255, 159, 28,.35);
-              color:#fff;
+              color:#3d2a10;
               font-size:12px;
               font-weight:600;
               cursor:pointer;
@@ -1188,7 +1188,7 @@ function bindProfileEvents() {
         padding:6px 8px;
         border-radius:12px;
         border:1px solid rgba(148,163,184,.55);
-        background:rgba(15,23,42,.85);
+        background:rgba(255,248,235,.88); border:1px solid rgba(255,159,28,0.28);
         display:flex;
         align-items:center;
         justify-content:space-between;
@@ -1243,7 +1243,7 @@ function bindProfileEvents() {
                     padding:3px 7px;
                     border-radius:999px;
                     border:1px solid rgba(148,163,184,.8);
-                    background:rgba(15,23,42,.9);
+                    background:rgba(255,248,235,.94); border:1px solid rgba(255,159,28,0.35);
                     color:#e5e7eb;
                     font-size:10px;
                     cursor:pointer;
@@ -1258,7 +1258,7 @@ function bindProfileEvents() {
                     border-radius:999px;
                     border:1px solid rgba(34,197,94,0.9);
                     background:rgba(22,163,74,0.95);
-                    color:#fff;
+                    color:#3d2a10;
                     font-size:11px;
                     cursor:pointer;
                   "
@@ -2352,7 +2352,7 @@ export function renderAppShell() {
         width:min(360px, 92vw);
         border-radius:18px;
         border:1px solid rgba(255, 159, 28,.45);
-        background:rgba(10,12,18,.96);
+        background:linear-gradient(165deg,#fffbf3,#ffe9b8); color:#3d2a10;
         box-shadow:0 18px 60px rgba(0,0,0,.6);
         overflow:hidden;
       ">
@@ -2368,9 +2368,9 @@ export function renderAppShell() {
           <button id="devPanelCloseBtn" type="button" style="
             padding:6px 10px;
             border-radius:999px;
-            border:1px solid rgba(255,255,255,.14);
+            border:1px solid rgba(255,159,28,.14);
             background:rgba(255,255,255,.08);
-            color:#fff;
+            color:#3d2a10;
             font-size:11px;
             cursor:pointer;
           ">Close</button>
@@ -2416,9 +2416,9 @@ ${
         z-index:6000;
         padding:10px 12px;
         border-radius:14px;
-        border:1px solid rgba(255,255,255,.14);
+        border:1px solid rgba(255,159,28,.14);
         background:rgba(0,0,0,.35);
-        color:#fff;
+        color:#3d2a10;
       ">Reset Demo</button>
 
       <button id="devPanelBtn" type="button" style="
@@ -2429,7 +2429,7 @@ ${
         padding:10px 12px;
         border-radius:14px;
         border:1px solid rgba(255, 159, 28,.6);
-        background:rgba(15,23,42,.9);
+        background:rgba(255,248,235,.94); border:1px solid rgba(255,159,28,0.35);
         color:#7dd3fc;
         font-weight:700;
       ">DEV</button>
@@ -2556,17 +2556,17 @@ function showTradePopup(detail) {
   wrap.style.display = 'flex';
   wrap.style.alignItems = 'center';
   wrap.style.justifyContent = 'center';
-  wrap.style.background = 'rgba(5,7,11,0.78)';
+  wrap.style.background = 'rgba(61,42,16,0.42)';
   wrap.style.pointerEvents = 'auto';
 
   const card = document.createElement('div');
   card.style.width = 'min(320px, 90vw)';
   card.style.borderRadius = '22px';
   card.style.border = '1px solid rgba(255, 159, 28,.85)';
-  card.style.background = 'rgba(10,12,18,0.98)';
+  card.style.background = 'linear-gradient(165deg,#fffbf3 0%,#ffe9b8 100%)';
   card.style.boxShadow = '0 24px 80px rgba(0,0,0,.88)';
   card.style.padding = '18px 16px 14px 16px';
-  card.style.color = '#fff';
+  card.style.color = '#3d2a10';
   card.style.fontFamily = 'system-ui,sans-serif';
   card.style.opacity = '0';
   card.style.transform = 'translateY(12px) scale(0.97)';
@@ -2860,7 +2860,7 @@ export function mountApp() {
         width:min(420px, 92vw);
         border-radius:22px;
         border:1px solid rgba(255, 159, 28,.55);
-        background:rgba(10,12,18,.75);
+        background:rgba(255,248,235,.92);
         box-shadow:0 24px 80px rgba(0,0,0,.75);
         padding:18px 16px;
       ">

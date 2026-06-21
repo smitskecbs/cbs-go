@@ -21,9 +21,9 @@ function inputStyle() {
     width:100%;
     padding:12px 12px;
     border-radius:14px;
-    border:1px solid rgba(255,255,255,.14);
-    background:rgba(255,255,255,.06);
-    color:#fff;
+    border:1px solid rgba(255, 159, 28, 0.28);
+    background:#fffbf3;
+    color:#3d2a10;
     outline:none;
     font-size:14px;
   `;
@@ -34,13 +34,13 @@ function btnStyle(enabled) {
     width:100%;
     padding:12px 14px;
     border-radius:16px;
-    border:1px solid rgba(255, 159, 28,.35);
-    background:${enabled ? 'linear-gradient(135deg, rgba(255, 159, 28,.35), rgba(255, 179, 71,.22))' : 'rgba(255,255,255,.08)'};
-    color:#fff;
+    border:1px solid rgba(255, 159, 28, 0.35);
+    background:${enabled ? 'linear-gradient(135deg, #ffb347, #ff9f1c)' : 'rgba(255,255,255,.72)'};
+    color:${enabled ? '#3d2a10' : '#6b5340'};
     font-weight:900;
     cursor:${enabled ? 'pointer' : 'not-allowed'};
     opacity:${enabled ? '1' : '.55'};
-    box-shadow:${enabled ? '0 0 18px rgba(255, 159, 28,.25)' : 'none'};
+    box-shadow:${enabled ? '0 0 18px rgba(255, 159, 28, 0.25)' : 'none'};
   `;
 }
 
@@ -49,13 +49,13 @@ function avatarPreviewStyle(dataUrl) {
   const bg = safe ? `background-image:url('${safe}');` : '';
   return `
     width:88px;height:88px;border-radius:999px;
-    border:1px solid rgba(255, 159, 28,.35);
-    background:rgba(255, 159, 28,.08);
+    border:1px solid rgba(255, 159, 28, 0.35);
+    background:rgba(255, 211, 106, 0.15);
     ${bg}
     background-size:cover;background-position:center;
     display:flex;align-items:center;justify-content:center;
     overflow:hidden;flex-shrink:0;
-    box-shadow:0 0 24px rgba(255, 159, 28,.18);
+    box-shadow:0 0 24px rgba(255, 159, 28, 0.18);
   `;
 }
 

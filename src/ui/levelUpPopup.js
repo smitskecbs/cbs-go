@@ -114,7 +114,7 @@ function openLevelUpPopup(detail) {
   overlay.style.alignItems = 'center';
   overlay.style.justifyContent = 'center';
   overlay.style.padding = '16px';
-  overlay.style.background = 'rgba(0,0,0,0.70)';
+  overlay.style.background = 'rgba(61,42,16,0.42)';
   overlay.style.backdropFilter = 'blur(12px)';
   overlay.style.fontFamily = 'system-ui, sans-serif';
 
@@ -122,10 +122,10 @@ function openLevelUpPopup(detail) {
     <div class="cbsgoLevelUpCard" style="
       width:min(420px, 96vw);
       border-radius:22px;
-      border:1px solid rgba(255,255,255,.20);
-      background:radial-gradient(circle at top, rgba(34,197,94,0.28), rgba(15,23,42,0.96));
-      box-shadow:0 18px 60px rgba(0,0,0,.70);
-      color:#fff;
+      border:1px solid rgba(255,159,28,.35);
+      background:linear-gradient(165deg,#fffbf3 0%,#ffe9b8 100%);
+      box-shadow:0 18px 60px rgba(74,52,32,.16), 0 0 32px rgba(255,159,28,.12);
+      color:#3d2a10;
       position:relative;
       overflow:hidden;
       padding:18px 18px 14px 18px;
@@ -150,8 +150,8 @@ function openLevelUpPopup(detail) {
           display:flex;
           align-items:center;
           justify-content:center;
-          background:rgba(15,23,42,.86);
-          color:#fff;
+          background:rgba(255,248,235,.95);
+          color:#3d2a10;
           font-size:15px;
           cursor:pointer;
         ">✕</button>
@@ -162,8 +162,8 @@ function openLevelUpPopup(detail) {
           width:84px;
           height:84px;
           border-radius:999px;
-          border:2px solid rgba(34,197,94,1);
-          background:radial-gradient(circle at top, rgba(22,163,74,0.95), rgba(15,23,42,0.95));
+          border:2px solid rgba(255,159,28,.65);
+          background:radial-gradient(circle at top, rgba(255,211,106,.85), rgba(255,159,28,.35));
           display:flex;
           align-items:center;
           justify-content:center;
@@ -187,9 +187,9 @@ function openLevelUpPopup(detail) {
           width:100%;
           padding:10px 12px;
           border-radius:14px;
-          border:1px solid rgba(148,163,184,0.80);
-          background:rgba(15,23,42,0.92);
-          color:#fff;
+          border:1px solid rgba(255,159,28,.35);
+          background:rgba(255,251,243,.95);
+          color:#3d2a10;
           font-size:13px;
           font-weight:700;
           display:flex;
@@ -205,9 +205,9 @@ function openLevelUpPopup(detail) {
           width:100%;
           padding:10px 12px;
           border-radius:14px;
-          border:1px solid rgba(148,163,184,0.50);
-          background:rgba(15,23,42,0.80);
-          color:#fff;
+          border:1px solid rgba(255,159,28,.28);
+          background:rgba(255,248,235,.92);
+          color:#3d2a10;
           font-size:12px;
           display:flex;
           align-items:center;
@@ -224,8 +224,8 @@ function openLevelUpPopup(detail) {
           padding:10px 12px;
           border-radius:14px;
           border:0;
-          background:linear-gradient(90deg, #22c55e, #0ea5e9);
-          color:#0b1120;
+          background:linear-gradient(90deg, #ff9f1c, #ffb347);
+          color:#fff;
           font-size:13px;
           font-weight:800;
           cursor:pointer;
