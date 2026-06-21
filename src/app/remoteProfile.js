@@ -109,13 +109,13 @@ function profileHasMeaningfulData(profile) {
 }
 
 /**
- * Lees bestaand profiel uit game_profiles voor de ingelogde user.
+ * Lees game_profiles voor een Supabase auth user_id (primary lookup key).
+ * @param {string|null} [userIdOverride] - active auth user id
  * @returns {Promise<object|null>} row of null
  */
-export async function loadRemoteProfile() {
-  const userId = await getCurrentUserId();
+export async function loadRemoteProfile(userIdOverride = null) {
+  const userId = userIdOverride || (await getCurrentUserId());
   if (!userId) {
-    // niet ingelogd met email
     return null;
   }
 
@@ -124,7 +124,7 @@ export async function loadRemoteProfile() {
       .from('game_profiles')
       .select('*')
       .eq('user_id', userId)
-      .maybeSingle(); // 0 of 1 rij
+      .maybeSingle();
 
     if (error) {
       // PGRST116 = no rows (ok)
@@ -164,7 +164,7 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
     return null;
   }
 
-  const existing = (await loadRemoteProfile()) || {};
+  const existing = userId ? (await loadRemoteProfile(userId)) || {} : {};
 
   const cardsObj = hasOwn(localProfile, 'cards_json')
     ? localProfile.cards_json && typeof localProfile.cards_json === 'object'

@@ -1,27 +1,21 @@
 // src/app/applyRemoteProfile.js
-// Laad game_profiles (Supabase) en zet dit terug naar lokale storage,
-// zodat dezelfde email op elk device exact hetzelfde profiel gebruikt.
-//
-// FIX:
-// - XP rollback voorkomen: hoogste van local/remote wint
-// - Tickets/CBS/Cards: Supabase blijft leidend, maar alleen als remote nieuwer is dan local
-// - Nickname/avatar: remote alleen leidend als remote ook echt een waarde heeft
+// Supabase game_profiles is source of truth for nickname/avatar.
+// localStorage is device cache only — never merge stale local profile on login.
 
-import { loadRemoteProfile } from './remoteProfile.js';
+import { getCurrentUserId, loadRemoteProfile } from './remoteProfile.js';
 import {
   normalizePlayerEmail,
   normalizePlayerNickname,
   sanitizeStoredEmail,
   sanitizeStoredNickname,
+  clearOwnedLocalProfile,
   setProfileOwner,
 } from './playerNickname.js';
 
-// storage keys (moeten matchen met je bestaande bestanden)
 const STATE_KEY = 'cbsgo_state_v6';
 const INV_KEY = 'cbsgo_inventory_v2';
 const CARDS_KEY = 'cbsgo_cards_v1';
 
-// leaderboard/profile keys
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
 const KEY_EMAIL = 'cbsgo_player_email_v1';
@@ -48,22 +42,6 @@ function loadLocalInventory() {
     cards: {},
     updatedAt: 0,
   });
-}
-
-function loadLocalNickname() {
-  try {
-    return localStorage.getItem(KEY_NAME) || '';
-  } catch {
-    return '';
-  }
-}
-
-function loadLocalAvatar() {
-  try {
-    return localStorage.getItem(KEY_AVATAR) || '';
-  } catch {
-    return '';
-  }
 }
 
 function saveStateXp(xp) {
@@ -102,14 +80,6 @@ function saveCardsV1FromCardsObj(cardsObj) {
   );
 }
 
-function loadLocalEmail() {
-  try {
-    return localStorage.getItem(KEY_EMAIL) || '';
-  } catch {
-    return '';
-  }
-}
-
 function setLocalNicknameAvatarEmail(nickname, avatar, email) {
   try {
     const validNick = normalizePlayerNickname(nickname);
@@ -126,9 +96,22 @@ function setLocalNicknameAvatarEmail(nickname, avatar, email) {
   } catch {}
 }
 
-export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
-  const remote = await loadRemoteProfile();
-  if (!remote) return { applied: false, reason: 'no-remote-row' };
+/**
+ * Load game_profiles for active user_id into localStorage cache.
+ * No remote row => clear local nickname/avatar/owner (Supabase is truth).
+ */
+export async function applyRemoteProfileToLocal({ preferRemote = true, userId: userIdOverride } = {}) {
+  const userId = userIdOverride || (await getCurrentUserId());
+  if (!userId) return { applied: false, reason: 'no-auth', clearedLocalProfile: false };
+
+  const remote = await loadRemoteProfile(userId);
+
+  if (!remote) {
+    clearOwnedLocalProfile();
+    return { applied: false, reason: 'no-remote-row', clearedLocalProfile: true };
+  }
+
+  if (!preferRemote) return { applied: false, reason: 'preferRemote=false', clearedLocalProfile: false };
 
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
@@ -152,14 +135,10 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
       ? remote.cards_json
       : {};
 
-  if (!preferRemote) return { applied: false, reason: 'preferRemote=false' };
-
-  // XP: hoogste wint, zodat oude remote geen rollback veroorzaakt
   const localState = loadLocalState();
   const localXp = Number(localState.xp || 0);
   const mergedXp = Math.max(localXp, remoteXp);
 
-  // Inventory/cards: Supabase leidend, maar alleen als remote nieuwer is dan local inventory
   const localInv = loadLocalInventory();
   const localInvUpdatedAt = Number(localInv.updatedAt || 0);
 
@@ -180,18 +159,18 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
 
   const inventoryStamp = remoteIsNewerForInventory ? remoteUpdatedAt : localInvUpdatedAt;
 
-  // Nickname/avatar: remote only — never merge stale local profile from another account.
+  // Nickname/avatar/email: Supabase row only — no localStorage fallback.
   const finalNickname = remoteNickname || '';
   const finalAvatar = remoteAvatar || '';
-  const finalEmail = remoteEmail || normalizePlayerEmail(loadLocalEmail()) || '';
+  const finalEmail = remoteEmail || '';
 
   saveStateXp(mergedXp);
   saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
   saveCardsV1FromCardsObj(mergedCards);
   setLocalNicknameAvatarEmail(finalNickname, finalAvatar, finalEmail);
   setProfileOwner({
-    userId: remote?.user_id || null,
-    walletPk: remote?.wallet_pk || null,
+    userId: remote.user_id || userId,
+    walletPk: remote.wallet_pk || null,
   });
   sanitizeStoredNickname();
   sanitizeStoredEmail();
@@ -205,6 +184,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true } = {}) {
 
   return {
     applied: true,
+    clearedLocalProfile: false,
     source: remoteIsNewerForInventory ? 'remote-authoritative-inventory' : 'local-newer-inventory',
     merged: {
       xp: mergedXp,

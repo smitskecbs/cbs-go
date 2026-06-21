@@ -42,42 +42,37 @@ export function clearOwnedLocalProfile() {
   } catch {}
 }
 
-export function profileOwnerMatches({ userId, walletPk } = {}) {
+export function profileOwnerMatches({ userId } = {}) {
   const owner = getProfileOwner();
   const uid = String(
     userId ?? profileGateContext.authUser?.id ?? profileGateContext.authUser?.user?.id ?? '',
   ).trim();
-  const pk = String(walletPk ?? profileGateContext.walletPk ?? '').trim();
 
-  if (!owner.userId && !owner.walletPk) return false;
-  if (uid && owner.userId && uid === owner.userId) return true;
-  if (pk && owner.walletPk && pk === owner.walletPk) return true;
-  return false;
+  if (!owner.userId || !uid) return false;
+  return owner.userId === uid;
 }
 
 /**
- * On login/account switch: drop stale local nick/avatar unless bound to this session.
- * Returns { cleared: true } when local owned profile was removed.
+ * On login/account switch: drop local nick/avatar unless owner_user_id matches.
  */
-export function ensureLocalProfileForSession({ userId, walletPk } = {}) {
-  const owner = getProfileOwner();
-  const hasOwner = !!(owner.userId || owner.walletPk);
-
-  if (!hasOwner || !profileOwnerMatches({ userId, walletPk })) {
+export function ensureLocalProfileForSession({ userId } = {}) {
+  const uid = String(userId || '').trim();
+  if (!uid || !profileOwnerMatches({ userId: uid })) {
     clearOwnedLocalProfile();
     return { cleared: true };
   }
   return { cleared: false };
 }
 
-function localProfileOwnedBySession(authUser, walletPk) {
+function localProfileOwnedBySession(authUser) {
   const uid =
     authUser?.id ??
     authUser?.user?.id ??
     profileGateContext.authUser?.id ??
     profileGateContext.authUser?.user?.id ??
     null;
-  return profileOwnerMatches({ userId: uid, walletPk });
+  if (!uid) return false;
+  return profileOwnerMatches({ userId: uid });
 }
 
 /** Set after login/onboarding so sync gate checks can resolve auth + wallet. */
@@ -266,12 +261,14 @@ export function isProfileComplete(input = {}) {
   const avatarFromInput = input.avatar !== undefined && input.avatar !== null;
 
   const nickOk = nickFromInput
-    ? hasValidPlayerNickname(input.nickname)
-    : localProfileOwnedBySession(authCandidate, walletPk) && hasValidPlayerNickname();
+    ? hasValidPlayerNickname(input.nickname) &&
+      localProfileOwnedBySession(authCandidate)
+    : localProfileOwnedBySession(authCandidate) && hasValidPlayerNickname();
 
   const avatarOk = avatarFromInput
-    ? hasValidPlayerAvatar(input.avatar)
-    : localProfileOwnedBySession(authCandidate, walletPk) && hasValidPlayerAvatar();
+    ? hasValidPlayerAvatar(input.avatar) &&
+      localProfileOwnedBySession(authCandidate)
+    : localProfileOwnedBySession(authCandidate) && hasValidPlayerAvatar();
 
   return (
     hasAuthSession(authCandidate) &&

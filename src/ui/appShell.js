@@ -45,7 +45,6 @@ import {
   hasValidPlayerAvatar,
   setProfileGateContext,
   setProfileOwner,
-  ensureLocalProfileForSession,
 } from '../app/playerNickname.js';
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -419,12 +418,19 @@ function showProfileSetupMessage() {
 async function checkProfileComplete(overrides = {}) {
   try {
     const { data } = await supabase.auth.getUser();
-    return isProfileComplete({
-      authUser: data?.user,
-      walletPk: getLocalPublicKeySafe(),
-      nickname: overrides.nickname ?? getPlayerName(),
-      avatar: overrides.avatar ?? getPlayerAvatar(),
-    });
+    const authUser = data?.user || null;
+    const walletPk = getLocalPublicKeySafe();
+
+    if (overrides.nickname !== undefined || overrides.avatar !== undefined) {
+      return isProfileComplete({
+        authUser,
+        walletPk,
+        nickname: overrides.nickname,
+        avatar: overrides.avatar,
+      });
+    }
+
+    return isProfileComplete({ authUser, walletPk });
   } catch {
     return false;
   }
@@ -3484,26 +3490,37 @@ export function mountApp() {
     } catch {}
 
     const walletPk = getLocalPublicKeySafe() || null;
-    ensureLocalProfileForSession({ userId: authUser?.id, walletPk });
 
-    // 3) apply remote profile to local (if available)
-    try {
-      setLoadingText('Applying cloud profile…');
-      await applyRemoteProfileToLocal({ preferRemote: true });
-    } catch (e) {
-      console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
-    }
-    markRemoteApplied();
+    console.log('[CBSGO PROFILE DEBUG] login session', {
+      email: authUser?.email || '',
+      userId: authUser?.id || '',
+      walletPk: walletPk || '',
+    });
 
     setProfileGateContext({ authUser, walletPk });
 
-    // 4) profile onboarding when incomplete
-    const profileReady = isProfileComplete({
-      authUser,
-      walletPk,
-      nickname: getPlayerName(),
-      avatar: getPlayerAvatar(),
+    // 3) Supabase profile is source of truth — apply or clear local cache
+    let applyResult = { applied: false, clearedLocalProfile: false };
+    try {
+      setLoadingText('Applying cloud profile…');
+      applyResult = await applyRemoteProfileToLocal({
+        preferRemote: true,
+        userId: authUser?.id || null,
+      });
+    } catch (e) {
+      console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
+    }
+
+    console.log('[CBSGO PROFILE DEBUG] remote apply', {
+      remoteProfileFound: !!applyResult.applied,
+      localProfileCleared: !!applyResult.clearedLocalProfile,
+      reason: applyResult.reason || '',
     });
+
+    markRemoteApplied();
+
+    // 4) profile onboarding when incomplete (never trust stale localStorage without owner match)
+    const profileReady = isProfileComplete({ authUser, walletPk });
 
     if (!profileReady) {
       hideLoading();
