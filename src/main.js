@@ -65,8 +65,9 @@ function boot() {
       return;
     }
 
-    mountApp();
+    // Register SW / check for updates before mounting UI (installed PWA cold start).
     initPwaUpdates();
+    mountApp();
 
     const hud = ensureHud();
     hud.textContent = '✅ boot ok';

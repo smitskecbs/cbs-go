@@ -1,4 +1,5 @@
 // PWA update orchestration — single Workbox path via virtual:pwa-register in main.js.
+// Primary production origin: https://go.cbs-coin.com (root scope /)
 
 import {
   CBSGO_APP_VERSION,
@@ -20,11 +21,61 @@ const FORCE_UPDATE_GUARD = 'cbsgo_force_update_reload';
 let updateSWFn = null;
 let swRegistration = null;
 let reloadRequested = false;
+let reloadDone = false;
 let updateBannerShown = false;
 
-const STALE_CACHE_RE = /workbox|precache|cbs-go|runtime|pwa/i;
+const STALE_CACHE_RE = /workbox|precache|cbs-go|cbsgo|runtime|pwa|vite|api-bypass/i;
 
-/** Remove old Workbox / runtime caches that can pin stale hashed bundles. */
+/** Installed PWA / standalone (iOS + Android). */
+export function isStandalonePwa() {
+  try {
+    if (window.matchMedia('(display-mode: standalone)').matches) return true;
+    if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+    if (navigator.standalone === true) return true;
+  } catch {}
+  return false;
+}
+
+/** Safe diagnostics for mobile installed app debugging (no secrets). */
+export function logPwaDiagnostics(reason = 'boot') {
+  const reg = swRegistration;
+  let controllerName = '';
+  try {
+    const url = navigator.serviceWorker?.controller?.scriptURL || '';
+    controllerName = url ? url.split('/').pop() : '';
+  } catch {}
+
+  console.info('[CBSGO PWA]', reason, {
+    version: CBSGO_APP_VERSION,
+    origin: typeof location !== 'undefined' ? location.origin : '',
+    standalone: isStandalonePwa(),
+    hasController: !!navigator.serviceWorker?.controller,
+    controllerScript: controllerName || null,
+    hasRegistration: !!reg,
+    waiting: !!reg?.waiting,
+    installing: !!reg?.installing,
+    updateBannerShown,
+    seenVersion: getSeenAppVersion(),
+    updateStatus: getUpdateStatusLabel(),
+  });
+}
+
+export function getUpdateStatusLabel() {
+  if (updateBannerShown || swRegistration?.waiting) return 'Update ready';
+  const seen = getSeenAppVersion();
+  if (seen && seen !== CBSGO_APP_VERSION) return 'Update ready';
+  return 'Up to date';
+}
+
+export function getPwaRuntimeInfo() {
+  return {
+    version: CBSGO_APP_VERSION,
+    appMode: isStandalonePwa() ? 'Installed PWA' : 'Browser',
+    updateStatus: getUpdateStatusLabel(),
+  };
+}
+
+/** Remove Workbox / PWA caches that can pin stale hashed bundles. */
 export async function purgeWorkboxCaches() {
   if (!('caches' in window)) return 0;
 
@@ -41,6 +92,24 @@ export async function purgeWorkboxCaches() {
   }
 
   return removed;
+}
+
+/** Force-update only: clear every Cache Storage bucket for this origin. */
+export async function purgeAllOriginCaches() {
+  if (!('caches' in window)) return { removed: 0, keys: [] };
+
+  const keys = await caches.keys();
+  const removedKeys = [];
+
+  for (const key of keys) {
+    try {
+      if (await caches.delete(key)) removedKeys.push(key);
+    } catch (e) {
+      console.warn('CBS-GO: failed to delete cache', key, e);
+    }
+  }
+
+  return { removed: removedKeys.length, keys: removedKeys };
 }
 
 /**
@@ -76,33 +145,41 @@ export async function executeForceAppUpdate() {
   reloadRequested = true;
 
   dismissUpdateNotices();
+  logPwaDiagnostics('force-update-start');
 
   let swRemoved = 0;
   let cachesRemoved = 0;
+  let cacheKeys = [];
 
   try {
     swRemoved = await unregisterAllServiceWorkers();
-    console.info(`CBS-GO: unregistered ${swRemoved} service worker(s)`);
+    console.info('[CBSGO PWA] force update: unregistered service workers', { count: swRemoved });
   } catch (e) {
     console.warn('CBS-GO: force update SW cleanup failed', e);
   }
 
   try {
-    cachesRemoved = await purgeWorkboxCaches();
-    console.info(`CBS-GO: cleared ${cachesRemoved} cache(s) before force reload`);
+    const result = await purgeAllOriginCaches();
+    cachesRemoved = result.removed;
+    cacheKeys = result.keys;
+    console.info('[CBSGO PWA] force update: cleared caches', {
+      count: cachesRemoved,
+      keys: cacheKeys,
+    });
   } catch (e) {
     console.warn('CBS-GO: force update cache purge failed', e);
   }
 
   try {
     sessionStorage.setItem(FORCE_UPDATE_GUARD, String(Date.now()));
+    sessionStorage.setItem(SW_RELOAD_GUARD, '1');
   } catch {}
 
   const url = new URL(window.location.href);
   url.searchParams.set('refresh', String(Date.now()));
   window.location.replace(url.toString());
 
-  return { ok: true, swRemoved, cachesRemoved };
+  return { ok: true, swRemoved, cachesRemoved, cacheKeys };
 }
 
 /** Strip one-time ?refresh= param after force reload (avoids bookmarking / loops). */
@@ -115,6 +192,7 @@ export function consumeForceRefreshParam() {
     const next = `${url.pathname}${url.search}${url.hash}` || '/';
     window.history.replaceState({}, '', next);
     sessionStorage.removeItem(FORCE_UPDATE_GUARD);
+    logPwaDiagnostics('force-refresh-consumed');
   } catch {}
 }
 
@@ -139,7 +217,8 @@ function openUpdateBanner(source) {
   if (updateBannerShown) return;
   updateBannerShown = true;
 
-  console.info('CBS-GO: update available', { source, version: CBSGO_APP_VERSION });
+  console.info('[CBSGO PWA] update notice shown', { source, version: CBSGO_APP_VERSION });
+  logPwaDiagnostics(`update-banner-${source}`);
 
   showUpdateAvailable({
     onUpdate: () => applyPwaUpdate(),
@@ -158,12 +237,36 @@ function openVersionRefreshBanner(info) {
     return;
   }
 
-  console.info('CBS-GO: refresh recommended', info);
+  console.info('[CBSGO PWA] version refresh notice', info);
+  logPwaDiagnostics('version-fallback-notice');
 
   showAppUpdatedNotice({
     onRefresh: () => applyPwaUpdate(updateSWFn),
     onDismiss: () => markAppVersionSeen(),
     onCheckUpdate: () => checkForSwUpdate(true),
+  });
+}
+
+async function waitForWaitingWorker(registration, timeoutMs = 4000) {
+  if (!registration) return null;
+  if (registration.waiting) return registration.waiting;
+
+  const installing = registration.installing;
+  if (!installing) return null;
+
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      installing.removeEventListener('statechange', onState);
+      resolve(registration.waiting || null);
+    };
+
+    const onState = () => {
+      if (installing.state === 'installed') finish();
+    };
+
+    installing.addEventListener('statechange', onState);
+    const timer = setTimeout(finish, timeoutMs);
   });
 }
 
@@ -179,12 +282,27 @@ function wireRegistration(registration) {
     const worker = registration.installing;
     if (!worker) return;
 
+    console.info('[CBSGO PWA] service worker updatefound');
+
     worker.addEventListener('statechange', () => {
       if (worker.state === 'installed' && navigator.serviceWorker.controller) {
         openUpdateBanner('installed');
       }
     });
   });
+
+  logPwaDiagnostics('registration-wired');
+}
+
+function reloadOnceAfterUpdate() {
+  if (reloadDone) return;
+  reloadDone = true;
+
+  try {
+    sessionStorage.removeItem(SW_RELOAD_GUARD);
+  } catch {}
+
+  window.location.reload();
 }
 
 /**
@@ -200,11 +318,13 @@ export async function checkForSwUpdate(manual = false) {
   if (!registration && 'serviceWorker' in navigator) {
     try {
       registration = await navigator.serviceWorker.getRegistration();
+      if (registration) swRegistration = registration;
     } catch {}
   }
 
   if (!registration) {
     if (manual) setUpdateNoticeStatus('No service worker registered yet.');
+    logPwaDiagnostics(manual ? 'check-manual-no-reg' : 'check-no-reg');
     return { ok: false, reason: 'no-registration' };
   }
 
@@ -213,33 +333,39 @@ export async function checkForSwUpdate(manual = false) {
   } catch (e) {
     console.warn('CBS-GO: serviceWorker.update failed', e);
     if (manual) setUpdateNoticeStatus('Update check failed. Try again in a moment.');
+    logPwaDiagnostics('check-update-failed');
     return { ok: false, error: e };
   }
+
+  await waitForWaitingWorker(registration, manual ? 5000 : 3000);
 
   if (registration.waiting && navigator.serviceWorker.controller) {
     openUpdateBanner(manual ? 'manual-check' : 'update-check');
     if (manual) setUpdateNoticeStatus('Update available — tap Update now.');
+    logPwaDiagnostics(manual ? 'check-manual-waiting' : 'check-waiting');
     return { ok: true, waiting: true };
   }
 
   if (manual) {
-    setUpdateNoticeStatus('You are on the latest cached build. Refresh if UI still looks old.');
+    setUpdateNoticeStatus('You are on the latest cached build. Use Force app update if UI still looks old.');
   }
 
+  logPwaDiagnostics(manual ? 'check-manual-uptodate' : 'check-uptodate');
   return { ok: true, waiting: false };
 }
 
-/** Apply update: purge stale caches, activate waiting SW, reload. */
+/** Apply update: purge stale caches, activate waiting SW, reload once. */
 export async function applyPwaUpdate(updateSW = updateSWFn) {
   if (reloadRequested) return;
   reloadRequested = true;
 
   markAppVersionSeen();
   dismissUpdateNotices();
+  logPwaDiagnostics('apply-update-start');
 
   try {
     const removed = await purgeWorkboxCaches();
-    if (removed) console.info(`CBS-GO: cleared ${removed} cache(s) before reload`);
+    if (removed) console.info(`[CBSGO PWA] cleared ${removed} cache(s) before reload`);
   } catch (e) {
     console.warn('CBS-GO: cache purge before update failed', e);
   }
@@ -248,14 +374,45 @@ export async function applyPwaUpdate(updateSW = updateSWFn) {
     sessionStorage.setItem(SW_RELOAD_GUARD, '1');
   } catch {}
 
-  if (typeof updateSW === 'function') {
-    updateSW(true);
-    setTimeout(() => {
-      window.location.reload();
-    }, 2000);
-  } else {
-    window.location.reload();
+  let registration = swRegistration;
+  if (!registration && 'serviceWorker' in navigator) {
+    try {
+      registration = await navigator.serviceWorker.getRegistration();
+    } catch {}
   }
+
+  const onControllerChange = () => {
+    navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    reloadOnceAfterUpdate();
+  };
+  navigator.serviceWorker?.addEventListener('controllerchange', onControllerChange);
+
+  let skipWaitingSent = false;
+  if (registration?.waiting) {
+    try {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      skipWaitingSent = true;
+      console.info('[CBSGO PWA] SKIP_WAITING sent to waiting service worker');
+    } catch (e) {
+      console.warn('CBS-GO: SKIP_WAITING postMessage failed', e);
+    }
+  }
+
+  if (!skipWaitingSent && typeof updateSW === 'function') {
+    try {
+      updateSW(true);
+    } catch (e) {
+      console.warn('CBS-GO: updateSW(true) failed', e);
+    }
+  }
+
+  setTimeout(() => {
+    try {
+      if (sessionStorage.getItem(SW_RELOAD_GUARD)) {
+        reloadOnceAfterUpdate();
+      }
+    } catch {}
+  }, skipWaitingSent ? 4500 : 1200);
 }
 
 export function consumeSwReloadGuard() {
@@ -272,8 +429,53 @@ function setupVersionFallbackNotice() {
   });
 }
 
+function scheduleUpdateChecks() {
+  const delays = isStandalonePwa()
+    ? [0, 300, 1200, 3500, 8000, 15000]
+    : [0, 400, 2000, 6000];
+
+  delays.forEach((ms) => {
+    setTimeout(() => {
+      checkForSwUpdate(false).catch(() => {});
+    }, ms);
+  });
+}
+
+function bindUpdateLifecycleListeners() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkForSwUpdate(false).catch(() => {});
+      logPwaDiagnostics('visibility-visible');
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    checkForSwUpdate(false).catch(() => {});
+  });
+
+  window.addEventListener('pageshow', (ev) => {
+    checkForSwUpdate(false).catch(() => {});
+    logPwaDiagnostics(ev.persisted ? 'pageshow-bfcache' : 'pageshow');
+  });
+
+  window.addEventListener('online', () => {
+    checkForSwUpdate(false).catch(() => {});
+    logPwaDiagnostics('online');
+  });
+
+  navigator.serviceWorker?.addEventListener('controllerchange', () => {
+    if (reloadDone) return;
+    if (!reloadRequested) return;
+    try {
+      if (sessionStorage.getItem(SW_RELOAD_GUARD)) {
+        reloadOnceAfterUpdate();
+      }
+    } catch {}
+  });
+}
+
 export async function initPwaUpdates() {
-  console.info(`CBS-GO version: ${CBSGO_APP_VERSION}`);
+  logPwaDiagnostics('init');
 
   await cleanupStalePwaCachesIfNeeded();
 
@@ -281,6 +483,8 @@ export async function initPwaUpdates() {
     setupVersionFallbackNotice();
     return;
   }
+
+  bindUpdateLifecycleListeners();
 
   import('virtual:pwa-register')
     .then(({ registerSW }) => {
@@ -292,37 +496,20 @@ export async function initPwaUpdates() {
         onRegistered(registration) {
           wireRegistration(registration);
           registration?.update().catch(() => {});
+          scheduleUpdateChecks();
         },
         onRegisteredSW(_swUrl, registration) {
           wireRegistration(registration);
           registration?.update().catch(() => {});
+          scheduleUpdateChecks();
         },
         onOfflineReady() {},
       });
-
-      // Boot-time update checks (SW fetch can be lazy on cold start).
-      setTimeout(() => checkForSwUpdate(false), 400);
-      setTimeout(() => checkForSwUpdate(false), 3500);
     })
     .catch((e) => {
       console.warn('CBS-GO: PWA register unavailable', e);
       setupVersionFallbackNotice();
     });
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      checkForSwUpdate(false);
-    }
-  });
-
-  navigator.serviceWorker?.addEventListener('controllerchange', () => {
-    if (reloadRequested) return;
-    try {
-      if (sessionStorage.getItem(SW_RELOAD_GUARD)) {
-        window.location.reload();
-      }
-    } catch {}
-  });
 
   setupVersionFallbackNotice();
 }

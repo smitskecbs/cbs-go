@@ -60,12 +60,13 @@ export default defineConfig(() => {
         manifest: {
           name: "CBS GO",
           short_name: "CBS GO",
+          // Root deploy — go.cbs-coin.com (scope /)
           id: pwaScope,
           start_url: pwaScope,
           scope: pwaScope,
           display: "standalone",
-          background_color: "#05070b",
-          theme_color: "#000000",
+          background_color: "#0a1228",
+          theme_color: "#0a1228",
           icons: [
             {
               src: withBase(base, "icons/icon-192.png"),
@@ -85,11 +86,13 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: false,
+          navigateFallback: 'index.html',
           navigateFallbackDenylist: [/^\/api\//],
           runtimeCaching: [
             {
               urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
               handler: 'NetworkOnly',
+              method: 'GET',
               options: {
                 cacheName: 'cbsgo-api-bypass',
               },

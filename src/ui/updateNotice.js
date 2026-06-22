@@ -92,7 +92,7 @@ export function showAppUpdatedNotice({ onRefresh, onDismiss, onCheckUpdate } = {
   mountNotice({
     id: VERSION_NOTICE_ID,
     title: 'New version available',
-    text: 'This device may still be running an older CBS-GO build. Refresh to load the latest UI. If the app still looks old, use Force app update in Profile.',
+    text: 'A newer CBS-GO version is available. Tap Refresh now, or use Force app update in Profile if this screen still looks old.',
     primaryLabel: 'Refresh now',
     onPrimary: () => {
       if (typeof onRefresh === 'function') onRefresh();

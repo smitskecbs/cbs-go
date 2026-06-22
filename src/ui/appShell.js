@@ -89,7 +89,7 @@ import {
   friendSendToastFromError,
   initGameToastListener,
 } from './gameToast.js';
-import { executeForceAppUpdate } from '../app/pwaUpdate.js';
+import { executeForceAppUpdate, getPwaRuntimeInfo } from '../app/pwaUpdate.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -942,6 +942,10 @@ function renderProfile() {
       <div class="cbsgo-app-version" title="Build version for support and update checks">
         <span class="cbsgo-app-version__label">CBS-GO version:</span>
         <span class="cbsgo-app-version__value">${esc(CBSGO_APP_VERSION)}</span>
+      </div>
+      <div class="cbsgo-pwa-status">
+        <div>App mode: ${esc(getPwaRuntimeInfo().appMode)}</div>
+        <div>Update status: ${esc(getPwaRuntimeInfo().updateStatus)}</div>
       </div>
     </section>
   `;
@@ -2391,14 +2395,13 @@ function renderPanel() {
 // ---------- Hoofd shell ----------
 export function renderAppShell() {
   return `
-    <div class="app-shell" style="
+    <div class="app-shell cbsgo-map-shell" style="
       position:fixed; inset:0;
       width:100vw; height:100vh;
       overflow:hidden;
-      background:#05070b;
     ">
       <!-- Map -->
-      <div id="mapMount" style="position:absolute; inset:0; z-index:1;">
+      <div id="mapMount" class="cbsgo-map-shell" style="position:absolute; inset:0; z-index:1;">
         ${renderMapView()}
       </div>
 

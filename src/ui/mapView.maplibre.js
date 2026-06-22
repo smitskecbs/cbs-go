@@ -990,6 +990,25 @@ function setNightClass(isNight) {
   if (host) host.setAttribute('data-night', isNight ? '1' : '0');
 }
 
+function syncMapHostAmbience() {
+  const host = ensureEl('cbsgoMapHost');
+  if (!host) return;
+  host.setAttribute('data-map-mode', inWorldMode ? 'world' : 'player');
+}
+
+function applyMapSkyTransparency() {
+  if (!map) return;
+  try {
+    const canvas = map.getCanvas();
+    if (canvas) canvas.style.background = 'transparent';
+  } catch {}
+  try {
+    if (map.getLayer('background')) {
+      map.setPaintProperty('background', 'background-color', 'rgba(0,0,0,0)');
+    }
+  } catch {}
+}
+
 
 function closeForecastModal() {
   const backdrop = ensureEl('cbsgoForecastBackdrop');
@@ -1341,23 +1360,8 @@ function injectStylesOnce() {
   const style = document.createElement('style');
   style.id = 'cbsgoMapLibreGameStyles';
   style.textContent = `
-    #cbsgoMapHost { position:relative; width:100%; height:100%; overflow:hidden; }
-    #cbsgoMap { position:absolute; inset:0; }
-
     .cbsgo-marker-root { position: relative; }
     .cbsgo-scale { display:block; transform-origin: bottom center; }
-
-    #cbsgoMapHost::after{
-      content:"";
-      position:absolute; inset:0;
-      pointer-events:none;
-      background: radial-gradient(ellipse at center, rgba(255,248,235,0.08), rgba(61,42,16,0.28));
-      mix-blend-mode:multiply;
-      z-index: 800;
-    }
-    #cbsgoMapHost[data-night="1"]::after{
-      background: radial-gradient(ellipse at center, rgba(0,0,0,0.12), rgba(0,0,0,0.52));
-    }
 
     .cbsgo-player{ position:relative; width:54px; height:54px; }
     .cbsgo-player-glow{
@@ -1753,6 +1757,7 @@ function setWorldMode({ animate = true } = {}) {
   if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
   if (worldBtnEl) setWorldBtnIcon('world');
+  syncMapHostAmbience();
   applyAllMarkerScales();
 }
 
@@ -1786,6 +1791,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
 
     if (worldBtnEl) setWorldBtnIcon('compass');
 
+    syncMapHostAmbience();
     if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
     if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
@@ -1800,6 +1806,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
   else map.jumpTo({ center: cam.center, zoom: cam.zoom });
 
   if (worldBtnEl) setWorldBtnIcon('compass');
+  syncMapHostAmbience();
 
   if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
   if (has) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
@@ -1831,6 +1838,7 @@ function initMapLibre() {
   });
 
   map.on('load', () => {
+    applyMapSkyTransparency();
     ensureRangeLayers();
     setWorldMode({ animate: false });
 
@@ -1850,6 +1858,7 @@ function initMapLibre() {
 
   map.on('styledata', () => {
     if (!map || destroyed) return;
+    applyMapSkyTransparency();
     ensureRangeLayers();
     elevateRangeLayers();
     if (lastUserLatLng && !inWorldMode) {
@@ -2636,7 +2645,7 @@ export function renderMapView() {
   injectStylesOnce();
 
   return `
-    <div id="cbsgoMapHost" data-night="0">
+    <div id="cbsgoMapHost" data-night="0" data-map-mode="world">
       <div id="cbsgoMap"></div>
 
       <div id="cbsgoTopLeftUi" style="
