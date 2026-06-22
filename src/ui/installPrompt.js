@@ -2,12 +2,15 @@
 
 import { icon } from './gameIcons.js';
 import { isStandalonePwa } from '../app/pwaUpdate.js';
+import { showGameToast } from './gameToast.js';
 
 const INSTALL_MODAL_ID = 'cbsgoInstallPrompt';
 const DISMISS_KEY = 'cbsgo_install_prompt_dismissed';
+const INSTALL_INTENT_KEY = 'cbsgo_install_intent';
 
 let deferredPrompt = null;
 let installModalShown = false;
+let explicitInstallIntent = false;
 
 export function isInstallPromptDismissed() {
   try {
@@ -21,6 +24,55 @@ function markInstallPromptDismissed() {
   try {
     localStorage.setItem(DISMISS_KEY, '1');
   } catch {}
+}
+
+/** True when user arrived via ?install=1 (main site CTA). */
+export function hasExplicitInstallIntent() {
+  if (explicitInstallIntent) return true;
+  try {
+    return sessionStorage.getItem(INSTALL_INTENT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function setExplicitInstallIntent(active) {
+  explicitInstallIntent = !!active;
+  try {
+    if (active) sessionStorage.setItem(INSTALL_INTENT_KEY, '1');
+    else sessionStorage.removeItem(INSTALL_INTENT_KEY);
+  } catch {}
+}
+
+function clearExplicitInstallIntent() {
+  setExplicitInstallIntent(false);
+}
+
+function shouldBypassDismissal({ manual = false, fromIntent = false } = {}) {
+  return manual || fromIntent || hasExplicitInstallIntent();
+}
+
+/**
+ * Capture ?install=1 from main site and clean the visible URL.
+ * @returns {boolean}
+ */
+export function captureInstallIntentFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('install') !== '1') return false;
+
+    setExplicitInstallIntent(true);
+    console.info('[CBSGO install] explicit install intent from URL');
+
+    url.searchParams.delete('install');
+    const next = `${url.pathname}${url.search}${url.hash}` || '/';
+    window.history.replaceState({}, '', next);
+
+    return true;
+  } catch (e) {
+    console.warn('[CBSGO install] capture install intent failed', e);
+    return false;
+  }
 }
 
 export function isIosDevice() {
@@ -63,6 +115,28 @@ function setProfileInstallMessage(text) {
   if (el) el.textContent = text || '';
 }
 
+function showAlreadyInstalledToast() {
+  const host = document.getElementById('cbsgoToastHost');
+  if (host) {
+    showGameToast('CBS-GO is already installed.', {
+      variant: 'info',
+      iconName: 'compass',
+      ms: 3600,
+    });
+    return;
+  }
+
+  setTimeout(() => {
+    if (document.getElementById('cbsgoToastHost')) {
+      showGameToast('CBS-GO is already installed.', {
+        variant: 'info',
+        iconName: 'compass',
+        ms: 3600,
+      });
+    }
+  }, 2500);
+}
+
 function mountInstallModal({ title, text, primaryLabel, secondaryLabel, onPrimary, onSecondary }) {
   removeInstallModal();
   installModalShown = true;
@@ -101,10 +175,41 @@ function mountInstallModal({ title, text, primaryLabel, secondaryLabel, onPrimar
   document.body.appendChild(wrap);
 }
 
-export function showAndroidInstallPrompt({ manual = false } = {}) {
+export function showInstallFallbackModal({ fromIntent = false } = {}) {
   if (isStandalonePwa()) return { ok: false, reason: 'standalone' };
-  if (!manual && isInstallPromptDismissed()) return { ok: false, reason: 'dismissed' };
-  if (!manual && isBlockingModalActive()) return { ok: false, reason: 'blocked' };
+  if (installModalShown) return { ok: false, reason: 'already-shown' };
+  if (!fromIntent && !hasExplicitInstallIntent() && isInstallPromptDismissed()) {
+    return { ok: false, reason: 'dismissed' };
+  }
+  if (isBlockingModalActive()) return { ok: false, reason: 'blocked' };
+
+  const bypass = shouldBypassDismissal({ fromIntent });
+
+  mountInstallModal({
+    title: 'Install CBS-GO',
+    text: 'Use your browser menu and choose Add to Home Screen.',
+    primaryLabel: 'Got it',
+    secondaryLabel: bypass ? 'Not now' : '',
+    onPrimary: () => {
+      if (!bypass) markInstallPromptDismissed();
+      if (fromIntent || hasExplicitInstallIntent()) clearExplicitInstallIntent();
+      removeInstallModal();
+    },
+    onSecondary: () => {
+      if (!bypass) markInstallPromptDismissed();
+      if (fromIntent || hasExplicitInstallIntent()) clearExplicitInstallIntent();
+      removeInstallModal();
+    },
+  });
+
+  return { ok: true };
+}
+
+export function showAndroidInstallPrompt({ manual = false, fromIntent = false } = {}) {
+  if (isStandalonePwa()) return { ok: false, reason: 'standalone' };
+  const bypass = shouldBypassDismissal({ manual, fromIntent });
+  if (!bypass && isInstallPromptDismissed()) return { ok: false, reason: 'dismissed' };
+  if (isBlockingModalActive()) return { ok: false, reason: 'blocked' };
   if (installModalShown) return { ok: false, reason: 'already-shown' };
   if (!deferredPrompt) return { ok: false, reason: 'no-prompt' };
 
@@ -126,7 +231,8 @@ export function showAndroidInstallPrompt({ manual = false } = {}) {
         console.info('[CBSGO install] user choice', { outcome: choice?.outcome });
         deferredPrompt = null;
         removeInstallModal();
-        if (choice?.outcome === 'dismissed') {
+        clearExplicitInstallIntent();
+        if (!bypass && choice?.outcome === 'dismissed') {
           markInstallPromptDismissed();
         }
       } catch (e) {
@@ -135,7 +241,8 @@ export function showAndroidInstallPrompt({ manual = false } = {}) {
       }
     },
     onSecondary: () => {
-      markInstallPromptDismissed();
+      if (!bypass) markInstallPromptDismissed();
+      if (fromIntent || hasExplicitInstallIntent()) clearExplicitInstallIntent();
       removeInstallModal();
     },
   });
@@ -143,24 +250,27 @@ export function showAndroidInstallPrompt({ manual = false } = {}) {
   return { ok: true };
 }
 
-export function showIosInstallInstructions({ manual = false } = {}) {
+export function showIosInstallInstructions({ manual = false, fromIntent = false } = {}) {
   if (isStandalonePwa()) return { ok: false, reason: 'standalone' };
   if (!isIosHomeScreenCapable()) return { ok: false, reason: 'not-ios' };
-  if (!manual && isInstallPromptDismissed()) return { ok: false, reason: 'dismissed' };
-  if (!manual && isBlockingModalActive()) return { ok: false, reason: 'blocked' };
+  const bypass = shouldBypassDismissal({ manual, fromIntent });
+  if (!bypass && isInstallPromptDismissed()) return { ok: false, reason: 'dismissed' };
+  if (isBlockingModalActive()) return { ok: false, reason: 'blocked' };
   if (installModalShown) return { ok: false, reason: 'already-shown' };
 
   mountInstallModal({
     title: 'Install CBS-GO',
     text: 'To install CBS-GO, tap the Share button in Safari and choose Add to Home Screen.',
     primaryLabel: 'Got it',
-    secondaryLabel: manual ? 'Not now' : '',
+    secondaryLabel: bypass ? 'Not now' : '',
     onPrimary: () => {
-      if (!manual) markInstallPromptDismissed();
+      if (!bypass) markInstallPromptDismissed();
+      if (fromIntent || hasExplicitInstallIntent()) clearExplicitInstallIntent();
       removeInstallModal();
     },
     onSecondary: () => {
-      markInstallPromptDismissed();
+      if (!bypass) markInstallPromptDismissed();
+      if (fromIntent || hasExplicitInstallIntent()) clearExplicitInstallIntent();
       removeInstallModal();
     },
   });
@@ -169,7 +279,8 @@ export function showIosInstallInstructions({ manual = false } = {}) {
 }
 
 function tryAutoShowInstallPrompt() {
-  if (isStandalonePwa() || isInstallPromptDismissed() || installModalShown) return false;
+  if (isStandalonePwa() || installModalShown) return false;
+  if (!shouldBypassDismissal() && isInstallPromptDismissed()) return false;
   if (isBlockingModalActive()) return false;
 
   if (isIosHomeScreenCapable()) {
@@ -183,8 +294,93 @@ function tryAutoShowInstallPrompt() {
   return false;
 }
 
+function tryShowExplicitInstallPrompt() {
+  if (!hasExplicitInstallIntent()) return false;
+  if (isStandalonePwa()) {
+    showAlreadyInstalledToast();
+    clearExplicitInstallIntent();
+    return true;
+  }
+  if (isBlockingModalActive() || installModalShown) return false;
+
+  if (isIosHomeScreenCapable()) {
+    return showIosInstallInstructions({ manual: true, fromIntent: true }).ok;
+  }
+
+  if (deferredPrompt) {
+    return showAndroidInstallPrompt({ manual: true, fromIntent: true }).ok;
+  }
+
+  return false;
+}
+
+let explicitInstallSchedulerRunning = false;
+
+/** Wait for blockers / beforeinstallprompt, then show install UI for ?install=1. */
+export function scheduleExplicitInstallIntentFlow() {
+  if (!hasExplicitInstallIntent()) return;
+  if (explicitInstallSchedulerRunning) return;
+  explicitInstallSchedulerRunning = true;
+
+  if (isStandalonePwa()) {
+    showAlreadyInstalledToast();
+    clearExplicitInstallIntent();
+    explicitInstallSchedulerRunning = false;
+    return;
+  }
+
+  let attempts = 0;
+  const maxAttempts = 80;
+
+  const tick = () => {
+    attempts += 1;
+
+    if (!hasExplicitInstallIntent()) {
+      explicitInstallSchedulerRunning = false;
+      return;
+    }
+
+    if (isStandalonePwa()) {
+      showAlreadyInstalledToast();
+      clearExplicitInstallIntent();
+      explicitInstallSchedulerRunning = false;
+      return;
+    }
+
+    if (tryShowExplicitInstallPrompt()) {
+      explicitInstallSchedulerRunning = false;
+      return;
+    }
+
+    if (!isBlockingModalActive() && !installModalShown && !isIosHomeScreenCapable() && !deferredPrompt) {
+      if (attempts >= maxAttempts) {
+        showInstallFallbackModal({ fromIntent: true });
+        explicitInstallSchedulerRunning = false;
+        return;
+      }
+    }
+
+    if (attempts < maxAttempts) {
+      setTimeout(tick, 500);
+      return;
+    }
+
+    if (!isStandalonePwa() && !installModalShown) {
+      showInstallFallbackModal({ fromIntent: true });
+    }
+    explicitInstallSchedulerRunning = false;
+  };
+
+  setTimeout(tick, 800);
+}
+
 /** Wait until login/onboarding/intro/update modals are gone, then show install UI once. */
 export function scheduleInstallPromptIfNeeded() {
+  if (hasExplicitInstallIntent()) {
+    scheduleExplicitInstallIntentFlow();
+    return;
+  }
+
   if (isStandalonePwa() || isInstallPromptDismissed()) return;
 
   let attempts = 0;
@@ -233,12 +429,21 @@ export function handleManualInstall() {
 export function initInstallPrompt() {
   if (typeof window === 'undefined') return;
 
+  captureInstallIntentFromUrl();
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
     console.info('[CBSGO install] beforeinstallprompt captured');
 
-    if (!isInstallPromptDismissed() && !isBlockingModalActive() && !installModalShown) {
+    if (installModalShown || isBlockingModalActive()) return;
+
+    if (hasExplicitInstallIntent()) {
+      tryShowExplicitInstallPrompt();
+      return;
+    }
+
+    if (!isInstallPromptDismissed()) {
       tryAutoShowInstallPrompt();
     }
   });
@@ -246,6 +451,11 @@ export function initInstallPrompt() {
   window.addEventListener('appinstalled', () => {
     console.info('[CBSGO install] app installed');
     deferredPrompt = null;
+    clearExplicitInstallIntent();
     removeInstallModal();
   });
+
+  if (hasExplicitInstallIntent()) {
+    scheduleExplicitInstallIntentFlow();
+  }
 }
