@@ -554,6 +554,34 @@ function applyAllMarkerScales() {
 let playerArrowEl = null;
 let arrowDegSmoothed = null;
 let playerMarker = null;
+let playerCameraFollow = true;
+
+const MAP_SKY_BG = '#0b1529';
+
+function logMapDiag(tag, extra = {}) {
+  console.info('[CBSGO map]', tag, {
+    mode: inWorldMode ? 'world' : 'player',
+    hasGpsFix,
+    shareLocation,
+    mapBooting,
+    playerCameraFollow,
+    lastUserLatLng,
+    ...extra,
+  });
+}
+
+function followPlayerCamera(lng, lat, { animate = true } = {}) {
+  if (!map || inWorldMode || mapBooting || !playerCameraFollow) return;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+  const zoom = getZoom() < FOLLOW_ZOOM - 0.5 ? FOLLOW_ZOOM : getZoom();
+  const cam = { center: [lng, lat], zoom };
+
+  if (animate) map.easeTo({ ...cam, duration: 420 });
+  else map.jumpTo(cam);
+
+  logMapDiag('follow/center', { lng, lat, zoom });
+}
 
 function buildPlayerEl() {
   const av = getPlayerAvatar?.();
@@ -631,6 +659,7 @@ function ensurePlayerMarker(lat, lng) {
     playerMarker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
       .setLngLat([lng, lat])
       .addTo(map);
+    logMapDiag('player marker created', { lat, lng });
   } else {
     playerMarker.setLngLat([lng, lat]);
   }
@@ -1004,7 +1033,7 @@ function applyMapSkyTransparency() {
   } catch {}
   try {
     if (map.getLayer('background')) {
-      map.setPaintProperty('background', 'background-color', 'rgba(0,0,0,0)');
+      map.setPaintProperty('background', 'background-color', MAP_SKY_BG);
     }
   } catch {}
 }
@@ -1758,12 +1787,14 @@ function setWorldMode({ animate = true } = {}) {
 
   if (worldBtnEl) setWorldBtnIcon('world');
   syncMapHostAmbience();
+  logMapDiag('setWorldMode');
   applyAllMarkerScales();
 }
 
 function setPlayerMode({ animate = true, snap = true } = {}) {
   if (!map) return;
   inWorldMode = false;
+  playerCameraFollow = true;
 
   if (USE_TRUE_GLOBE) {
     try { map.setProjection({ type: 'mercator' }); } catch {}
@@ -1792,6 +1823,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
     if (worldBtnEl) setWorldBtnIcon('compass');
 
     syncMapHostAmbience();
+    logMapDiag('setPlayerMode snap', { center, zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM });
     if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
     if (lastOnlinePlayers.length) upsertFriendMarkers(lastOnlinePlayers);
 
@@ -1807,6 +1839,7 @@ function setPlayerMode({ animate = true, snap = true } = {}) {
 
   if (worldBtnEl) setWorldBtnIcon('compass');
   syncMapHostAmbience();
+  logMapDiag('setPlayerMode', { center, zoom: has ? FOLLOW_ZOOM : FALLBACK_ZOOM });
 
   if (has) ensurePlayerMarker(lastUserLatLng[0], lastUserLatLng[1]);
   if (has) forceUpdatePickupRing(lastUserLatLng[0], lastUserLatLng[1]);
@@ -1884,6 +1917,10 @@ function initMapLibre() {
   map.on('wheel', markWorldInteract);
   map.on('touchstart', markWorldInteract);
   map.on('mousedown', markWorldInteract);
+
+  map.on('dragstart', () => {
+    if (!inWorldMode) playerCameraFollow = false;
+  });
 
   map.on('zoom', () => {
     if (mapBooting) return;
@@ -2585,10 +2622,19 @@ navigator.geolocation.watchPosition(
     }
     if (Number.isFinite(gpsHeading)) lastHeadingDeg = wrap360(gpsHeading);
 
-       if (map) ensurePlayerMarker(uiLatLng[0], uiLatLng[1]);
+    if (!prev) {
+      logMapDiag('GPS position (first fix)', {
+        lat: latitude,
+        lng: longitude,
+        accuracy: pos.coords.accuracy,
+      });
+    }
+
+    if (map) ensurePlayerMarker(uiLatLng[0], uiLatLng[1]);
     updatePlayerArrow();
 
     if (!inWorldMode) {
+      followPlayerCamera(uiLatLng[1], uiLatLng[0], { animate: !!prev });
       spawnLootAround(center);
       cleanupLoot(center);
       forceUpdatePickupRing(uiLatLng[0], uiLatLng[1]);
