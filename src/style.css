@@ -663,12 +663,47 @@ body {
 }
 
 .cbsgo-app-version {
-  margin-top: 18px;
-  padding-top: 10px;
-  border-top: 1px solid var(--cbs-card-border);
-  font-size: 10px;
-  opacity: 0.55;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 159, 28, 0.35);
+  background: rgba(255, 251, 243, 0.92);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cbsgo-text);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.cbsgo-app-version__label {
+  color: var(--cbsgo-text-muted);
+  font-weight: 600;
+}
+
+.cbsgo-app-version__value {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  color: var(--cbsgo-accent-text);
+  word-break: break-all;
+}
+
+.cbsgo-profile-update {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cbs-card-border);
+}
+
+.cbsgo-force-update-btn {
+  width: 100%;
+  font-size: 12px !important;
+}
+
+.cbsgo-force-update-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--cbsgo-text-muted);
 }
 
 .cbsgo-confirm-backdrop {
@@ -2222,21 +2257,68 @@ body {
 
 /* ---------- Leaderboard friend pills ---------- */
 .cbsgo-friend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 7px 10px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
   border: 1px solid transparent;
+  line-height: 1.2;
 }
 
 .cbsgo-friend-pill--accepted,
 .cbsgo-friend-pill--accepted:disabled {
-  border-color: rgba(22, 163, 74, 0.55);
-  background: rgba(220, 252, 231, 0.96);
-  color: #14532d;
+  border: 1px solid #14532d;
+  background: #166534;
+  color: #ffffff;
   cursor: default;
   opacity: 1;
+}
+
+.cbsgo-friend-pill--accepted .cbsgo-icon {
+  color: #ffffff;
+}
+
+.cbsgo-friend-pill--accept {
+  border: 1px solid #14532d;
+  background: #166534;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.cbsgo-friend-pill--accept:hover {
+  background: #15803d;
+}
+
+.cbsgo-friend-pill--accept:active {
+  background: #14532d;
+}
+
+.cbsgo-friend-pill--accept:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cbsgo-friend-pill--accept .cbsgo-icon {
+  color: #ffffff;
+}
+
+.cbsgo-friend-pill--pending {
+  border: 1px solid rgba(255, 159, 28, 0.45);
+  background: rgba(255, 248, 235, 0.96);
+  color: var(--cbsgo-text);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.cbsgo-friend-pill--compact {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .cbsgo-friend-pill--add {

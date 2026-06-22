@@ -15,6 +15,7 @@ import {
 
 const SW_RELOAD_GUARD = 'cbsgo_sw_reload_guard';
 const CACHE_CLEANUP_KEY = 'cbsgo_pwa_cache_cleanup';
+const FORCE_UPDATE_GUARD = 'cbsgo_force_update_reload';
 
 let updateSWFn = null;
 let swRegistration = null;
@@ -40,6 +41,81 @@ export async function purgeWorkboxCaches() {
   }
 
   return removed;
+}
+
+/**
+ * Unregister all service workers for this origin.
+ * @returns {Promise<number>}
+ */
+export async function unregisterAllServiceWorkers() {
+  if (!('serviceWorker' in navigator)) return 0;
+
+  let count = 0;
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const reg of regs) {
+      try {
+        if (await reg.unregister()) count += 1;
+      } catch (e) {
+        console.warn('CBS-GO: SW unregister failed', e);
+      }
+    }
+  } catch (e) {
+    console.warn('CBS-GO: getRegistrations failed', e);
+  }
+
+  return count;
+}
+
+/**
+ * Force refresh cached app shell: unregister SW, purge caches, reload once.
+ * Does not touch localStorage (wallet vault / profile keys stay).
+ */
+export async function executeForceAppUpdate() {
+  if (reloadRequested) return { ok: false, reason: 'already-running' };
+  reloadRequested = true;
+
+  dismissUpdateNotices();
+
+  let swRemoved = 0;
+  let cachesRemoved = 0;
+
+  try {
+    swRemoved = await unregisterAllServiceWorkers();
+    console.info(`CBS-GO: unregistered ${swRemoved} service worker(s)`);
+  } catch (e) {
+    console.warn('CBS-GO: force update SW cleanup failed', e);
+  }
+
+  try {
+    cachesRemoved = await purgeWorkboxCaches();
+    console.info(`CBS-GO: cleared ${cachesRemoved} cache(s) before force reload`);
+  } catch (e) {
+    console.warn('CBS-GO: force update cache purge failed', e);
+  }
+
+  try {
+    sessionStorage.setItem(FORCE_UPDATE_GUARD, String(Date.now()));
+  } catch {}
+
+  const url = new URL(window.location.href);
+  url.searchParams.set('refresh', String(Date.now()));
+  window.location.replace(url.toString());
+
+  return { ok: true, swRemoved, cachesRemoved };
+}
+
+/** Strip one-time ?refresh= param after force reload (avoids bookmarking / loops). */
+export function consumeForceRefreshParam() {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('refresh')) return;
+
+    url.searchParams.delete('refresh');
+    const next = `${url.pathname}${url.search}${url.hash}` || '/';
+    window.history.replaceState({}, '', next);
+    sessionStorage.removeItem(FORCE_UPDATE_GUARD);
+  } catch {}
 }
 
 /**

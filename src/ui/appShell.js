@@ -89,6 +89,7 @@ import {
   friendSendToastFromError,
   initGameToastListener,
 } from './gameToast.js';
+import { executeForceAppUpdate } from '../app/pwaUpdate.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -929,8 +930,18 @@ function renderProfile() {
         </div>
       </div>
 
+      <div class="cbsgo-profile-update">
+        <button id="cbsgoForceAppUpdateBtn" type="button" class="cbsgo-btn-secondary cbsgo-force-update-btn">
+          Force app update
+        </button>
+        <p class="cbsgo-force-update-hint">
+          Clears cached app files only. Your CBS-GO account and wallet stay safe.
+        </p>
+      </div>
+
       <div class="cbsgo-app-version" title="Build version for support and update checks">
-        CBS-GO version: ${esc(CBSGO_APP_VERSION)}
+        <span class="cbsgo-app-version__label">CBS-GO version:</span>
+        <span class="cbsgo-app-version__value">${esc(CBSGO_APP_VERSION)}</span>
       </div>
     </section>
   `;
@@ -1126,6 +1137,30 @@ function bindProfileEvents() {
     };
   }
 
+  const forceUpdateBtn = document.querySelector('#cbsgoForceAppUpdateBtn');
+  if (forceUpdateBtn && !forceUpdateBtn.__cbsgoBound) {
+    forceUpdateBtn.__cbsgoBound = true;
+    forceUpdateBtn.addEventListener('click', async () => {
+      const ok = await showConfirmDialog({
+        title: 'Force app update',
+        message: 'This will refresh the app files. Your CBS-GO account will stay safe.',
+        confirmLabel: 'Update now',
+        cancelLabel: 'Cancel',
+      });
+      if (!ok) return;
+
+      forceUpdateBtn.disabled = true;
+      setMsg('Refreshing app files…');
+      try {
+        await executeForceAppUpdate();
+      } catch (e) {
+        console.warn('CBS-GO: force app update failed', e);
+        forceUpdateBtn.disabled = false;
+        setMsg('Could not refresh app files. Try again.');
+      }
+    });
+  }
+
   // ---------- Friends UI binding ----------
   const friendInput = document.querySelector('#friendWalletInput');
   const friendSendBtn = document.querySelector('#friendSendBtn');
@@ -1290,32 +1325,15 @@ function bindProfileEvents() {
               <div style="display:flex;gap:6px;align-items:center;">
                 <button
                   type="button"
-                  class="friendCopyBtn"
+                  class="friendCopyBtn cbsgo-btn-secondary"
                   data-wallet="${esc(fr.otherWallet || '')}"
                   data-code="${esc(code)}"
-                  style="
-                    padding:3px 7px;
-                    border-radius:999px;
-                    border:1px solid rgba(148,163,184,.8);
-                    background:rgba(255,248,235,.94); border:1px solid rgba(255,159,28,0.35);
-                    color:#e5e7eb;
-                    font-size:10px;
-                    cursor:pointer;
-                  "
+                  style="padding:3px 8px;font-size:10px;"
                 >Copy</button>
                 <button
                   type="button"
-                  class="friendAcceptBtn"
+                  class="friendAcceptBtn cbsgo-friend-pill cbsgo-friend-pill--accept"
                   data-friend-id="${esc(String(fr.friendshipId || fr.id || ''))}"
-                  style="
-                    padding:4px 8px;
-                    border-radius:999px;
-                    border:1px solid rgba(34,197,94,0.9);
-                    background:rgba(22,163,74,0.95);
-                    color:#3d2a10;
-                    font-size:11px;
-                    cursor:pointer;
-                  "
                 >Accept</button>
               </div>
             `;
@@ -1335,14 +1353,9 @@ function bindProfileEvents() {
             const nickLabel = esc(fr.nickname || 'Friend');
             const btnHtml = `
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
-                <span style="
-                  display:inline-flex;align-items:center;gap:4px;
-                  padding:3px 6px;
-                  border-radius:999px;
-                  border:1px solid rgba(52,211,153,.45);
-                  font-size:10px;
-                  color:#bbf7d0;
-                ">${icon('check', 12, { className: 'cbsgo-icon' })} Friend</span>
+                <span class="cbsgo-friend-pill cbsgo-friend-pill--accepted cbsgo-friend-pill--compact">
+                  ${icon('check', 12, { className: 'cbsgo-icon' })} Friend
+                </span>
                 <button
                   type="button"
                   class="friendCopyBtn cbsgo-btn-secondary"

@@ -228,7 +228,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<span style="font-size:11px;opacity:.8;">Friends</span>`
+                      `<span class="cbsgo-friend-pill cbsgo-friend-pill--accepted">Friend</span>`
                     )
                   )
                   .join('')
@@ -249,16 +249,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<button class="friends-accept-btn" data-id="${esc(f.id)}" type="button" style="
-                         padding:5px 10px;
-                         border-radius:999px;
-                         border:1px solid rgba(52,211,153,.9);
-                         background:rgba(16,185,129,.15);
-                         color:#bbf7d0;
-                         font-size:11px;
-                         font-weight:600;
-                         cursor:pointer;
-                       ">Accept</button>`
+                      `<button class="friends-accept-btn cbsgo-friend-pill cbsgo-friend-pill--accept" data-id="${esc(f.id)}" type="button">Accept</button>`
                     )
                   )
                   .join('')
@@ -279,7 +270,7 @@ export async function bindFriendsPanelEvents() {
                   .map((f) =>
                     renderFriendRow(
                       f,
-                      `<span style="font-size:11px;opacity:.8;">Pending</span>`
+                      `<span class="cbsgo-friend-pill cbsgo-friend-pill--pending">Pending</span>`
                     )
                   )
                   .join('')

@@ -1,6 +1,6 @@
 // App bundle version for one-time "refresh recommended" UX (service worker remains primary).
 
-export const CBSGO_APP_VERSION = '2026-06-21-pwa-update-1';
+export const CBSGO_APP_VERSION = '1.2.2';
 
 const STORAGE_KEY = 'cbsgo_seen_app_version';
 

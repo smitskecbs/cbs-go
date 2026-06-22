@@ -5,7 +5,7 @@ import './bufferPolyfill.js';
 
 import './style.css';
 import { mountApp } from './ui/appShell.js';
-import { initPwaUpdates, consumeSwReloadGuard } from './app/pwaUpdate.js';
+import { initPwaUpdates, consumeSwReloadGuard, consumeForceRefreshParam } from './app/pwaUpdate.js';
 
 // ✅ MapLibre CSS
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -86,3 +86,4 @@ if (document.readyState === 'loading') {
 }
 
 consumeSwReloadGuard();
+consumeForceRefreshParam();

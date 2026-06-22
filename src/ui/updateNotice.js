@@ -75,8 +75,8 @@ export function setUpdateNoticeStatus(message) {
 export function showUpdateAvailable({ onUpdate, onLater, onCheckUpdate } = {}) {
   mountNotice({
     id: UPDATE_NOTICE_ID,
-    title: 'Update available',
-    text: 'A new CBS-GO version is ready. Update now to load the latest UI and fixes.',
+    title: 'New version available',
+    text: 'A new CBS-GO version is ready. Update now to load the latest UI and fixes. If the app still looks old, use Force app update in Profile.',
     primaryLabel: 'Update now',
     onPrimary: () => {
       if (typeof onUpdate === 'function') onUpdate();
@@ -91,8 +91,8 @@ export function showUpdateAvailable({ onUpdate, onLater, onCheckUpdate } = {}) {
 export function showAppUpdatedNotice({ onRefresh, onDismiss, onCheckUpdate } = {}) {
   mountNotice({
     id: VERSION_NOTICE_ID,
-    title: 'Refresh recommended',
-    text: 'This device may still be running an older CBS-GO build. Refresh to load the latest UI and fixes.',
+    title: 'New version available',
+    text: 'This device may still be running an older CBS-GO build. Refresh to load the latest UI. If the app still looks old, use Force app update in Profile.',
     primaryLabel: 'Refresh now',
     onPrimary: () => {
       if (typeof onRefresh === 'function') onRefresh();
