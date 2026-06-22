@@ -83,6 +83,8 @@ import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
 import { showConfirmDialog } from './confirmDialog.js';
 import { showGameIntroIfNeeded } from './gameIntroModal.js';
 import { scheduleInstallPromptIfNeeded, handleManualInstall } from './installPrompt.js';
+import { initLeaveGuard } from '../app/leaveGuard.js';
+import { initViewportLayout } from '../app/viewportLayout.js';
 import { renderBagPanel } from './bagPanel.js';
 import { CBSGO_APP_VERSION } from '../app/appVersion.js';
 import {
@@ -678,14 +680,7 @@ function ensureProfileSetup() {
 // ---------- Panel wrapper (onderin) ----------
 function panelWrap(title, innerHtml) {
   return `
-    <div style="
-      position:fixed;
-      left:0; right:0;
-      bottom:0;
-      z-index:6500;
-      padding:12px 12px calc(16px + env(safe-area-inset-bottom));
-      pointer-events:none;
-    ">
+    <div class="cbsgo-panel-dock">
       <div class="cbsgo-game-panel">
         <div class="cbsgo-game-panel__header">
           <div class="cbsgo-game-panel__title">
@@ -2434,11 +2429,7 @@ function renderPanel() {
 // ---------- Hoofd shell ----------
 export function renderAppShell() {
   return `
-    <div class="app-shell cbsgo-map-shell" style="
-      position:fixed; inset:0;
-      width:100vw; height:100vh;
-      overflow:hidden;
-    ">
+    <div class="app-shell cbsgo-map-shell cbsgo-app-shell">
       <!-- Map -->
       <div id="mapMount" class="cbsgo-map-shell" style="position:absolute; inset:0; z-index:1;">
         ${renderMapView()}
@@ -2462,15 +2453,7 @@ export function renderAppShell() {
       </header>
 
       <!-- Floating knoppen rechtsonder: Profile + Bag + Wallet -->
-      <div id="fabNav" style="
-        position:absolute;
-        right:16px;
-        bottom:80px;
-        z-index:5000;
-        display:flex;
-        flex-direction:row;
-        gap:10px;
-      ">
+      <div id="fabNav" class="cbsgo-fab-nav">
         <button type="button" data-panel="profile" class="cbsgo-hud-btn" title="Profile">
           ${icon('profile', 26, { className: 'cbsgo-icon' })}
         </button>
@@ -2534,16 +2517,7 @@ export function renderAppShell() {
       </div>
 
       <!-- Toast -->
-      <div id="cbsgoToastHost" style="
-        position:fixed;
-        left:0;
-        right:0;
-        bottom:24px;
-        z-index:7000;
-        display:flex;
-        justify-content:center;
-        pointer-events:none;
-      "></div>
+      <div id="cbsgoToastHost" class="cbsgo-toast-host"></div>
 
       <!-- Loot / trade overlay -->
       <div id="cbsgoLootOverlayHost" style="
@@ -2819,6 +2793,9 @@ function bootstrapApp() {
   if (!app) return;
 
   app.innerHTML = renderAppShell();
+
+  initViewportLayout();
+  initLeaveGuard();
 
   try {
     enableWakeLock();

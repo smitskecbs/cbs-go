@@ -583,12 +583,32 @@ function followPlayerCamera(lng, lat, { animate = true } = {}) {
   logMapDiag('follow/center', { lng, lat, zoom });
 }
 
+function tagMarkerLayer(marker, layerClass) {
+  if (!marker) return;
+  try {
+    const el = marker.getElement?.();
+    if (!el) return;
+    el.classList.add('cbsgo-marker-layer');
+    el.classList.remove('cbsgo-marker-own', 'cbsgo-marker-other', 'cbsgo-marker-loot');
+    if (layerClass) el.classList.add(layerClass);
+  } catch {}
+}
+
+function bringOwnPlayerMarkerToFront() {
+  if (!playerMarker) return;
+  try {
+    tagMarkerLayer(playerMarker, 'cbsgo-marker-own');
+    const el = playerMarker.getElement?.();
+    const parent = el?.parentElement;
+    if (parent && el) parent.appendChild(el);
+  } catch {}
+}
+
 function buildPlayerEl() {
   const av = getPlayerAvatar?.();
 
   const wrap = document.createElement('div');
-  wrap.className = 'cbsgo-player cbsgo-marker-player';
-  wrap.style.zIndex = '2000';
+  wrap.className = 'cbsgo-player cbsgo-marker-player cbsgo-marker-own-inner';
   wrap.style.pointerEvents = 'none';
 
   const glow = document.createElement('div');
@@ -659,10 +679,14 @@ function ensurePlayerMarker(lat, lng) {
     playerMarker = new maplibregl.Marker({ element: wrap, anchor: 'center' })
       .setLngLat([lng, lat])
       .addTo(map);
+    tagMarkerLayer(playerMarker, 'cbsgo-marker-own');
     logMapDiag('player marker created', { lat, lng });
   } else {
     playerMarker.setLngLat([lng, lat]);
   }
+
+  tagMarkerLayer(playerMarker, 'cbsgo-marker-own');
+  bringOwnPlayerMarkerToFront();
 
   updatePlayerArrow();
 
@@ -762,9 +786,8 @@ function buildFriendEl(nickname, avatar, lat, lng) {
   }
 
   const root = document.createElement('div');
-  root.className = 'cbsgo-marker-root';
+  root.className = 'cbsgo-marker-root cbsgo-marker-other-inner';
   root.style.pointerEvents = 'none';
-  root.style.zIndex = isInNetherlands(lat, lng) ? '1200' : '1400';
 
   const scale = document.createElement('div');
   scale.className = 'cbsgo-scale';
@@ -868,6 +891,7 @@ function upsertFriendMarkers(players) {
       const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center' })
         .setLngLat([lng, lat])
         .addTo(map);
+      tagMarkerLayer(marker, 'cbsgo-marker-other');
 
       friendMarkers.set(id, {
         marker, rootEl, scaleEl,
@@ -884,9 +908,7 @@ function upsertFriendMarkers(players) {
 
     try { fm.marker.setLngLat([lng, lat]); } catch {}
 
-    try {
-      if (fm.rootEl) fm.rootEl.style.zIndex = isInNetherlands(lat, lng) ? '1200' : '1400';
-    } catch {}
+    tagMarkerLayer(fm.marker, 'cbsgo-marker-other');
 
     // rebuild alleen als nick/avatar echt veranderd is
     if (fm.nickname !== nick || fm.avatar !== avatar) {
@@ -896,6 +918,7 @@ function upsertFriendMarkers(players) {
       const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center' })
         .setLngLat([lng, lat])
         .addTo(map);
+      tagMarkerLayer(marker, 'cbsgo-marker-other');
 
       fm.marker = marker;
       fm.rootEl = rootEl;
@@ -913,6 +936,7 @@ function upsertFriendMarkers(players) {
     }
   });
 
+  bringOwnPlayerMarkerToFront();
   applyAllMarkerScales();
 }
 
@@ -1507,7 +1531,13 @@ function injectStylesOnce() {
       box-shadow:0 8px 22px rgba(74,52,32,.12), 0 0 14px rgba(255,159,28,.12);
     }
 
-    .cbsgo-marker-player { z-index:2000 !important; }
+    .cbsgo-marker-player { z-index: 3000 !important; }
+
+    #cbsgoMap .maplibregl-marker.cbsgo-marker-own { z-index: 3000 !important; }
+    #cbsgoMap .maplibregl-marker.cbsgo-marker-other { z-index: 1500 !important; }
+    #cbsgoMap .maplibregl-marker.cbsgo-marker-loot { z-index: 1200 !important; }
+    #cbsgoMap .maplibregl-marker.cbsgo-marker-layer { position: absolute; }
+
     .maplibregl-ctrl { display:none !important; }
 
     @keyframes cbsgoSpin {
@@ -1694,6 +1724,7 @@ function spawnLootAround(center) {
   const marker = new maplibregl.Marker({ element: rootEl, anchor: 'center', offset: [0, 0] })
     .setLngLat([pos.lng, pos.lat])
     .addTo(map);
+  tagMarkerLayer(marker, 'cbsgo-marker-loot');
 
   const tryOpen = () => {
     if (!lastUserLatLng) return;
@@ -1742,6 +1773,7 @@ function spawnLootAround(center) {
   lootItems.push({ id, marker, rootEl, scaleEl, createdAt: now, lat: pos.lat, lng: pos.lng, reward, kind });
   lastLootSpawnAt = now;
 
+  bringOwnPlayerMarkerToFront();
   syncGameplayMarkerVisibility();
 }
 
@@ -2726,10 +2758,9 @@ export function renderMapView() {
         </div>
       </div>
 
-      <div id="cbsgoToast" class="cbsgo-pill" style="
+      <div id="cbsgoToast" class="cbsgo-pill cbsgo-map-toast" style="
         position:absolute;
         left:50%;
-        bottom:18px;
         transform:translateX(-50%);
         z-index:4000;
         padding:10px 12px;

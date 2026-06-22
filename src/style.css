@@ -20,8 +20,55 @@ body {
 /* ---------- Layout ---------- */
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
+}
+
+.cbsgo-app-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+}
+
+.cbsgo-toast-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--cbsgo-ui-bottom);
+  z-index: 7000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.cbsgo-fab-nav {
+  position: absolute;
+  right: 16px;
+  bottom: calc(var(--cbsgo-ui-bottom) + 56px);
+  z-index: 5000;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.cbsgo-map-toast {
+  bottom: var(--cbsgo-ui-bottom);
+}
+
+.cbsgo-panel-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6500;
+  padding: 12px 12px calc(16px + var(--cbsgo-edge-bottom));
+  pointer-events: none;
 }
 
 .topbar {
@@ -454,9 +501,20 @@ body {
   background: transparent !important;
 }
 
-#cbsgoMap .maplibregl-marker,
-.maplibregl-marker.cbsgo-marker-player {
-  z-index: 10 !important;
+#cbsgoMap .maplibregl-marker {
+  z-index: 10;
+}
+
+#cbsgoMap .maplibregl-marker.cbsgo-marker-own {
+  z-index: 3000 !important;
+}
+
+#cbsgoMap .maplibregl-marker.cbsgo-marker-other {
+  z-index: 1500 !important;
+}
+
+#cbsgoMap .maplibregl-marker.cbsgo-marker-loot {
+  z-index: 1200 !important;
 }
 
 #cbsgoMapHost > *:not(#cbsgoMap) {
@@ -471,6 +529,10 @@ body {
 
 /* ---------- CBS-GO game UI (light cream / gold adventure theme) ---------- */
 :root {
+  --cbsgo-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --cbsgo-browser-bottom: 0px;
+  --cbsgo-edge-bottom: calc(var(--cbsgo-safe-bottom) + var(--cbsgo-browser-bottom));
+  --cbsgo-ui-bottom: calc(var(--cbsgo-edge-bottom) + 14px);
   --cbsgo-bg-deep: #2a1f0f;
   --cbs-cream: #fff8eb;
   --cbs-ivory: #fffbf3;
