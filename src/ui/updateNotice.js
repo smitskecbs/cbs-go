@@ -4,6 +4,7 @@ import { icon } from './gameIcons.js';
 
 const UPDATE_NOTICE_ID = 'cbsgoUpdateNotice';
 const VERSION_NOTICE_ID = 'cbsgoVersionNotice';
+const REQUIRED_UPDATE_NOTICE_ID = 'cbsgoRequiredUpdateNotice';
 
 function removeNotice(id) {
   const el = document.getElementById(id);
@@ -104,7 +105,49 @@ export function showAppUpdatedNotice({ onRefresh, onDismiss, onCheckUpdate } = {
   });
 }
 
+/** Blocking update modal when server /version.json is newer than the running bundle. */
+export function showRequiredUpdateModal({ onUpdate, localVersion, serverVersion } = {}) {
+  removeNotice(REQUIRED_UPDATE_NOTICE_ID);
+
+  const versionHint =
+    localVersion && serverVersion
+      ? `Installed: ${localVersion} · Latest: ${serverVersion}`
+      : '';
+
+  const wrap = document.createElement('div');
+  wrap.id = REQUIRED_UPDATE_NOTICE_ID;
+  wrap.className = 'cbsgo-update-notice cbsgo-update-notice--required';
+  wrap.setAttribute('role', 'alertdialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-live', 'assertive');
+
+  wrap.innerHTML = `
+    <div class="cbsgo-update-notice__backdrop"></div>
+    <div class="cbsgo-update-notice__card cbsgo-update-notice__card--required">
+      <div class="cbsgo-update-notice__icon">${icon('compass', 22, { className: 'cbsgo-icon' })}</div>
+      <div class="cbsgo-update-notice__body">
+        <div class="cbsgo-update-notice__title">Update required</div>
+        <div class="cbsgo-update-notice__text">
+          A newer CBS-GO version is available. Update now to continue with the latest game files.
+        </div>
+        ${versionHint ? `<div class="cbsgo-update-notice__versions">${versionHint}</div>` : ''}
+        <div class="cbsgo-update-notice__status" aria-live="polite"></div>
+      </div>
+      <div class="cbsgo-update-notice__actions cbsgo-update-notice__actions--single">
+        <button type="button" class="cbsgo-btn-primary cbsgo-update-notice__primary">Update now</button>
+      </div>
+    </div>
+  `;
+
+  wrap.querySelector('.cbsgo-update-notice__primary')?.addEventListener('click', () => {
+    if (typeof onUpdate === 'function') onUpdate();
+  });
+
+  document.body.appendChild(wrap);
+}
+
 export function dismissUpdateNotices() {
   removeNotice(UPDATE_NOTICE_ID);
   removeNotice(VERSION_NOTICE_ID);
+  removeNotice(REQUIRED_UPDATE_NOTICE_ID);
 }

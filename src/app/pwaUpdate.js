@@ -13,6 +13,7 @@ import {
   dismissUpdateNotices,
   setUpdateNoticeStatus,
 } from '../ui/updateNotice.js';
+import { initServerVersionCheck, getServerVersionInfo } from './serverVersionCheck.js';
 
 const SW_RELOAD_GUARD = 'cbsgo_sw_reload_guard';
 const CACHE_CLEANUP_KEY = 'cbsgo_pwa_cache_cleanup';
@@ -47,6 +48,7 @@ export function logPwaDiagnostics(reason = 'boot') {
 
   console.info('[CBSGO PWA]', reason, {
     version: CBSGO_APP_VERSION,
+    serverVersion: getServerVersionInfo().serverVersion,
     origin: typeof location !== 'undefined' ? location.origin : '',
     standalone: isStandalonePwa(),
     hasController: !!navigator.serviceWorker?.controller,
@@ -99,8 +101,14 @@ export function getPwaRuntimeInfo() {
   const stale = isPwaVersionStale();
   const unknown = !seen;
   const updateStatus = getUpdateStatusLabel();
+  const serverInfo = getServerVersionInfo();
+  const serverLabel =
+    serverInfo.serverVersionStatus === 'checking'
+      ? 'Checking…'
+      : serverInfo.serverVersion || 'Unavailable';
   return {
     version: CBSGO_APP_VERSION,
+    serverVersion: serverLabel,
     appMode: standalone ? 'Installed PWA' : 'Browser',
     updateStatus,
     isStale: stale,
@@ -519,6 +527,8 @@ function bindUpdateLifecycleListeners() {
 
 export async function initPwaUpdates() {
   logPwaDiagnostics('init');
+
+  initServerVersionCheck();
 
   await cleanupStalePwaCachesIfNeeded();
 

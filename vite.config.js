@@ -88,7 +88,16 @@ export default defineConfig(() => {
           skipWaiting: false,
           navigateFallback: 'index.html',
           navigateFallbackDenylist: [/^\/api\//],
+          globIgnores: ['**/version.json'],
           runtimeCaching: [
+            {
+              urlPattern: ({ url }) => /\/version\.json$/i.test(url.pathname),
+              handler: 'NetworkOnly',
+              method: 'GET',
+              options: {
+                cacheName: 'cbsgo-version-bypass',
+              },
+            },
             {
               urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
               handler: 'NetworkOnly',

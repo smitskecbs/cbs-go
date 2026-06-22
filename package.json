@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:web",
-    "build:web": "cross-env BUILD_TARGET=web vite build",
+    "build:web": "node scripts/sync-version-json.mjs && cross-env BUILD_TARGET=web vite build",
     "build:web:gh-pages": "cross-env BUILD_TARGET=web VITE_BASE_PATH=/cbs-go/ vite build",
     "build:android": "cross-env BUILD_TARGET=android vite build",
     "preview": "vite preview",

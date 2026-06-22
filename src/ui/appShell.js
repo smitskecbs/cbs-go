@@ -951,8 +951,14 @@ function renderProfile() {
       </div>
 
       <div class="cbsgo-app-version" title="Build version for support and update checks">
-        <span class="cbsgo-app-version__label">CBS-GO version:</span>
-        <span class="cbsgo-app-version__value">${esc(CBSGO_APP_VERSION)}</span>
+        <div class="cbsgo-app-version__row">
+          <span class="cbsgo-app-version__label">App version:</span>
+          <span class="cbsgo-app-version__value">${esc(CBSGO_APP_VERSION)}</span>
+        </div>
+        <div class="cbsgo-app-version__row">
+          <span class="cbsgo-app-version__label">Server version:</span>
+          <span id="cbsgoProfileServerVersion" class="cbsgo-app-version__value">${esc(pwaInfo.serverVersion)}</span>
+        </div>
       </div>
       <div class="cbsgo-pwa-status">
         <div>App mode: ${esc(pwaInfo.appMode)}</div>
