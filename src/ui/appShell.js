@@ -82,6 +82,7 @@ import {
 import { icon, panelIconForTitle, avatarFallbackHtml } from './gameIcons.js';
 import { showConfirmDialog } from './confirmDialog.js';
 import { showGameIntroIfNeeded } from './gameIntroModal.js';
+import { scheduleInstallPromptIfNeeded, handleManualInstall } from './installPrompt.js';
 import { renderBagPanel } from './bagPanel.js';
 import { CBSGO_APP_VERSION } from '../app/appVersion.js';
 import {
@@ -945,6 +946,10 @@ function renderProfile() {
         <button id="cbsgoOpenFreshWebBtn" type="button" class="cbsgo-btn-secondary cbsgo-fresh-web-btn">
           Open fresh web version
         </button>
+        <button id="cbsgoInstallAppBtn" type="button" class="cbsgo-btn-secondary cbsgo-install-app-btn">
+          Install CBS-GO
+        </button>
+        <p id="cbsgoInstallAppMsg" class="cbsgo-install-app-msg"></p>
         <p class="cbsgo-force-update-hint">
           Clears cached app files only. Your CBS-GO account and wallet stay safe. Does not clear saved login or wallet data.
         </p>
@@ -1188,6 +1193,14 @@ function bindProfileEvents() {
     freshWebBtn.addEventListener('click', () => {
       openFreshWebVersion();
       setMsg('Opening fresh web version…');
+    });
+  }
+
+  const installAppBtn = document.querySelector('#cbsgoInstallAppBtn');
+  if (installAppBtn && !installAppBtn.__cbsgoBound) {
+    installAppBtn.__cbsgoBound = true;
+    installAppBtn.addEventListener('click', () => {
+      handleManualInstall();
     });
   }
 
@@ -3245,6 +3258,7 @@ try {
 
 hideLoading();
 showGameIntroIfNeeded();
+scheduleInstallPromptIfNeeded();
 }; // ✅ end onLoginDone
 
 window.addEventListener('cbsgo:loginDone', onLoginDone);

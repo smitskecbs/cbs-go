@@ -6,6 +6,7 @@ import './bufferPolyfill.js';
 import './style.css';
 import { mountApp } from './ui/appShell.js';
 import { initPwaUpdates, consumeSwReloadGuard, consumeForceRefreshParam } from './app/pwaUpdate.js';
+import { initInstallPrompt } from './ui/installPrompt.js';
 
 // ✅ MapLibre CSS
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -66,6 +67,7 @@ function boot() {
     }
 
     // Register SW / check for updates before mounting UI (installed PWA cold start).
+    initInstallPrompt();
     initPwaUpdates();
     mountApp();
 

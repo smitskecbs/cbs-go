@@ -930,6 +930,101 @@ body {
   font-size: 12px !important;
 }
 
+.cbsgo-install-app-btn {
+  width: 100%;
+  margin-top: 8px;
+  font-size: 12px !important;
+}
+
+.cbsgo-install-app-msg {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--cbsgo-accent-text);
+  min-height: 0;
+}
+
+/* ---------- PWA install prompt ---------- */
+.cbsgo-install-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(61, 42, 16, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.cbsgo-install-card {
+  position: relative;
+  width: min(420px, 96vw);
+  padding: 22px 18px 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: var(--cbs-panel-bg);
+  box-shadow: var(--cbsgo-shadow), 0 0 32px var(--cbs-glow-soft);
+  color: var(--cbsgo-text);
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  overflow: hidden;
+}
+
+.cbsgo-install-card__glow {
+  position: absolute;
+  inset: -40% auto auto 50%;
+  width: 120%;
+  height: 60%;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.18) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cbsgo-install-card__icon {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cbsgo-accent-text);
+}
+
+.cbsgo-install-card__title {
+  position: relative;
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--cbsgo-text);
+}
+
+.cbsgo-install-card__text {
+  position: relative;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--cbsgo-text-muted);
+}
+
+.cbsgo-install-card__actions {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cbsgo-install-card__primary,
+.cbsgo-install-card__secondary {
+  width: 100%;
+  padding: 12px 14px !important;
+  font-size: 14px !important;
+}
+
 .cbsgo-confirm-backdrop {
   position: fixed;
   inset: 0;
