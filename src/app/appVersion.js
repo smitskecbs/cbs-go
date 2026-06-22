@@ -1,6 +1,6 @@
 // App bundle version for one-time "refresh recommended" UX (service worker remains primary).
 
-export const CBSGO_APP_VERSION = '1.2.2';
+export const CBSGO_APP_VERSION = '1.2.3';
 
 const STORAGE_KEY = 'cbsgo_seen_app_version';
 

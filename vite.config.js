@@ -65,8 +65,8 @@ export default defineConfig(() => {
           start_url: pwaScope,
           scope: pwaScope,
           display: "standalone",
-          background_color: "#0a1228",
-          theme_color: "#0a1228",
+          background_color: "#fff8eb",
+          theme_color: "#ff9f1c",
           icons: [
             {
               src: withBase(base, "icons/icon-192.png"),

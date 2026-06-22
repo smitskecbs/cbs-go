@@ -67,11 +67,45 @@ export function getUpdateStatusLabel() {
   return 'Up to date';
 }
 
+export function isPwaVersionStale() {
+  const seen = getSeenAppVersion();
+  if (!seen) return false;
+  return seen !== CBSGO_APP_VERSION;
+}
+
+/** Fresh load URL at site root (go.cbs-coin.com). */
+export function buildFreshWebUrl() {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'https://go.cbs-coin.com';
+  return `${origin}/?refresh=${Date.now()}`;
+}
+
+/** Open latest web build in browser (useful when installed PWA is stuck). */
+export function openFreshWebVersion() {
+  const url = buildFreshWebUrl();
+  console.info('[CBSGO PWA] open fresh web version', { url, standalone: isStandalonePwa() });
+  if (isStandalonePwa()) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  } else {
+    window.location.replace(url);
+  }
+}
+
 export function getPwaRuntimeInfo() {
+  const standalone = isStandalonePwa();
+  const seen = getSeenAppVersion();
+  const stale = isPwaVersionStale();
+  const unknown = !seen;
+  const updateStatus = getUpdateStatusLabel();
   return {
     version: CBSGO_APP_VERSION,
-    appMode: isStandalonePwa() ? 'Installed PWA' : 'Browser',
-    updateStatus: getUpdateStatusLabel(),
+    appMode: standalone ? 'Installed PWA' : 'Browser',
+    updateStatus,
+    isStale: stale,
+    isUnknown: unknown,
+    showStaleWarning: standalone && (unknown || stale || updateStatus === 'Update ready'),
   };
 }
 
@@ -147,6 +181,14 @@ export async function executeForceAppUpdate() {
   dismissUpdateNotices();
   logPwaDiagnostics('force-update-start');
 
+  let cacheKeysBefore = [];
+  try {
+    if ('caches' in window) {
+      cacheKeysBefore = await caches.keys();
+      console.info('[CBSGO PWA] force update: caches before', cacheKeysBefore);
+    }
+  } catch {}
+
   let swRemoved = 0;
   let cachesRemoved = 0;
   let cacheKeys = [];
@@ -165,6 +207,7 @@ export async function executeForceAppUpdate() {
     console.info('[CBSGO PWA] force update: cleared caches', {
       count: cachesRemoved,
       keys: cacheKeys,
+      keysBefore: cacheKeysBefore,
     });
   } catch (e) {
     console.warn('CBS-GO: force update cache purge failed', e);
@@ -175,11 +218,11 @@ export async function executeForceAppUpdate() {
     sessionStorage.setItem(SW_RELOAD_GUARD, '1');
   } catch {}
 
-  const url = new URL(window.location.href);
-  url.searchParams.set('refresh', String(Date.now()));
-  window.location.replace(url.toString());
+  const refreshUrl = buildFreshWebUrl();
+  console.info('[CBSGO PWA] force update: navigating to root refresh URL', { refreshUrl });
+  window.location.replace(refreshUrl);
 
-  return { ok: true, swRemoved, cachesRemoved, cacheKeys };
+  return { ok: true, swRemoved, cachesRemoved, cacheKeys, cacheKeysBefore, refreshUrl };
 }
 
 /** Strip one-time ?refresh= param after force reload (avoids bookmarking / loops). */

@@ -556,7 +556,7 @@ let arrowDegSmoothed = null;
 let playerMarker = null;
 let playerCameraFollow = true;
 
-const MAP_SKY_BG = '#0b1529';
+const MAP_SKY_BG = '#e8f4ff';
 
 function logMapDiag(tag, extra = {}) {
   console.info('[CBSGO map]', tag, {
@@ -1392,23 +1392,26 @@ function injectStylesOnce() {
     .cbsgo-marker-root { position: relative; }
     .cbsgo-scale { display:block; transform-origin: bottom center; }
 
-    .cbsgo-player{ position:relative; width:54px; height:54px; }
+    .cbsgo-player{ position:relative; width:54px; height:54px; z-index:20; }
     .cbsgo-player-glow{
       position:absolute; inset:0;
       border-radius:999px;
-      background: radial-gradient(circle, rgba(255, 159, 28,0.35), rgba(255, 159, 28,0.00) 70%);
-      transform: scale(1.2);
+      background: radial-gradient(circle, rgba(255, 159, 28, 0.58), rgba(255, 211, 106, 0.08) 72%);
+      transform: scale(1.38);
+      box-shadow: 0 0 22px rgba(255, 159, 28, 0.35);
     }
     .cbsgo-player-core{
       position:absolute; left:50%; top:50%;
       transform: translate(-50%,-50%);
-      width:42px; height:42px;
+      width:44px; height:44px;
       border-radius:999px;
-      border:2px solid rgba(255,255,255,0.92);
-      box-shadow: 0 10px 24px rgba(0,0,0,0.55);
-      background: rgba(0,0,0,0.35);
+      border:3px solid rgba(255, 255, 255, 0.98);
+      box-shadow:
+        0 8px 22px rgba(255, 159, 28, 0.42),
+        0 0 16px rgba(255, 211, 106, 0.35);
+      background: linear-gradient(145deg, #fff8eb, #ffe9b8);
       display:flex; align-items:center; justify-content:center;
-      font-weight:900; font-size:16px; color:#fff;
+      font-weight:900; font-size:16px; color:#3d2a10;
       overflow:hidden;
     }
     .cbsgo-player-core img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -1432,28 +1435,32 @@ function injectStylesOnce() {
       content:"";
       position:absolute;
       inset:0;
-      background: rgba(255,255,255,0.95);
+      background: linear-gradient(180deg, #ff9f1c, #e87800);
       clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
       border-radius:2px;
     }
 
     .cbsgo-loot-square{
-      width: 46px;
-      height: 46px;
+      width: 48px;
+      height: 48px;
       border-radius: 14px;
-      background: linear-gradient(180deg, rgba(255,251,243,0.96), rgba(255,233,184,0.92));
-      border: 2px solid rgba(255, 159, 28, 0.55);
-      box-shadow: 0 8px 20px rgba(74,52,32,0.18), 0 0 14px rgba(255,159,28,0.22);
+      background: linear-gradient(180deg, rgba(255, 251, 243, 0.98), rgba(255, 233, 184, 0.96));
+      border: 2px solid rgba(255, 159, 28, 0.65);
+      box-shadow:
+        0 8px 20px rgba(74, 52, 32, 0.16),
+        0 0 20px rgba(255, 159, 28, 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
       display:flex;
       align-items:center;
       justify-content:center;
       transform: translateY(-2px);
     }
     .cbsgo-loot-star{
-      font-size: 22px;
+      font-size: 24px;
       filter:
-        drop-shadow(0 0 var(--loot-glow, 0px) rgba(255,215,0,0.92))
-        drop-shadow(0 0 calc(var(--loot-glow, 0px) * 1.65) rgba(255,215,0,0.45));
+        drop-shadow(0 0 var(--loot-glow, 0px) rgba(255, 179, 71, 0.98))
+        drop-shadow(0 0 calc(var(--loot-glow, 0px) * 1.8) rgba(255, 159, 28, 0.55))
+        drop-shadow(0 0 calc(var(--loot-glow, 0px) * 2.4) rgba(255, 211, 106, 0.35));
     }
 
     .cbsgo-friend{

@@ -89,7 +89,7 @@ import {
   friendSendToastFromError,
   initGameToastListener,
 } from './gameToast.js';
-import { executeForceAppUpdate, getPwaRuntimeInfo } from '../app/pwaUpdate.js';
+import { executeForceAppUpdate, getPwaRuntimeInfo, openFreshWebVersion } from '../app/pwaUpdate.js';
 
 let cbsgoFriendsSetMsg = () => {};
 let cbsgoFriendsRefresh = async () => {};
@@ -711,6 +711,7 @@ function renderProfile() {
   const myAvatar = String(getPlayerAvatar() || '').trim();
   const needsProfileSetup =
     !hasValidPlayerNickname(me) || !hasValidPlayerAvatar(myAvatar);
+  const pwaInfo = getPwaRuntimeInfo();
 
   return `
     <section class="cbsgo-game-section">
@@ -931,11 +932,21 @@ function renderProfile() {
       </div>
 
       <div class="cbsgo-profile-update">
+        ${
+          pwaInfo.showStaleWarning
+            ? `<p class="cbsgo-pwa-stale-warn">
+                Installed app may be on an older build. Tap Force app update, or open the fresh web version below.
+              </p>`
+            : ''
+        }
         <button id="cbsgoForceAppUpdateBtn" type="button" class="cbsgo-btn-secondary cbsgo-force-update-btn">
           Force app update
         </button>
+        <button id="cbsgoOpenFreshWebBtn" type="button" class="cbsgo-btn-secondary cbsgo-fresh-web-btn">
+          Open fresh web version
+        </button>
         <p class="cbsgo-force-update-hint">
-          Clears cached app files only. Your CBS-GO account and wallet stay safe.
+          Clears cached app files only. Your CBS-GO account and wallet stay safe. Does not clear saved login or wallet data.
         </p>
       </div>
 
@@ -944,8 +955,8 @@ function renderProfile() {
         <span class="cbsgo-app-version__value">${esc(CBSGO_APP_VERSION)}</span>
       </div>
       <div class="cbsgo-pwa-status">
-        <div>App mode: ${esc(getPwaRuntimeInfo().appMode)}</div>
-        <div>Update status: ${esc(getPwaRuntimeInfo().updateStatus)}</div>
+        <div>App mode: ${esc(pwaInfo.appMode)}</div>
+        <div>Update status: ${esc(pwaInfo.updateStatus)}</div>
       </div>
     </section>
   `;
@@ -1162,6 +1173,15 @@ function bindProfileEvents() {
         forceUpdateBtn.disabled = false;
         setMsg('Could not refresh app files. Try again.');
       }
+    });
+  }
+
+  const freshWebBtn = document.querySelector('#cbsgoOpenFreshWebBtn');
+  if (freshWebBtn && !freshWebBtn.__cbsgoBound) {
+    freshWebBtn.__cbsgoBound = true;
+    freshWebBtn.addEventListener('click', () => {
+      openFreshWebVersion();
+      setMsg('Opening fresh web version…');
     });
   }
 
