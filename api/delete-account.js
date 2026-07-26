@@ -155,6 +155,7 @@ export default async function handler(req, res) {
   }
 
   // 3) player_state — by user_id and by player_id (FK to players.id)
+  //    Also clears country_code + show_country_flag (no separate wipe needed).
   {
     const rUser = await safeDelete(admin, 'player_state.user_id', () =>
       admin.from('player_state').delete({ count: 'exact' }).eq('user_id', uid),

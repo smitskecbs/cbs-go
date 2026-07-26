@@ -69,6 +69,11 @@ import { syncPlayerProfile } from '../app/onlinePlayers.js';
 // ✅ Supabase remote game profile (backup naar game_profiles)
 import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE, PROFILE_SAVE_FAILED_MESSAGE, updateGameProfileAvatar } from '../app/remoteProfile.js';
 import { compressAvatarFile } from '../app/avatarImage.js';
+import {
+  countryOptionsHtml,
+  loadCountryPrivacyPrefs,
+  saveCountryPrivacyPrefs,
+} from '../app/countryPrivacy.js';
 
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
@@ -401,12 +406,30 @@ function updateShareLocProfileButton() {
   if (!btn) return;
 
   const on = getShareLocation();
-  btn.innerHTML = on
-    ? `${icon('location', 16, { className: 'cbsgo-icon' })} <span>Location: ON</span>`
-    : `${icon('locationOff', 16, { className: 'cbsgo-icon' })} <span>Location: Hidden</span>`;
+  const label = btn.querySelector('[data-share-loc-label]');
+  if (label) {
+    label.textContent = on ? 'ON' : 'OFF';
+  } else {
+    btn.textContent = on ? 'ON' : 'OFF';
+  }
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   btn.title = on
-    ? 'Other players can see your live location'
-    : 'Other players cannot see your location';
+    ? 'You appear on the map for other players'
+    : 'Your location is not shared. You still appear on the leaderboard.';
+}
+
+function updateShowCountryFlagButton(showFlag) {
+  const btn = document.querySelector('#profileShowCountryFlagBtn');
+  if (!btn) return;
+  const on = !!showFlag;
+  const label = btn.querySelector('[data-flag-pref-label]');
+  if (label) {
+    label.textContent = on ? 'ON' : 'OFF';
+  } else {
+    btn.textContent = on ? 'ON' : 'OFF';
+  }
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.dataset.showFlag = on ? '1' : '0';
 }
 
 // ---------- CBS token info (SPL) ----------
@@ -805,21 +828,100 @@ function renderProfile() {
 
           <div style="margin-top:12px;">
             <div style="font-size:12px; opacity:.8; margin-bottom:4px;">Profile photo <span style="opacity:.6;">(required)</span></div>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <input id="profileAvatar" type="file" accept="image/*" />
-              <button
-                class="btn secondary"
-                id="profileShareLocBtn"
-                type="button"
-                style="display:inline-flex;align-items:center;gap:6px;"
-              >
-                ${icon('location', 16, { className: 'cbsgo-icon' })} <span>Location: ON</span>
-              </button>
-            </div>
+            <input id="profileAvatar" type="file" accept="image/*" />
           </div>
 
           <div id="profileMsg" style="margin-top:8px; font-size:12px; opacity:.9;"></div>
         </div>
+      </div>
+
+      <!-- Privacy & country -->
+      <div style="
+        margin-top:18px;
+        padding-top:12px;
+        border-top:1px solid rgba(255,255,255,.16);
+      ">
+        <h4 style="margin:0 0 6px 0; font-size:14px; display:flex; align-items:center; gap:8px;">
+          ${icon('location', 18, { className: 'cbsgo-icon cbsgo-icon--panel' })}
+          Privacy &amp; country
+        </h4>
+        <p style="margin:0 0 12px 0; font-size:11px; opacity:.75;">
+          Control map visibility and how your country appears on the leaderboard.
+        </p>
+
+        <div style="
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          flex-wrap:wrap;
+          margin-bottom:8px;
+        ">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:13px;font-weight:700;">Show me on the map</div>
+            <div style="font-size:11px;opacity:.75;margin-top:2px;">
+              When disabled, your location will not be shared. You will still appear on the leaderboard.
+            </div>
+          </div>
+          <button
+            class="btn secondary"
+            id="profileShareLocBtn"
+            type="button"
+            aria-pressed="${getShareLocation() ? 'true' : 'false'}"
+            style="min-width:64px;font-weight:800;"
+          >
+            <span data-share-loc-label>${getShareLocation() ? 'ON' : 'OFF'}</span>
+          </button>
+        </div>
+
+        <label for="profileCountrySelect" style="display:block;margin-top:14px;font-size:12px;opacity:.8;">
+          Country
+        </label>
+        <select
+          id="profileCountrySelect"
+          style="
+            width:100%;
+            margin-top:4px;
+            padding:10px 10px;
+            border-radius:12px;
+            border:1px solid rgba(255,159,28,.14);
+            background:rgba(255,255,255,.06);
+            color:#3d2a10;
+          "
+        >
+          ${countryOptionsHtml('')}
+        </select>
+        <div style="font-size:11px;opacity:.7;margin-top:4px;">
+          Choose your country yourself. We do not set this automatically.
+        </div>
+
+        <div style="
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          flex-wrap:wrap;
+          margin-top:14px;
+        ">
+          <div style="min-width:0;flex:1;">
+            <div style="font-size:13px;font-weight:700;">Show country flag on leaderboard</div>
+            <div style="font-size:11px;opacity:.75;margin-top:2px;">
+              Requires a country above. Stored on your account, not only on this device.
+            </div>
+          </div>
+          <button
+            class="btn secondary"
+            id="profileShowCountryFlagBtn"
+            type="button"
+            data-show-flag="0"
+            aria-pressed="false"
+            style="min-width:64px;font-weight:800;"
+          >
+            <span data-flag-pref-label>OFF</span>
+          </button>
+        </div>
+
+        <div id="profilePrivacyMsg" style="margin-top:8px;font-size:12px;opacity:.9;"></div>
       </div>
 
       <!-- Friends blok -->
@@ -1014,13 +1116,22 @@ function bindProfileEvents() {
   const nameInput = document.querySelector('#profileName');
   const fileInput = document.querySelector('#profileAvatar');
   const shareLocBtn = document.querySelector('#profileShareLocBtn');
+  const countrySelect = document.querySelector('#profileCountrySelect');
+  const showFlagBtn = document.querySelector('#profileShowCountryFlagBtn');
+  const privacyMsgEl = document.querySelector('#profilePrivacyMsg');
 
   let saveTimer = null;
   let emailSaveTimer = null;
+  let privacySaveTimer = null;
+  let privacyBusy = false;
 
   const setMsg = (t) => {
     const msg = document.querySelector('#profileMsg');
     if (msg) msg.textContent = t || '';
+  };
+
+  const setPrivacyMsg = (t) => {
+    if (privacyMsgEl) privacyMsgEl.textContent = t || '';
   };
 
   const refreshProfileStatus = async () => {
@@ -1038,6 +1149,45 @@ function bindProfileEvents() {
     }
   };
 
+  const persistCountryPrivacy = async ({ silent = false } = {}) => {
+    if (privacyBusy) return;
+    if (!countrySelect || !showFlagBtn) return;
+
+    privacyBusy = true;
+    if (!silent) setPrivacyMsg('Saving…');
+
+    try {
+      const result = await saveCountryPrivacyPrefs({
+        countryCode: countrySelect.value,
+        showCountryFlag: showFlagBtn.dataset.showFlag === '1',
+      });
+
+      if (!result.ok) {
+        setPrivacyMsg(result.message || 'Could not save country settings.');
+        return;
+      }
+
+      if (countrySelect) countrySelect.value = result.countryCode || '';
+      updateShowCountryFlagButton(!!result.showCountryFlag);
+      if (!silent) setPrivacyMsg('✅ Privacy settings saved.');
+    } catch (e) {
+      console.warn('CBS GO: persistCountryPrivacy failed', e);
+      setPrivacyMsg('Could not save country settings. Try again.');
+    } finally {
+      privacyBusy = false;
+    }
+  };
+
+  const schedulePrivacySave = () => {
+    try {
+      if (privacySaveTimer) clearTimeout(privacySaveTimer);
+    } catch {}
+    setPrivacyMsg('Saving…');
+    privacySaveTimer = setTimeout(() => {
+      persistCountryPrivacy();
+    }, 350);
+  };
+
   (async () => {
     try {
       if (emailInput && !getPlayerEmail()) {
@@ -1049,6 +1199,20 @@ function bindProfileEvents() {
         }
       }
     } catch {}
+
+    try {
+      const prefs = await loadCountryPrivacyPrefs();
+      if (countrySelect) countrySelect.value = prefs.countryCode || '';
+      updateShowCountryFlagButton(!!prefs.showCountryFlag);
+      if (prefs.reason === 'schema') {
+        setPrivacyMsg(
+          'Country settings need a database update before they can be saved.',
+        );
+      }
+    } catch (e) {
+      console.warn('CBS GO: load country privacy UI failed', e);
+    }
+
     refreshProfileStatus();
   })();
 
@@ -1183,7 +1347,7 @@ function bindProfileEvents() {
     });
   }
 
-  // --- Location sharing toggle ---
+  // --- Show me on the map (existing cbsgo_shareLocation / playerSync) ---
   try {
     updateShareLocProfileButton();
   } catch {}
@@ -1195,7 +1359,25 @@ function bindProfileEvents() {
       try {
         updateShareLocProfileButton();
       } catch {}
-      setMsg(next ? 'Location sharing enabled.' : 'Location sharing disabled.');
+      setPrivacyMsg(
+        next
+          ? 'Show me on the map: ON'
+          : 'Show me on the map: OFF. Location not shared; you still appear on the leaderboard.',
+      );
+    };
+  }
+
+  if (countrySelect) {
+    countrySelect.addEventListener('change', () => {
+      schedulePrivacySave();
+    });
+  }
+
+  if (showFlagBtn) {
+    showFlagBtn.onclick = () => {
+      const next = showFlagBtn.dataset.showFlag !== '1';
+      updateShowCountryFlagButton(next);
+      schedulePrivacySave();
     };
   }
 

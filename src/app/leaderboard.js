@@ -139,7 +139,7 @@ export function submitMyScore() {
 /**
  * Remote leaderboard — only complete profiles with nickname, avatar, and XP.
  * Main source: public.game_profiles
- * Country flag source: public.player_state.country_code
+ * Country flag: player_state.country_code only when show_country_flag is true.
  */
 export async function loadLeaderboard(limit = 100) {
   try {
@@ -173,23 +173,42 @@ export async function loadLeaderboard(limit = 100) {
       .map((r) => String(r?.user_id || '').trim())
       .filter(Boolean);
 
+    /** @type {Map<string, string>} visible country codes only when flag pref enabled */
     let countryByUserId = new Map();
 
     if (userIds.length > 0) {
       const { data: stateRows, error: stateError } = await supabase
         .from('player_state')
-        .select('user_id, country_code, last_seen')
+        .select('user_id, country_code, show_country_flag, last_seen')
         .in('user_id', userIds);
 
       if (stateError) {
+        // Fallback if show_country_flag column not migrated yet: never show flags
         console.warn('CBS GO: player_state country lookup failed', stateError);
+        const msg = String(stateError.message || '').toLowerCase();
+        if (msg.includes('show_country_flag')) {
+          // Prefer fail-closed: no flags until preference column exists
+          countryByUserId = new Map();
+        }
       } else if (Array.isArray(stateRows)) {
         for (const row of stateRows) {
           const uid = String(row?.user_id || '').trim();
           if (!uid) continue;
 
-          const code = String(row?.country_code || '').trim().toUpperCase();
-          countryByUserId.set(uid, code || '');
+          const showFlag =
+            row?.show_country_flag === true ||
+            row?.show_country_flag === 'true' ||
+            row?.show_country_flag === 1;
+
+          if (!showFlag) {
+            countryByUserId.set(uid, '');
+            continue;
+          }
+
+          const code = String(row?.country_code || '')
+            .trim()
+            .toUpperCase();
+          countryByUserId.set(uid, /^[A-Z]{2}$/.test(code) ? code : '');
         }
       }
     }
