@@ -1,20 +1,24 @@
 // src/app/applyRemoteProfile.js
-// Supabase game_profiles is source of truth for nickname/avatar.
-// localStorage is device cache only — never merge stale local profile on login.
+// Supabase game_profiles is source of truth for authenticated account progress.
+// localStorage is device cache only — never inherit another user's progress.
 
 import { getCurrentUserId, loadRemoteProfile } from './remoteProfile.js';
+import { hardResetState } from './state.js';
+import { resetInventory } from './inventory.js';
 import {
   normalizePlayerEmail,
   normalizePlayerNickname,
   sanitizeStoredEmail,
   sanitizeStoredNickname,
   clearOwnedLocalProfile,
+  getProfileOwner,
   setProfileOwner,
 } from './playerNickname.js';
 
 const STATE_KEY = 'cbsgo_state_v6';
 const INV_KEY = 'cbsgo_inventory_v2';
 const CARDS_KEY = 'cbsgo_cards_v1';
+const LB_KEY = 'cbsgo_leaderboard_v2';
 
 const KEY_NAME = 'cbsgo_player_name_v2';
 const KEY_AVATAR = 'cbsgo_player_avatar_v2';
@@ -29,23 +33,9 @@ function safeJsonParse(raw, fallback) {
   }
 }
 
-function loadLocalState() {
-  const raw = localStorage.getItem(STATE_KEY);
-  return safeJsonParse(raw, { xp: 0, completed: {}, updatedAt: Date.now() });
-}
-
-function loadLocalInventory() {
-  const raw = localStorage.getItem(INV_KEY);
-  return safeJsonParse(raw, {
-    tickets: 0,
-    cbs: 0,
-    cards: {},
-    updatedAt: 0,
-  });
-}
-
 function saveStateXp(xp) {
-  const s = loadLocalState();
+  const raw = localStorage.getItem(STATE_KEY);
+  const s = safeJsonParse(raw, { xp: 0, completed: {}, updatedAt: Date.now() });
   s.xp = Number(xp || 0);
   s.updatedAt = Date.now();
   localStorage.setItem(STATE_KEY, JSON.stringify(s));
@@ -97,25 +87,68 @@ function setLocalNicknameAvatarEmail(nickname, avatar, email) {
 }
 
 /**
+ * Reset account-bound gameplay progress on this device.
+ * Preserves non-progress settings (theme, sound, share-location, etc.).
+ */
+export function resetLocalGameplayProgress() {
+  hardResetState();
+  resetInventory();
+  try {
+    localStorage.removeItem(LB_KEY);
+  } catch {}
+}
+
+/**
  * Load game_profiles for active user_id into localStorage cache.
- * No remote row => clear local nickname/avatar/owner (Supabase is truth).
+ * No remote row => clear cosmetics; reset progress when ownership does not match.
+ * Remote row => remote progress is authoritative (no foreign-local inflation).
  */
 export async function applyRemoteProfileToLocal({ preferRemote = true, userId: userIdOverride } = {}) {
   const userId = userIdOverride || (await getCurrentUserId());
   if (!userId) return { applied: false, reason: 'no-auth', clearedLocalProfile: false };
 
   const remote = await loadRemoteProfile(userId);
+  const ownerBefore = getProfileOwner();
+  const ownerMatches =
+    !!ownerBefore.userId && String(ownerBefore.userId) === String(userId);
 
   if (!remote) {
     clearOwnedLocalProfile();
-    return { applied: false, reason: 'no-remote-row', clearedLocalProfile: true };
+
+    let resetProgress = false;
+    if (!ownerMatches) {
+      resetLocalGameplayProgress();
+      resetProgress = true;
+      console.warn('[CBSGO ownership] reset local progress for new/mismatched account', {
+        authUserId: userId,
+        previousOwner: ownerBefore.userId || null,
+      });
+    }
+
+    // Own the clean local session only after any reset.
+    setProfileOwner({ userId, walletPk: null });
+
+    return {
+      applied: false,
+      reason: 'no-remote-row',
+      clearedLocalProfile: true,
+      resetProgress,
+    };
   }
 
-  if (!preferRemote) return { applied: false, reason: 'preferRemote=false', clearedLocalProfile: false };
+  if (!preferRemote) {
+    return { applied: false, reason: 'preferRemote=false', clearedLocalProfile: false };
+  }
 
+  // Authenticated session: remote progress is authoritative.
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
   const remoteCbs = Number(remote.cbs_play || 0);
+  const remoteCards =
+    remote.cards_json && typeof remote.cards_json === 'object'
+      ? remote.cards_json
+      : {};
+  const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
 
   const remoteEmail = normalizePlayerEmail(remote?.email);
 
@@ -130,44 +163,22 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
       ? remote.avatar.trim()
       : '';
 
-  const remoteCards =
-    remote.cards_json && typeof remote.cards_json === 'object'
-      ? remote.cards_json
-      : {};
+  if (!ownerMatches) {
+    // Drop any foreign local residue before writing remote values.
+    resetLocalGameplayProgress();
+    console.warn('[CBSGO ownership] replaced foreign local progress with remote profile', {
+      authUserId: userId,
+      previousOwner: ownerBefore.userId || null,
+      remoteXp,
+    });
+  }
 
-  const localState = loadLocalState();
-  const localXp = Number(localState.xp || 0);
-  const mergedXp = Math.max(localXp, remoteXp);
-
-  const localInv = loadLocalInventory();
-  const localInvUpdatedAt = Number(localInv.updatedAt || 0);
-
-  const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
-  const remoteIsNewerForInventory = remoteUpdatedAt > localInvUpdatedAt;
-
-  const mergedTickets = remoteIsNewerForInventory
-    ? Number(remoteTickets || 0)
-    : Number(localInv.tickets || 0);
-
-  const mergedCbs = remoteIsNewerForInventory
-    ? Number(remoteCbs || 0)
-    : Number(localInv.cbs || 0);
-
-  const mergedCards = remoteIsNewerForInventory
-    ? (remoteCards && typeof remoteCards === 'object' ? { ...remoteCards } : {})
-    : (localInv.cards && typeof localInv.cards === 'object' ? { ...localInv.cards } : {});
-
-  const inventoryStamp = remoteIsNewerForInventory ? remoteUpdatedAt : localInvUpdatedAt;
-
-  // Nickname/avatar/email: Supabase row only — no localStorage fallback.
-  const finalNickname = remoteNickname || '';
-  const finalAvatar = remoteAvatar || '';
-  const finalEmail = remoteEmail || '';
-
-  saveStateXp(mergedXp);
-  saveInventory(mergedTickets, mergedCbs, mergedCards, inventoryStamp);
-  saveCardsV1FromCardsObj(mergedCards);
-  setLocalNicknameAvatarEmail(finalNickname, finalAvatar, finalEmail);
+  saveStateXp(remoteXp);
+  // completed nodes are local-only; hardReset cleared them on ownership mismatch.
+  // When owner already matched, saveStateXp preserves completed while applying remote XP.
+  saveInventory(remoteTickets, remoteCbs, remoteCards, remoteUpdatedAt || Date.now());
+  saveCardsV1FromCardsObj(remoteCards);
+  setLocalNicknameAvatarEmail(remoteNickname, remoteAvatar, remoteEmail);
   setProfileOwner({
     userId: remote.user_id || userId,
     walletPk: remote.wallet_pk || null,
@@ -175,28 +186,27 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
   sanitizeStoredNickname();
   sanitizeStoredEmail();
 
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: mergedXp } }));
+  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: remoteXp } }));
   window.dispatchEvent(
     new CustomEvent('cbsgo:profileChanged', {
-      detail: { nickname: finalNickname, avatar: finalAvatar, email: finalEmail },
+      detail: { nickname: remoteNickname || '', avatar: remoteAvatar || '', email: remoteEmail || '' },
     }),
   );
 
   return {
     applied: true,
     clearedLocalProfile: false,
-    source: remoteIsNewerForInventory ? 'remote-authoritative-inventory' : 'local-newer-inventory',
+    source: 'remote-authoritative',
     merged: {
-      xp: mergedXp,
-      tickets: mergedTickets,
-      cbs: mergedCbs,
-      cardsCount: Object.keys(mergedCards || {}).length,
-      nickname: !!finalNickname,
-      avatar: !!finalAvatar,
-      email: !!finalEmail,
+      xp: remoteXp,
+      tickets: remoteTickets,
+      cbs: remoteCbs,
+      cardsCount: Object.keys(remoteCards || {}).length,
+      nickname: !!remoteNickname,
+      avatar: !!remoteAvatar,
+      email: !!remoteEmail,
       remoteUpdatedAt,
-      localInvUpdatedAt,
-      remoteIsNewerForInventory,
+      ownerMatched: ownerMatches,
     },
   };
 }

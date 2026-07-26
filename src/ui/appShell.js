@@ -45,6 +45,8 @@ import {
   hasValidPlayerAvatar,
   setProfileGateContext,
   setProfileOwner,
+  profileOwnerMatches,
+  getProfileOwner,
 } from '../app/playerNickname.js';
 
 // ✅ MapView: namespace import voorkomt build errors als exports ooit anders heten
@@ -633,11 +635,28 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   } catch {}
   const email = localEmail || authEmail || null;
 
+  const existingRemote = resolvedUserId
+    ? await loadRemoteProfile(resolvedUserId).catch(() => null)
+    : null;
+
+  // First remote row only: explicit progress defaults (never inherit device leftovers).
+  // Incomplete returning users keep remote progress already applied locally.
+  const progressDefaults = existingRemote?.user_id
+    ? {}
+    : {
+        xp: 0,
+        level: 1,
+        tickets: 0,
+        cbs_play: 0,
+        cards_json: {},
+      };
+
   const { data: saved, error: saveError } = await saveRemoteProfile(
     {
       wallet_pk: ownerWallet,
       nickname: nick,
       avatar: av,
+      ...progressDefaults,
     },
     { forceSave: true },
   );
@@ -2361,6 +2380,21 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
   __remoteSyncBusy = true;
 
   try {
+    let authUserId = null;
+    try {
+      const { data } = await supabase.auth.getUser();
+      authUserId = data?.user?.id || null;
+    } catch {}
+
+    if (!authUserId || !profileOwnerMatches({ userId: authUserId })) {
+      console.warn('CBS GO: skip remote progress sync (ownership not proven)', {
+        source,
+        authUserId,
+        localOwner: getProfileOwner()?.userId || null,
+      });
+      return;
+    }
+
     // 1) Eerst remote lezen (deze is leidend na login)
     const remote = await loadRemoteProfile().catch(() => null);
     const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
@@ -2385,7 +2419,7 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
     const avatar = getPlayerAvatar() || null;
 
     const xp = getXp();
-    const level = getLevel(xp);
+    const level = getLevel();
     const tickets = getTickets();
     const cbs_play = getCbsCoins();
 

@@ -158,6 +158,13 @@ export function resetInventory() {
   const inv = defaultInv();
   try {
     localStorage.removeItem(KEY);
+    localStorage.removeItem(CARDS_KEY);
   } catch {}
-  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: inv }));
+  window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:bagChanged', {
+      detail: { cards: {} },
+    }),
+  );
+  return inv;
 }
