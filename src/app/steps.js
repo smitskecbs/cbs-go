@@ -6,8 +6,9 @@
 // Autostart + "first tap" fallback (for browsers that require a user gesture)
 
 import { addXp } from './state.js';
-import { addTickets, addCbsCoins } from './inventory.js';
+import { addTickets, addCbsCoins, addCard } from './inventory.js';
 import { requireGameplayAllowed } from './playerNickname.js';
+import { normalizeCardCounts } from './cardCounts.js';
 
 const KEY = 'cbsgo_steps_v6';
 // 🔙 Probeer oude data te migreren als die nog bestaat
@@ -158,7 +159,7 @@ function saveCardsCollection(state) {
   }
 }
 
-// ⭐ Kaart geven aan speler + events uitsturen
+// ⭐ Kaart geven via canonical inventory.addCard (updates inventory + cards_v1)
 function grantCard(cardIdRaw, count = 1) {
   const cardId = normalizeCardId(cardIdRaw);
   if (!cardId) return null;
@@ -166,26 +167,19 @@ function grantCard(cardIdRaw, count = 1) {
   const add = Number(count || 0);
   if (!Number.isFinite(add) || add <= 0) return null;
 
-  const state = loadCardsCollection();
-  const counts = { ...(state.counts || {}) };
-
-  const prev = Number(counts[cardId] || 0);
-  const nextCount = prev + add;
-  counts[cardId] = nextCount;
-
-  saveCardsCollection({ counts });
-
+  const inv = addCard(cardId, add);
+  const counts = normalizeCardCounts(inv?.cards);
+  const nextCount = Number(counts[cardId] || 0);
   const def = findCardDef(cardId);
 
   try {
-    // Volledige state naar UI (optioneel, als je later wilt luisteren)
+    // UI listeners that still expect cardsChanged / cardFound
     window.dispatchEvent(
       new CustomEvent('cbsgo:cardsChanged', {
         detail: { counts },
       }),
     );
 
-    // Specifieke "kaart gevonden" event (popup / animatie)
     window.dispatchEvent(
       new CustomEvent('cbsgo:cardFound', {
         detail: {
@@ -195,15 +189,9 @@ function grantCard(cardIdRaw, count = 1) {
         },
       }),
     );
-
-    // Bag / My Cards laten rerenderen
-    window.dispatchEvent(
-      new CustomEvent('cbsgo:bagChanged', {
-        detail: { reason: 'cardDrop', card: def },
-      }),
-    );
+    // bagChanged already emitted by addCard — do not duplicate
   } catch {
-    // UI events zijn niet kritisch
+    // UI events are not critical
   }
 
   return { cardId, count: nextCount, card: def };

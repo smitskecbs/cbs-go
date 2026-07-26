@@ -22,10 +22,10 @@ import {
   recordRemoteApplied,
   parseRemoteUpdatedAt,
 } from './progressSyncState.js';
+import { normalizeCardCounts, writeCardsV1Counts } from './cardCounts.js';
 
 const STATE_KEY = 'cbsgo_state_v6';
 const INV_KEY = 'cbsgo_inventory_v2';
-const CARDS_KEY = 'cbsgo_cards_v1';
 const LB_KEY = 'cbsgo_leaderboard_v2';
 
 const KEY_NAME = 'cbsgo_player_name_v2';
@@ -50,10 +50,11 @@ function saveStateXp(xp) {
 }
 
 function saveInventory(tickets, cbs, cardsObj, updatedAt = null) {
+  const cards = normalizeCardCounts(cardsObj);
   const inv = {
     tickets: Number(tickets || 0),
     cbs: Number(cbs || 0),
-    cards: cardsObj && typeof cardsObj === 'object' ? { ...cardsObj } : {},
+    cards,
     updatedAt:
       Number.isFinite(Number(updatedAt)) && Number(updatedAt) > 0
         ? Number(updatedAt)
@@ -66,14 +67,11 @@ function saveInventory(tickets, cbs, cardsObj, updatedAt = null) {
 }
 
 function saveCardsV1FromCardsObj(cardsObj) {
-  const safe = {
-    counts: cardsObj && typeof cardsObj === 'object' ? { ...cardsObj } : {},
-  };
-  localStorage.setItem(CARDS_KEY, JSON.stringify(safe));
+  const counts = writeCardsV1Counts(cardsObj);
 
   window.dispatchEvent(
     new CustomEvent('cbsgo:bagChanged', {
-      detail: { cards: { ...(safe.counts || {}) } },
+      detail: { cards: { ...counts } },
     }),
   );
 }
@@ -165,10 +163,7 @@ export async function applyRemoteProfileToLocal({
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
   const remoteCbs = Number(remote.cbs_play || 0);
-  const remoteCards =
-    remote.cards_json && typeof remote.cards_json === 'object'
-      ? remote.cards_json
-      : {};
+  const remoteCards = normalizeCardCounts(remote.cards_json);
   const remoteUpdatedAt = parseRemoteUpdatedAt(remote);
 
   const remoteEmail = normalizePlayerEmail(remote?.email);

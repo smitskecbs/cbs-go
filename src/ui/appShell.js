@@ -87,6 +87,11 @@ import {
   isProgressRemoteSyncDisabled,
   disableProgressRemoteSync,
 } from '../app/progressSyncState.js';
+import {
+  normalizeCardCounts,
+  reconcileLocalCardStores,
+  writeCardsV1Counts,
+} from '../app/cardCounts.js';
 
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
@@ -245,6 +250,7 @@ const getCbsCoins = () => Number(inventory.getCbsCoins?.() || 0);
 
 const loadInventory = () => inventory.loadInventory?.() || { tickets: 0, cbs: 0, cards: {} };
 const saveInventory = (inv) => inventory.saveInventory?.(inv);
+const removeCard = (cardId, qty) => inventory.removeCard?.(cardId, qty);
 
 
 // ----------------- safe wrappers (mapView) -----------------
@@ -470,36 +476,25 @@ function safeParse(raw, fallback) {
 
 // leest counts uit cbsgo_cards_v1 (nieuwe + oude vorm)
 function loadBagCardCounts() {
-  const raw = localStorage.getItem(CARDS_STORAGE_KEY);
-  const data = safeParse(raw, {});
-  let counts = {};
-
-  if (data && typeof data.counts === 'object' && data.counts !== null) {
-    counts = { ...data.counts };
-  } else if (Array.isArray(data.cards)) {
-    data.cards.forEach((c) => {
-      if (!c || !c.id) return;
-      const n = Number(c.count || 0);
-      if (Number.isFinite(n) && n > 0) counts[c.id] = n;
-    });
-  }
-  return counts;
+  return normalizeCardCounts(
+    (() => {
+      const raw = localStorage.getItem(CARDS_STORAGE_KEY);
+      return safeParse(raw, {});
+    })(),
+  );
 }
 
 // schrijft counts terug naar cbsgo_cards_v1
 function saveBagCardCounts(counts) {
-  const safe = { counts: { ...(counts || {}) } };
-  try {
-    localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(safe));
-  } catch {}
+  writeCardsV1Counts(counts);
 }
 
-// inventory.cards in sync brengen met My Cards storage
+// inventory.cards in sync brengen met My Cards storage (canonical merge)
 function syncInventoryCardsFromBag() {
-  const counts = loadBagCardCounts();
-  const inv = loadInventory();
-  inv.cards = { ...(counts || {}) };
-  saveInventory(inv);
+  reconcileLocalCardStores({
+    loadInventoryFn: loadInventory,
+    saveInventoryFn: saveInventory,
+  });
 }
 
 
@@ -1937,8 +1932,8 @@ function bindBagEvents() {
       }
 
       if (cardId && cardQty > 0) {
-        const counts = loadBagCardCounts();
-        const owned = Number(counts[cardId] || 0);
+        const invCards = normalizeCardCounts(loadInventory()?.cards);
+        const owned = Number(invCards[cardId] || 0);
         if (!Number.isFinite(owned) || owned < cardQty) {
           setGiftMsg('Not enough of that card in your collection.');
           return;
@@ -1956,15 +1951,9 @@ function bindBagEvents() {
           cardQty: cardId ? cardQty : 0,
         });
 
+        // Deduct only after successful insert — canonical dual-store remove.
         if (cardId && cardQty > 0) {
-          const counts = loadBagCardCounts();
-          const cur = Number(counts[cardId] || 0);
-          const next = cur - cardQty;
-          if (next > 0) counts[cardId] = next;
-          else delete counts[cardId];
-          saveBagCardCounts(counts);
-          syncInventoryCardsFromBag();
-          window.dispatchEvent(new CustomEvent('cbsgo:bagChanged', { detail: { cards: { ...counts } } }));
+          removeCard(cardId, cardQty);
         }
 
         setGiftMsg('✅ Gift sent.');
@@ -2785,13 +2774,21 @@ async function runRemoteProfileSyncOnce(source, force) {
   const tickets = getTickets();
   const cbs_play = getCbsCoins();
 
+  // Same-owner safety net: never upload empty/stale inventory.cards over bag counts.
   let cards_json = {};
   try {
-    const inv = loadInventory();
-    if (inv && typeof inv.cards === 'object' && inv.cards !== null) {
-      cards_json = { ...inv.cards };
-    }
-  } catch {}
+    const { counts } = reconcileLocalCardStores({
+      loadInventoryFn: loadInventory,
+      saveInventoryFn: saveInventory,
+    });
+    cards_json = normalizeCardCounts(counts);
+  } catch (e) {
+    console.warn('CBS GO: card reconcile before sync failed', e);
+    try {
+      const inv = loadInventory();
+      cards_json = normalizeCardCounts(inv?.cards);
+    } catch {}
+  }
 
   const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
 

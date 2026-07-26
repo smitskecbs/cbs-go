@@ -4,6 +4,7 @@
 
 import { normalizePlayerNickname, isProfileComplete, getProfileGateContext } from './playerNickname.js';
 import { supabase } from './supabaseClient.js';
+import { normalizeCardCounts } from './cardCounts.js';
 
 export async function getCurrentUserId() {
   try {
@@ -281,13 +282,11 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
 
   const existing = userId ? (await loadRemoteProfile(userId)) || {} : {};
 
-  const cardsObj = hasOwn(localProfile, 'cards_json')
-    ? localProfile.cards_json && typeof localProfile.cards_json === 'object'
+  const cardsObj = normalizeCardCounts(
+    hasOwn(localProfile, 'cards_json')
       ? localProfile.cards_json
-      : {}
-    : existing.cards_json && typeof existing.cards_json === 'object'
-      ? existing.cards_json
-      : {};
+      : existing.cards_json,
+  );
 
   const friendsObj = hasOwn(localProfile, 'friends_json')
     ? localProfile.friends_json && typeof localProfile.friends_json === 'object'

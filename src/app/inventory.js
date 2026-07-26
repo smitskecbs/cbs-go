@@ -1,8 +1,13 @@
 // src/app/inventory.js
 // Inventory for CBS-GO (tickets + CBS play money + collectible cards)
 
+import {
+  CARDS_V1_KEY,
+  normalizeCardCounts,
+  writeCardsV1Counts,
+} from './cardCounts.js';
+
 const KEY = 'cbsgo_inventory_v2';
-const CARDS_KEY = 'cbsgo_cards_v1';
 
 function safeParse(raw, fallback) {
   try {
@@ -27,7 +32,7 @@ export function loadInventory() {
 
   if (typeof inv.tickets !== 'number') inv.tickets = 0;
   if (typeof inv.cbs !== 'number') inv.cbs = 0;
-  if (!inv.cards || typeof inv.cards !== 'object') inv.cards = {};
+  inv.cards = normalizeCardCounts(inv.cards);
 
   return inv;
 }
@@ -36,7 +41,7 @@ export function saveInventory(inv) {
   const safe = {
     tickets: Number(inv.tickets || 0),
     cbs: Number(inv.cbs || 0),
-    cards: inv.cards && typeof inv.cards === 'object' ? inv.cards : {},
+    cards: normalizeCardCounts(inv?.cards),
   };
 
   localStorage.setItem(KEY, JSON.stringify(safe));
@@ -50,6 +55,11 @@ export function getCbsCoins() {
   return Number(loadInventory().cbs || 0);
 }
 
+/** Flat card counts from canonical inventory store. */
+export function getAllCards() {
+  return { ...normalizeCardCounts(loadInventory().cards) };
+}
+
 /**
  * ✅ NIEUW: zet inventory hard (voor remote sync na email login)
  * @param {{tickets:number, cbs:number, cards:object}} next
@@ -58,10 +68,11 @@ export function setInventory(next = {}) {
   const safe = {
     tickets: Number(next.tickets || 0),
     cbs: Number(next.cbs || 0),
-    cards: next.cards && typeof next.cards === 'object' ? next.cards : {},
+    cards: normalizeCardCounts(next.cards),
   };
 
   saveInventory(safe);
+  writeCardsV1Counts(safe.cards);
 
   window.dispatchEvent(
     new CustomEvent('cbsgo:inventoryChanged', { detail: { ...safe } }),
@@ -106,26 +117,19 @@ export function addCbsCoins(n = 1) {
   return inv;
 }
 
-/* ---------- CARDS ---------- */
+/* ---------- CARDS (canonical mutation path) ---------- */
 
 export function addCard(cardId, qty = 1) {
   const id = String(cardId || '').trim();
-  const n = Number(qty || 1);
+  const n = Math.floor(Number(qty || 1));
   if (!id || !Number.isFinite(n) || n <= 0) return loadInventory();
 
   const inv = loadInventory();
-  if (!inv.cards) inv.cards = {};
+  inv.cards = normalizeCardCounts(inv.cards);
   inv.cards[id] = Number(inv.cards[id] || 0) + n;
 
   saveInventory(inv);
-
-  // ✅ sync ook naar My Cards storage
-  try {
-    const safe = {
-      counts: { ...(inv.cards || {}) },
-    };
-    localStorage.setItem(CARDS_KEY, JSON.stringify(safe));
-  } catch {}
+  writeCardsV1Counts(inv.cards);
 
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   window.dispatchEvent(
@@ -136,19 +140,29 @@ export function addCard(cardId, qty = 1) {
 
   return inv;
 }
+
 export function removeCard(cardId, qty = 1) {
   const id = String(cardId || '').trim();
-  const n = Number(qty || 1);
+  const n = Math.floor(Number(qty || 1));
   if (!id || !Number.isFinite(n) || n <= 0) return loadInventory();
 
   const inv = loadInventory();
-  if (!inv.cards || typeof inv.cards[id] !== 'number') return inv;
+  inv.cards = normalizeCardCounts(inv.cards);
+  if (!inv.cards[id]) return inv;
 
   inv.cards[id] -= n;
   if (inv.cards[id] <= 0) delete inv.cards[id];
 
   saveInventory(inv);
+  writeCardsV1Counts(inv.cards);
+
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
+  window.dispatchEvent(
+    new CustomEvent('cbsgo:bagChanged', {
+      detail: { cards: { ...(inv.cards || {}) } },
+    }),
+  );
+
   return inv;
 }
 
@@ -158,7 +172,7 @@ export function resetInventory() {
   const inv = defaultInv();
   try {
     localStorage.removeItem(KEY);
-    localStorage.removeItem(CARDS_KEY);
+    localStorage.removeItem(CARDS_V1_KEY);
   } catch {}
   window.dispatchEvent(new CustomEvent('cbsgo:inventoryChanged', { detail: { ...inv } }));
   window.dispatchEvent(
