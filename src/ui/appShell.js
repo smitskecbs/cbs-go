@@ -61,6 +61,7 @@ import { openCardsPanel } from './cardsPanel.js';
 // ✅ Login gate
 import { openLoginModal } from './loginModal.js';
 import { openProfileOnboardingModal } from './profileOnboardingModal.js';
+import { openDeleteAccountModal } from './deleteAccountModal.js';
 
 // ✅ Supabase helper (profile -> players tabel)
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
@@ -974,6 +975,22 @@ function renderProfile() {
         </p>
       </div>
 
+      <div style="
+        margin-top:18px;
+        padding-top:14px;
+        border-top:1px solid rgba(239,68,68,.28);
+      ">
+        <h4 style="margin:0 0 6px 0;font-size:14px;color:#b91c1c;">Danger zone</h4>
+        <p style="margin:0 0 10px 0;font-size:11px;opacity:.8;line-height:1.45;">
+          Permanently delete your CBS-GO account (profile, XP, friends, cloud backup).
+          Your local crypto wallet is not removed automatically.
+        </p>
+        <button id="cbsgoDeleteAccountBtn" type="button" class="cbsgo-btn-danger" style="width:100%;">
+          Delete account
+        </button>
+        <div id="cbsgoDeleteAccountMsg" style="margin-top:8px;font-size:12px;opacity:.9;"></div>
+      </div>
+
       <div class="cbsgo-app-version" title="Build version for support and update checks">
         <div class="cbsgo-app-version__row">
           <span class="cbsgo-app-version__label">App version:</span>
@@ -1220,6 +1237,32 @@ function bindProfileEvents() {
     installAppBtn.__cbsgoBound = true;
     installAppBtn.addEventListener('click', () => {
       handleManualInstall();
+    });
+  }
+
+  const deleteAccountBtn = document.querySelector('#cbsgoDeleteAccountBtn');
+  const deleteAccountMsg = document.querySelector('#cbsgoDeleteAccountMsg');
+  if (deleteAccountBtn && !deleteAccountBtn.__cbsgoBound) {
+    deleteAccountBtn.__cbsgoBound = true;
+    deleteAccountBtn.addEventListener('click', async () => {
+      if (deleteAccountMsg) deleteAccountMsg.textContent = '';
+      deleteAccountBtn.disabled = true;
+      try {
+        const result = await openDeleteAccountModal();
+        if (result === 'deleted') {
+          if (deleteAccountMsg) {
+            deleteAccountMsg.textContent = 'Account deleted. Returning to login…';
+          }
+          window.location.reload();
+          return;
+        }
+      } catch (e) {
+        console.warn('CBS GO: delete account UI failed', e);
+        if (deleteAccountMsg) {
+          deleteAccountMsg.textContent = 'Could not open delete account. Try again.';
+        }
+      }
+      deleteAccountBtn.disabled = false;
     });
   }
 
