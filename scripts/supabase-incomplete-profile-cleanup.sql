@@ -99,7 +99,6 @@ gp_incomplete AS (
     gp.wallet_pk,
     gp.nickname,
     gp.avatar,
-    gp.email,
     gp.xp,
     gp.tickets,
     gp.cbs_play,
@@ -122,7 +121,6 @@ auth_without_complete AS (
     gp.wallet_pk,
     gp.nickname,
     gp.avatar,
-    u.email,
     gp.xp,
     gp.tickets,
     gp.cbs_play,
@@ -187,6 +185,21 @@ HAVING count(*) > 1;
 
 -- 3a) Incomplete game_profiles rows
 SELECT * FROM incomplete_users ORDER BY xp DESC NULLS LAST, user_id;
+
+-- 3a2) Admin preview: incomplete users with auth.users.email (read-only join)
+SELECT
+  iu.user_id,
+  u.email AS auth_email,
+  iu.wallet_pk,
+  iu.nickname,
+  iu.avatar,
+  iu.xp,
+  iu.tickets,
+  iu.cbs_play,
+  iu.reason
+FROM incomplete_users iu
+LEFT JOIN auth.users u ON u.id = iu.user_id
+ORDER BY iu.xp DESC NULLS LAST, iu.user_id;
 
 -- 3b) Incomplete players (by user_id or wallet or missing nick/avatar)
 SELECT p.*

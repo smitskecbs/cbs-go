@@ -20,6 +20,8 @@ export async function getCurrentUserId() {
 }
 
 export const NICKNAME_TAKEN_MESSAGE = 'This nickname is already taken.';
+export const PROFILE_SAVE_FAILED_MESSAGE =
+  'We could not save your profile. Please try again.';
 
 /**
  * Case-insensitive nickname availability in game_profiles.
@@ -63,23 +65,6 @@ function normalizeNickname(raw) {
   return n || null;
 }
 
-function normalizeEmail(raw) {
-  const e = String(raw ?? '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return null;
-  return e;
-}
-
-function resolveEmailForSave(existing, localProfile) {
-  const existingEmail = normalizeEmail(existing.email);
-  if (!hasOwn(localProfile, 'email')) return existingEmail;
-
-  const next = normalizeEmail(localProfile.email);
-  if (next) return next;
-
-  if (existingEmail) return existingEmail;
-  return null;
-}
-
 function resolveNicknameForSave(existing, localProfile) {
   const existingNick = normalizeNickname(existing.nickname);
   if (!hasOwn(localProfile, 'nickname')) return existingNick;
@@ -93,7 +78,6 @@ function resolveNicknameForSave(existing, localProfile) {
 
 function profileHasMeaningfulData(profile) {
   if (!profile || typeof profile !== 'object') return false;
-  if (normalizeEmail(profile.email)) return true;
   if (normalizeNickname(profile.nickname)) return true;
   if (profile.avatar && String(profile.avatar).trim()) return true;
   if (profile.wallet_pk) return true;
@@ -143,9 +127,10 @@ export async function loadRemoteProfile(userIdOverride = null) {
 
 /**
  * Sla lokaal game-profiel op in Supabase.
+ * Ownership key: user_id (auth.uid()). Email lives in auth.users / localStorage only.
  * localProfile voorbeeld:
  * {
- *   wallet_pk, email, nickname, avatar,
+ *   wallet_pk, nickname, avatar,
  *   xp, level, tickets, cbs_play,
  *   cards_json, friends_json
  * }
@@ -155,11 +140,11 @@ export async function loadRemoteProfile(userIdOverride = null) {
  * @param {object} localProfile
  * @param {object} [options]
  * @param {boolean} [options.forceSave=false] - allow first insert during onboarding
- * @returns {Promise<object|null>} de opgeslagen row of null
+ * @returns {Promise<{ data: object|null, error: object|null }>}
  */
 function mapSupabaseSaveError(error) {
   if (!error) {
-    return { ok: false, code: 'unknown', message: 'Could not save profile to cloud.' };
+    return { ok: false, code: 'unknown', message: PROFILE_SAVE_FAILED_MESSAGE };
   }
 
   const code = String(error.code || '');
@@ -196,15 +181,16 @@ function mapSupabaseSaveError(error) {
     return {
       ok: false,
       code: 'too_large',
-      message: 'Avatar image is too large.',
+      message: 'Avatar image is too large. Choose a smaller photo.',
       error,
     };
   }
 
+  // Never surface raw PostgREST / schema-cache messages to the UI.
   return {
     ok: false,
     code: code || 'unknown',
-    message: message || 'Could not save profile to cloud.',
+    message: PROFILE_SAVE_FAILED_MESSAGE,
     error,
   };
 }
@@ -268,9 +254,16 @@ export async function updateGameProfileAvatar(avatarDataUrl, options = {}) {
   if (nick) insertPayload.nickname = nick;
 
   const { data, error } = await saveRemoteProfile(insertPayload, { forceSave: true });
-  if (error) return mapSupabaseSaveError(error);
+  if (error) {
+    return {
+      ok: false,
+      code: error.code || 'unknown',
+      message: error.message || PROFILE_SAVE_FAILED_MESSAGE,
+      error: error.error || error,
+    };
+  }
   if (!data) {
-    return { ok: false, code: 'unknown', message: 'Could not save profile photo to cloud.' };
+    return { ok: false, code: 'unknown', message: PROFILE_SAVE_FAILED_MESSAGE };
   }
 
   console.log('[CBSGO avatar save] insert ok', { userId, avatarLen });
@@ -304,12 +297,12 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
       ? existing.friends_json
       : {};
 
+  // Never write email — column is not part of game_profiles; identity is user_id.
   const payload = {
     user_id: userId,
     wallet_pk: hasOwn(localProfile, 'wallet_pk')
       ? localProfile.wallet_pk || null
       : existing.wallet_pk ?? null,
-    email: resolveEmailForSave(existing, localProfile),
     nickname: resolveNicknameForSave(existing, localProfile),
     avatar: hasOwn(localProfile, 'avatar')
       ? localProfile.avatar || null
@@ -354,19 +347,24 @@ export async function saveRemoteProfile(localProfile = {}, options = {}) {
       .single();
 
     if (error) {
-      console.warn('CBS-GO: saveRemoteProfile error', {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-      });
-      return { data: null, error };
+      const mapped = mapSupabaseSaveError(error);
+      return {
+        data: null,
+        error: {
+          code: mapped.code,
+          message: mapped.message,
+          error: mapped.error || error,
+        },
+      };
     }
 
     return { data: data || null, error: null };
   } catch (e) {
     console.warn('CBS-GO: saveRemoteProfile crashed', e);
-    return { data: null, error: { code: 'crash', message: String(e?.message || e) } };
+    return {
+      data: null,
+      error: { code: 'crash', message: PROFILE_SAVE_FAILED_MESSAGE, error: e },
+    };
   }
 }
 

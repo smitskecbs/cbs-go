@@ -64,7 +64,7 @@ import { openProfileOnboardingModal } from './profileOnboardingModal.js';
 import { syncPlayerProfile } from '../app/onlinePlayers.js';
 
 // ✅ Supabase remote game profile (backup naar game_profiles)
-import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE, updateGameProfileAvatar } from '../app/remoteProfile.js';
+import { saveRemoteProfile, loadRemoteProfile, isNicknameAvailable, NICKNAME_TAKEN_MESSAGE, PROFILE_SAVE_FAILED_MESSAGE, updateGameProfileAvatar } from '../app/remoteProfile.js';
 import { compressAvatarFile } from '../app/avatarImage.js';
 
 
@@ -624,6 +624,7 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   const ownerWallet = walletPk || getLocalPublicKeySafe() || null;
   setProfileOwner({ userId: resolvedUserId, walletPk: ownerWallet });
 
+  // Email stays in auth.users / localStorage — never written to game_profiles.
   const localEmail = normalizePlayerEmail(getPlayerEmail());
   let authEmail = '';
   try {
@@ -635,7 +636,6 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   const { data: saved, error: saveError } = await saveRemoteProfile(
     {
       wallet_pk: ownerWallet,
-      email,
       nickname: nick,
       avatar: av,
     },
@@ -643,15 +643,20 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
   );
 
   if (saveError) {
-    const msg =
-      saveError.code === '42501' || String(saveError.message || '').toLowerCase().includes('row-level security')
-        ? 'Profile update is blocked by permissions.'
-        : saveError.message || 'Could not save profile to cloud.';
-    throw new Error(msg);
+    console.warn('CBS GO: onboarding profile save failed', saveError.error || saveError);
+    const code = String(saveError.code || '');
+    if (code === '42501' || code === 'rls') {
+      throw new Error('Profile update is blocked by permissions.');
+    }
+    if (code === 'too_large') {
+      throw new Error(saveError.message || 'Avatar image is too large. Choose a smaller photo.');
+    }
+    throw new Error(PROFILE_SAVE_FAILED_MESSAGE);
   }
 
   if (!saved) {
-    throw new Error('Could not save profile to cloud.');
+    console.warn('CBS GO: onboarding profile save returned no row');
+    throw new Error(PROFILE_SAVE_FAILED_MESSAGE);
   }
 
   try {
@@ -2371,23 +2376,12 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
       return;
     }
 
-    // 3) Bouw payload vanuit local
+    // 3) Bouw payload vanuit local (never write email to game_profiles)
     const wallet_pk = getLocalPublicKeySafe() || null;
 
     const localNick = normalizePlayerNickname(getPlayerName());
     const remoteNick = normalizePlayerNickname(remote?.nickname);
     const nickname = localNick || remoteNick || null;
-    const localEmail = normalizePlayerEmail(getPlayerEmail());
-    const remoteEmail =
-      remote?.email && isValidEmail(remote.email)
-        ? normalizePlayerEmail(remote.email)
-        : '';
-    let authEmail = '';
-    try {
-      const { data } = await supabase.auth.getUser();
-      authEmail = normalizePlayerEmail(data?.user?.email || '');
-    } catch {}
-    const email = localEmail || remoteEmail || authEmail || null;
     const avatar = getPlayerAvatar() || null;
 
     const xp = getXp();
@@ -2403,7 +2397,7 @@ async function syncRemoteProfileSafe(source = 'unknown', force = false) {
       }
     } catch {}
 
-    const payload = { wallet_pk, email, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
+    const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
 
     const { data: savedRemote } = await saveRemoteProfile(payload);
     if (savedRemote) {
