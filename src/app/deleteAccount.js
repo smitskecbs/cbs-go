@@ -3,6 +3,7 @@
 import { supabase } from './supabaseClient.js';
 import { clearAccountBoundLocalState } from './clearAccountLocalState.js';
 import { setProfileGateContext, setProfileOwner } from './playerNickname.js';
+import { disableProgressRemoteSync, enableProgressRemoteSync } from './progressSyncState.js';
 
 export const DELETE_CONFIRM_WORD = 'DELETE';
 export const DELETE_ACCOUNT_FRIENDLY_ERROR =
@@ -75,6 +76,18 @@ export async function deleteMyAccount({ pin }) {
     return { ok: false, message: 'Please log in again and retry.' };
   }
 
+  // Freeze progress sync before the destructive server call so late timers cannot
+  // recreate game_profiles after Auth deletion. Re-enable if delete fails.
+  try {
+    if (typeof window !== 'undefined' && typeof window.__cbsgo_cancelProgressSync === 'function') {
+      window.__cbsgo_cancelProgressSync();
+    } else {
+      disableProgressRemoteSync('account-delete-start');
+    }
+  } catch {
+    disableProgressRemoteSync('account-delete-start');
+  }
+
   let response;
   try {
     response = await fetch(deleteAccountUrl(), {
@@ -87,6 +100,7 @@ export async function deleteMyAccount({ pin }) {
     });
   } catch (e) {
     console.warn('CBS GO: delete-account network failed', e);
+    enableProgressRemoteSync();
     return { ok: false, message: DELETE_ACCOUNT_FRIENDLY_ERROR };
   }
 
@@ -103,13 +117,14 @@ export async function deleteMyAccount({ pin }) {
       code: payload?.code || null,
       error: payload?.error || null,
     });
+    enableProgressRemoteSync();
     return {
       ok: false,
       message: String(payload?.error || DELETE_ACCOUNT_FRIENDLY_ERROR),
     };
   }
 
-  // Server confirmed Auth user deleted — now clear local account state.
+  // Keep sync disabled. Server confirmed Auth user deleted — clear local account state.
   clearAccountBoundLocalState();
   setProfileGateContext({ authUser: null, walletPk: null });
   setProfileOwner({ userId: '', walletPk: '' });

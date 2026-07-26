@@ -12,6 +12,7 @@ const ALWAYS_CLEAR = [
   'cbsgo_profile_owner_user_id',
   'cbsgo_profile_owner_wallet_pk',
   'cbsgo_remote_synced_at_v1',
+  'cbsgo_progress_sync_v1',
 ];
 
 /** Keys that must never be wiped by account deletion. */

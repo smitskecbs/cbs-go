@@ -154,6 +154,13 @@ export async function openLoginModal() {
     if (otherBtn) {
       otherBtn.onclick = async () => {
         try {
+          if (typeof window.__cbsgo_flushProgressSync === 'function') {
+            await window.__cbsgo_flushProgressSync('pre-signout');
+          }
+        } catch (e) {
+          console.warn('CBS-GO: pre-signOut progress flush failed', e);
+        }
+        try {
           await supabase.auth.signOut();
         } catch (e) {
           console.warn('CBS-GO: signOut failed', e);

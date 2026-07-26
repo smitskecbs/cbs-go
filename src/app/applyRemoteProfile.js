@@ -14,6 +14,14 @@ import {
   getProfileOwner,
   setProfileOwner,
 } from './playerNickname.js';
+import {
+  beginProgressSyncSuppress,
+  endProgressSyncSuppress,
+  bindProgressSyncOwner,
+  clearProgressSyncState,
+  recordRemoteApplied,
+  parseRemoteUpdatedAt,
+} from './progressSyncState.js';
 
 const STATE_KEY = 'cbsgo_state_v6';
 const INV_KEY = 'cbsgo_inventory_v2';
@@ -101,9 +109,15 @@ export function resetLocalGameplayProgress() {
 /**
  * Load game_profiles for active user_id into localStorage cache.
  * No remote row => clear cosmetics; reset progress when ownership does not match.
- * Remote row => remote progress is authoritative (no foreign-local inflation).
+ * Remote row => remote progress is authoritative unless skipProgress (same-owner dirty/conflict).
+ *
+ * @param {{ preferRemote?: boolean, userId?: string|null, skipProgress?: boolean }} options
  */
-export async function applyRemoteProfileToLocal({ preferRemote = true, userId: userIdOverride } = {}) {
+export async function applyRemoteProfileToLocal({
+  preferRemote = true,
+  userId: userIdOverride,
+  skipProgress = false,
+} = {}) {
   const userId = userIdOverride || (await getCurrentUserId());
   if (!userId) return { applied: false, reason: 'no-auth', clearedLocalProfile: false };
 
@@ -118,6 +132,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
     let resetProgress = false;
     if (!ownerMatches) {
       resetLocalGameplayProgress();
+      clearProgressSyncState();
       resetProgress = true;
       console.warn('[CBSGO ownership] reset local progress for new/mismatched account', {
         authUserId: userId,
@@ -127,12 +142,19 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
 
     // Own the clean local session only after any reset.
     setProfileOwner({ userId, walletPk: null });
+    if (resetProgress) {
+      bindProgressSyncOwner(userId, { remoteUpdatedAt: 0 });
+    } else {
+      // Same owner, no remote row yet — keep dirty metadata if present.
+      bindProgressSyncOwner(userId, { keepDirtyIfSame: true });
+    }
 
     return {
       applied: false,
       reason: 'no-remote-row',
       clearedLocalProfile: true,
       resetProgress,
+      skippedProgress: false,
     };
   }
 
@@ -140,7 +162,6 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
     return { applied: false, reason: 'preferRemote=false', clearedLocalProfile: false };
   }
 
-  // Authenticated session: remote progress is authoritative.
   const remoteXp = Number(remote.xp || 0);
   const remoteTickets = Number(remote.tickets || 0);
   const remoteCbs = Number(remote.cbs_play || 0);
@@ -148,7 +169,7 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
     remote.cards_json && typeof remote.cards_json === 'object'
       ? remote.cards_json
       : {};
-  const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
+  const remoteUpdatedAt = parseRemoteUpdatedAt(remote);
 
   const remoteEmail = normalizePlayerEmail(remote?.email);
 
@@ -163,45 +184,65 @@ export async function applyRemoteProfileToLocal({ preferRemote = true, userId: u
       ? remote.avatar.trim()
       : '';
 
-  if (!ownerMatches) {
-    // Drop any foreign local residue before writing remote values.
-    resetLocalGameplayProgress();
-    console.warn('[CBSGO ownership] replaced foreign local progress with remote profile', {
-      authUserId: userId,
-      previousOwner: ownerBefore.userId || null,
-      remoteXp,
+  // Foreign account on this device: always drop local progress (never skip).
+  const mustResetForeign = !ownerMatches;
+  const applyProgress = mustResetForeign || !skipProgress;
+
+  beginProgressSyncSuppress();
+  try {
+    if (mustResetForeign) {
+      resetLocalGameplayProgress();
+      clearProgressSyncState();
+      console.warn('[CBSGO ownership] replaced foreign local progress with remote profile', {
+        authUserId: userId,
+        previousOwner: ownerBefore.userId || null,
+        remoteXp,
+      });
+    }
+
+    if (applyProgress) {
+      saveStateXp(remoteXp);
+      saveInventory(remoteTickets, remoteCbs, remoteCards, remoteUpdatedAt || Date.now());
+      saveCardsV1FromCardsObj(remoteCards);
+    }
+
+    setLocalNicknameAvatarEmail(remoteNickname, remoteAvatar, remoteEmail);
+    setProfileOwner({
+      userId: remote.user_id || userId,
+      walletPk: remote.wallet_pk || null,
     });
+    sanitizeStoredNickname();
+    sanitizeStoredEmail();
+
+    if (applyProgress) {
+      recordRemoteApplied(userId, remoteUpdatedAt);
+      window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: remoteXp } }));
+    }
+    // skipProgress: leave dirty/conflict stamps untouched for same-owner recovery
+
+    window.dispatchEvent(
+      new CustomEvent('cbsgo:profileChanged', {
+        detail: {
+          nickname: remoteNickname || '',
+          avatar: remoteAvatar || '',
+          email: remoteEmail || '',
+        },
+      }),
+    );
+  } finally {
+    endProgressSyncSuppress();
   }
-
-  saveStateXp(remoteXp);
-  // completed nodes are local-only; hardReset cleared them on ownership mismatch.
-  // When owner already matched, saveStateXp preserves completed while applying remote XP.
-  saveInventory(remoteTickets, remoteCbs, remoteCards, remoteUpdatedAt || Date.now());
-  saveCardsV1FromCardsObj(remoteCards);
-  setLocalNicknameAvatarEmail(remoteNickname, remoteAvatar, remoteEmail);
-  setProfileOwner({
-    userId: remote.user_id || userId,
-    walletPk: remote.wallet_pk || null,
-  });
-  sanitizeStoredNickname();
-  sanitizeStoredEmail();
-
-  window.dispatchEvent(new CustomEvent('cbsgo:xpChanged', { detail: { xp: remoteXp } }));
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:profileChanged', {
-      detail: { nickname: remoteNickname || '', avatar: remoteAvatar || '', email: remoteEmail || '' },
-    }),
-  );
 
   return {
     applied: true,
     clearedLocalProfile: false,
-    source: 'remote-authoritative',
+    source: applyProgress ? 'remote-authoritative' : 'cosmetics-only-keep-local-progress',
+    skippedProgress: !applyProgress,
     merged: {
-      xp: remoteXp,
-      tickets: remoteTickets,
-      cbs: remoteCbs,
-      cardsCount: Object.keys(remoteCards || {}).length,
+      xp: applyProgress ? remoteXp : null,
+      tickets: applyProgress ? remoteTickets : null,
+      cbs: applyProgress ? remoteCbs : null,
+      cardsCount: applyProgress ? Object.keys(remoteCards || {}).length : null,
       nickname: !!remoteNickname,
       avatar: !!remoteAvatar,
       email: !!remoteEmail,

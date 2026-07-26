@@ -74,6 +74,19 @@ import {
   loadCountryPrivacyPrefs,
   saveCountryPrivacyPrefs,
 } from '../app/countryPrivacy.js';
+import {
+  markProgressDirtyForOwner,
+  clearProgressDirty,
+  isSameOwnerDirty,
+  readProgressSyncState,
+  recordRemoteApplied,
+  markProgressConflict,
+  remoteChangedSinceLastSync,
+  parseRemoteUpdatedAt,
+  isProgressSyncSuppressed,
+  isProgressRemoteSyncDisabled,
+  disableProgressRemoteSync,
+} from '../app/progressSyncState.js';
 
 
 // ✅ positie-sync + andere spelers ophalen (oranje bolletjes)
@@ -606,7 +619,7 @@ async function persistProfileAvatar(avatarDataUrl) {
     throw new Error(result.message || 'Could not save profile photo to cloud.');
   }
 
-  markRemoteApplied();
+  // Avatar-only cloud save must not clear unsynced progress dirty state.
 
   try {
     await syncPlayerProfile({ avatar: av, forceSync: true });
@@ -708,7 +721,9 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
     console.warn('CBS GO: syncPlayerProfile after onboarding failed', e);
   }
 
-  markRemoteApplied();
+  // Clean remote defaults are now authoritative for this new owner.
+  recordRemoteApplied(resolvedUserId, saved.updated_at);
+  mirrorLegacyRemoteStamp(parseRemoteUpdatedAt(saved));
 
   window.dispatchEvent(
     new CustomEvent('cbsgo:profileChanged', {
@@ -716,7 +731,6 @@ async function saveOnboardingProfile({ nickname, avatar, authUser, walletPk }) {
     }),
   );
 }
-
 function ensureProfileSetup() {
   if (isGameplayAllowed()) return true;
   setSelectedTab('profile');
@@ -2580,93 +2594,242 @@ function bindWalletEvents() {
 }
 const REMOTE_SYNC_KEY = 'cbsgo_remote_synced_at_v1';
 
-// local timestamp wanneer we voor het laatst remote hebben toegepast
-function markRemoteApplied() {
+/** Mirror server stamp into legacy key (debug / older readers). */
+function mirrorLegacyRemoteStamp(remoteUpdatedAtMs) {
+  const ts = Number(remoteUpdatedAtMs || 0);
+  if (!ts) return;
   try {
-    localStorage.setItem(REMOTE_SYNC_KEY, String(Date.now()));
+    localStorage.setItem(REMOTE_SYNC_KEY, String(ts));
   } catch {}
 }
 
-function getRemoteAppliedStamp() {
+// Pending-rerun lock (never drop a later mutation while a sync is in flight)
+let __remoteSyncBusy = false;
+let __remoteSyncPending = false;
+let __remoteSyncPendingForce = false;
+let __remoteSyncDebounceTimer = null;
+
+function cancelProgressSyncDebounce() {
   try {
-    return Number(localStorage.getItem(REMOTE_SYNC_KEY) || 0);
-  } catch {
-    return 0;
-  }
+    if (__remoteSyncDebounceTimer) {
+      clearTimeout(__remoteSyncDebounceTimer);
+      __remoteSyncDebounceTimer = null;
+    }
+  } catch {}
 }
 
-// simpele lock zodat we niet tegelijk syncen
-let __remoteSyncBusy = false;
-
-// ---------- Remote profile sync ----------
+/**
+ * Upload local progress to game_profiles for the authenticated owner.
+ * @returns {Promise<{ ok: boolean, deferred?: boolean, skipped?: boolean, conflict?: boolean, reason?: string }>}
+ */
 async function syncRemoteProfileSafe(source = 'unknown', force = false) {
-  if (__remoteSyncBusy) return;
-  if (!force && !isGameplayAllowed()) return;
+  if (isProgressRemoteSyncDisabled()) {
+    return { ok: false, reason: 'sync-disabled' };
+  }
+
+  if (__remoteSyncBusy) {
+    __remoteSyncPending = true;
+    if (force) __remoteSyncPendingForce = true;
+    return { ok: false, deferred: true };
+  }
+
   __remoteSyncBusy = true;
+  let lastResult = { ok: false, reason: 'not-run' };
+  let scheduleRecovery = false;
 
   try {
-    let authUserId = null;
-    try {
-      const { data } = await supabase.auth.getUser();
-      authUserId = data?.user?.id || null;
-    } catch {}
+    let rounds = 0;
+    do {
+      const runForce = force || __remoteSyncPendingForce || rounds > 0;
+      __remoteSyncPending = false;
+      __remoteSyncPendingForce = false;
+      force = false;
+      lastResult = await runRemoteProfileSyncOnce(source, runForce);
+      rounds += 1;
+      // Coalesce: if more mutations arrived, loop with latest local state.
+    } while (__remoteSyncPending && rounds < 8);
 
-    if (!authUserId || !profileOwnerMatches({ userId: authUserId })) {
-      console.warn('CBS GO: skip remote progress sync (ownership not proven)', {
-        source,
-        authUserId,
-        localOwner: getProfileOwner()?.userId || null,
-      });
-      return;
-    }
-
-    // 1) Eerst remote lezen (deze is leidend na login)
-    const remote = await loadRemoteProfile().catch(() => null);
-    const remoteUpdatedAt = remote?.updated_at ? Date.parse(remote.updated_at) : 0;
-
-    // 2) Als remote nieuwer is dan onze "remote applied" stamp, dan NIET overschrijven
-    // (dit voorkomt dat device B met oude local values jouw remote reset)
-    const appliedStamp = getRemoteAppliedStamp();
-
-    if (!force && remoteUpdatedAt && remoteUpdatedAt > appliedStamp) {
-      // Remote is nieuwer dan wat wij lokaal als “remote toegepast” beschouwen.
-      // Skip om overwrites te voorkomen.
-      console.log('CBS-GO: skip remote sync (remote newer)', { source, remoteUpdatedAt, appliedStamp });
-      return;
-    }
-
-    // 3) Bouw payload vanuit local (never write email to game_profiles)
-    const wallet_pk = getLocalPublicKeySafe() || null;
-
-    const localNick = normalizePlayerNickname(getPlayerName());
-    const remoteNick = normalizePlayerNickname(remote?.nickname);
-    const nickname = localNick || remoteNick || null;
-    const avatar = getPlayerAvatar() || null;
-
-    const xp = getXp();
-    const level = getLevel();
-    const tickets = getTickets();
-    const cbs_play = getCbsCoins();
-
-    let cards_json = {};
-    try {
-      const inv = loadInventory();
-      if (inv && typeof inv.cards === 'object' && inv.cards !== null) {
-        cards_json = { ...inv.cards };
-      }
-    } catch {}
-
-    const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
-
-    const { data: savedRemote } = await saveRemoteProfile(payload);
-    if (savedRemote) {
-      markRemoteApplied();
+    if (__remoteSyncPending) {
+      console.warn('CBS GO: remote sync pending-rerun guard hit', { source, rounds });
+      __remoteSyncPending = false;
+      __remoteSyncPendingForce = false;
+      // Keep dirty (if present) and schedule one recovery after unlock.
+      scheduleRecovery = true;
     }
   } catch (e) {
     console.warn('CBS GO: syncRemoteProfileSafe failed from', source, e);
+    lastResult = { ok: false, reason: 'crash' };
   } finally {
     __remoteSyncBusy = false;
   }
+
+  if (scheduleRecovery && !isProgressRemoteSyncDisabled()) {
+    try {
+      setTimeout(() => {
+        syncRemoteProfileSafe('pending-guard-recovery', true);
+      }, 0);
+    } catch {}
+  }
+
+  return lastResult;
+}
+
+/**
+ * Best-effort flush with a hard timeout so logout/account-switch cannot hang.
+ * @param {string} source
+ * @param {number} [timeoutMs]
+ */
+async function flushProgressSyncBounded(source = 'bounded-flush', timeoutMs = 3500) {
+  if (isProgressRemoteSyncDisabled()) {
+    return { ok: false, reason: 'sync-disabled' };
+  }
+  try {
+    return await Promise.race([
+      syncRemoteProfileSafe(source, true),
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ ok: false, reason: 'flush-timeout' }), timeoutMs),
+      ),
+    ]);
+  } catch (e) {
+    console.warn('CBS GO: bounded progress flush failed', source, e);
+    return { ok: false, reason: 'flush-crash' };
+  }
+}
+
+// Hooks for logout / delete-account flows outside this module.
+if (typeof window !== 'undefined') {
+  window.__cbsgo_flushProgressSync = (source = 'external-flush') =>
+    flushProgressSyncBounded(source, 3500);
+  window.__cbsgo_cancelProgressSync = () => {
+    cancelProgressSyncDebounce();
+    disableProgressRemoteSync('external-cancel');
+  };
+}
+
+async function runRemoteProfileSyncOnce(source, force) {
+  if (isProgressRemoteSyncDisabled()) {
+    return { ok: false, reason: 'sync-disabled' };
+  }
+
+  if (!force && !isGameplayAllowed()) {
+    return { ok: false, reason: 'gameplay-not-allowed' };
+  }
+
+  let authUserId = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    authUserId = data?.user?.id || null;
+  } catch {}
+
+  if (!authUserId || !profileOwnerMatches({ userId: authUserId })) {
+    console.warn('CBS GO: skip remote progress sync (ownership not proven)', {
+      source,
+      authUserId,
+      localOwner: getProfileOwner()?.userId || null,
+    });
+    return { ok: false, reason: 'ownership' };
+  }
+
+  const syncMeta = readProgressSyncState();
+  if (syncMeta.userId && syncMeta.userId !== authUserId) {
+    console.warn('CBS GO: skip remote progress sync (dirty state belongs to another user)', {
+      source,
+      authUserId,
+      dirtyUserId: syncMeta.userId,
+    });
+    return { ok: false, reason: 'foreign-dirty-state' };
+  }
+
+  const remote = await loadRemoteProfile().catch(() => null);
+  if (isProgressRemoteSyncDisabled()) {
+    return { ok: false, reason: 'sync-disabled' };
+  }
+
+  const remoteUpdatedAt = parseRemoteUpdatedAt(remote);
+  const dirty = isSameOwnerDirty(authUserId);
+
+  // Multi-device: remote moved since last successful sync while we still have local dirty.
+  if (dirty && remoteChangedSinceLastSync(authUserId, remote)) {
+    markProgressConflict(
+      authUserId,
+      'Remote profile changed on another device while local progress was unsynced',
+    );
+    console.warn('CBS GO: progress sync conflict — not overwriting remote or local', {
+      source,
+      remoteUpdatedAt,
+      lastRemoteUpdatedAt: syncMeta.lastRemoteUpdatedAt,
+    });
+    return { ok: false, conflict: true, reason: 'multi-device-conflict' };
+  }
+
+  // Nothing local to push.
+  if (!dirty && !force) {
+    if (remoteUpdatedAt > 0) {
+      recordRemoteApplied(authUserId, remoteUpdatedAt);
+      mirrorLegacyRemoteStamp(remoteUpdatedAt);
+    }
+    return { ok: true, skipped: true, reason: 'clean' };
+  }
+
+  // Snapshot mutation clock for the payload we are about to read/upload.
+  const mutatedAtSnapshot = Number(readProgressSyncState().localMutatedAt || 0) || 0;
+
+  const wallet_pk = getLocalPublicKeySafe() || null;
+  const localNick = normalizePlayerNickname(getPlayerName());
+  const remoteNick = normalizePlayerNickname(remote?.nickname);
+  const nickname = localNick || remoteNick || null;
+  const avatar = getPlayerAvatar() || null;
+
+  const xp = getXp();
+  const level = getLevel();
+  const tickets = getTickets();
+  const cbs_play = getCbsCoins();
+
+  let cards_json = {};
+  try {
+    const inv = loadInventory();
+    if (inv && typeof inv.cards === 'object' && inv.cards !== null) {
+      cards_json = { ...inv.cards };
+    }
+  } catch {}
+
+  const payload = { wallet_pk, nickname, avatar, xp, level, tickets, cbs_play, cards_json };
+
+  const { data: savedRemote, error: saveError } = await saveRemoteProfile(payload, {
+    forceSave: !!force,
+  });
+
+  if (isProgressRemoteSyncDisabled()) {
+    return { ok: false, reason: 'sync-disabled' };
+  }
+
+  if (saveError) {
+    console.warn('CBS GO: saveRemoteProfile failed', {
+      source,
+      code: saveError.code,
+      message: saveError.message,
+      error: saveError.error || saveError,
+    });
+    return { ok: false, reason: 'save-error' };
+  }
+
+  if (!savedRemote) {
+    console.warn('CBS GO: saveRemoteProfile returned no row (dirty preserved)', { source });
+    return { ok: false, reason: 'save-noop' };
+  }
+
+  const savedTs = parseRemoteUpdatedAt(savedRemote);
+  const cleared = clearProgressDirty(authUserId, savedTs || savedRemote.updated_at, {
+    notAfterLocalMutatedAt: mutatedAtSnapshot,
+  });
+  mirrorLegacyRemoteStamp(savedTs);
+
+  // If a newer mutation kept dirty, ensure a pending rerun picks it up.
+  if (!cleared && isSameOwnerDirty(authUserId)) {
+    __remoteSyncPending = true;
+  }
+
+  return { ok: true, reason: cleared ? 'saved' : 'saved-keep-dirty' };
 }
 
 // ---------- Panel router ----------
@@ -3063,49 +3226,79 @@ function bootstrapApp() {
   } catch (e) {
     console.warn('CBS GO: failed to sync player profile / remote profile (ignored)', e);
   }
-  // ✅ Keep remote profile in sync with local inventory/bag changes (debounced)
+  // ✅ Keep remote profile in sync with local progress (debounced)
   if (!window.__cbsgo_remote_sync_listeners) {
     window.__cbsgo_remote_sync_listeners = true;
 
     let t = null;
     const schedule = (source) => {
       try {
+        if (isProgressRemoteSyncDisabled() || isProgressSyncSuppressed()) return;
+        markProgressDirtyForOwner();
         if (t) clearTimeout(t);
+        if (__remoteSyncDebounceTimer) clearTimeout(__remoteSyncDebounceTimer);
         t = setTimeout(() => {
+          __remoteSyncDebounceTimer = null;
           syncRemoteProfileSafe(source);
         }, 500);
+        __remoteSyncDebounceTimer = t;
       } catch (e) {
         console.warn('CBS GO: schedule remote sync failed', e);
       }
     };
 
-    // When tickets/CBS change (send/receive gifts)
+    window.addEventListener('cbsgo:xpChanged', () => schedule('xpChanged'));
     window.addEventListener('cbsgo:inventoryChanged', () => schedule('inventoryChanged'));
-    // When cards change (you already dispatch bagChanged after card send)
     window.addEventListener('cbsgo:bagChanged', () => schedule('bagChanged'));
+    window.addEventListener('cbsgo:friendGiftReceived', () => schedule('friendGiftReceived'));
 
-  // Optional extra safety: after receiving gifts popup event
-window.addEventListener('cbsgo:friendGiftReceived', () => schedule('friendGiftReceived'));
+    window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
+      const d = ev?.detail || {};
 
-window.addEventListener('cbsgo:friendGiftReceived', (ev) => {
-  const d = ev?.detail || {};
+      window.dispatchEvent(
+        new CustomEvent('cbsgo:tradePopup', {
+          detail: {
+            direction: 'received',
+            fromNickname: d.senderNickname || '',
+            fromAvatar: d.senderAvatar || '',
+            toWallet: d.toWallet || '',
+            tickets: Number(d.tickets || 0),
+            cbs: Number(d.cbs || 0),
+            cardId: d.cardId || null,
+            cardQty: Number(d.cardQty || 0),
+          },
+        }),
+      );
+    });
+  }
 
-  window.dispatchEvent(
-    new CustomEvent('cbsgo:tradePopup', {
-      detail: {
-        direction: 'received',
-        fromNickname: d.senderNickname || '',
-        fromAvatar: d.senderAvatar || '',
-        toWallet: d.toWallet || '',
-        tickets: Number(d.tickets || 0),
-        cbs: Number(d.cbs || 0),
-        cardId: d.cardId || null,
-        cardQty: Number(d.cardQty || 0),
-      },
-    }),
-  );
-});
-}
+  if (!window.__cbsgo_progress_lifecycle_flush) {
+    window.__cbsgo_progress_lifecycle_flush = true;
+
+    const lifecycleFlush = (source) => {
+      try {
+        const ownerId = getProfileOwner()?.userId || '';
+        if (!ownerId || !isSameOwnerDirty(ownerId)) return;
+        syncRemoteProfileSafe(source, true);
+      } catch (e) {
+        console.warn('CBS GO: lifecycle progress flush failed', source, e);
+      }
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        lifecycleFlush('visibility-hidden');
+      }
+    });
+
+    window.addEventListener('pagehide', () => {
+      lifecycleFlush('pagehide');
+    });
+
+    window.addEventListener('online', () => {
+      lifecycleFlush('online');
+    });
+  }
   bindUi();
   bindMapView();
   bindTreasureClaimListener();
@@ -3389,14 +3582,56 @@ export function mountApp() {
 
     setProfileGateContext({ authUser, walletPk });
 
-    // 3) Supabase profile is source of truth — apply or clear local cache
+    // 3) Apply cloud profile — flush same-owner dirty progress first; never wipe it with zeros
     let applyResult = { applied: false, clearedLocalProfile: false };
     try {
       setLoadingText('Applying cloud profile…');
+      const authUserId = authUser?.id || null;
+      let skipProgress = false;
+
+      if (
+        authUserId &&
+        isSameOwnerDirty(authUserId) &&
+        profileOwnerMatches({ userId: authUserId })
+      ) {
+        const remotePreview = await loadRemoteProfile(authUserId).catch(() => null);
+
+        if (remoteChangedSinceLastSync(authUserId, remotePreview)) {
+          markProgressConflict(
+            authUserId,
+            'Remote profile changed on another device while local progress was unsynced',
+          );
+          skipProgress = true;
+          console.warn(
+            'CBS GO: startup progress conflict — keeping local dirty progress; cloud sync paused',
+            { authUserId },
+          );
+        } else {
+          setLoadingText('Saving local progress to cloud…');
+          const flush = await syncRemoteProfileSafe('startup-flush', true);
+          if (flush?.conflict) {
+            skipProgress = true;
+            console.warn('CBS GO: startup flush hit multi-device conflict — keeping local progress');
+          } else if (!flush?.ok) {
+            skipProgress = true;
+            console.warn(
+              'CBS GO: cloud sync pending — keeping unsynced same-owner progress (not overwriting with remote)',
+              flush,
+            );
+          }
+          // flush.ok => remote now has local progress; apply will reload it
+        }
+      }
+
       applyResult = await applyRemoteProfileToLocal({
         preferRemote: true,
-        userId: authUser?.id || null,
+        userId: authUserId,
+        skipProgress,
       });
+
+      if (applyResult?.merged?.remoteUpdatedAt && !applyResult.skippedProgress) {
+        mirrorLegacyRemoteStamp(applyResult.merged.remoteUpdatedAt);
+      }
     } catch (e) {
       console.warn('CBS-GO: applyRemoteProfileToLocal failed', e);
     }
@@ -3404,10 +3639,9 @@ export function mountApp() {
     console.log('[CBSGO PROFILE DEBUG] remote apply', {
       remoteProfileFound: !!applyResult.applied,
       localProfileCleared: !!applyResult.clearedLocalProfile,
-      reason: applyResult.reason || '',
+      skippedProgress: !!applyResult.skippedProgress,
+      reason: applyResult.reason || applyResult.source || '',
     });
-
-    markRemoteApplied();
 
     // 4) profile onboarding when incomplete (never trust stale localStorage without owner match)
     const profileReady = isProfileComplete({ authUser, walletPk });
